@@ -1,0 +1,554 @@
+---
+title: "J4 · Clusters. Les districts industriels"
+description: "Décolletage, coutellerie, horlogerie, lunetterie : des industries regroupées dans quelques vallées, d'après le répertoire Sirene."
+image: vignettes/04-clusters.webp
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+// Pourcentages à la française : « 53 % », « 13,8 % ».
+pourcent = (x, chiffres = 0) => x.toLocaleString("fr-FR", {style: "percent", maximumFractionDigits: chiffres})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+// Les trois activités les plus concentrées dans une seule zone d'emploi.
+concentrees = d3.sort(activites, (a) => -a.pole_part).slice(0, 3)
+html`<p class="lead">
+  ${pourcent(concentrees[0].pole_part)} des salariés ${concentrees[0].de} travaillent dans la zone
+  d'emploi <strong>${concentrees[0].pole_nom}</strong> ; c'est
+  ${concentrees.slice(1).map((a) => `${pourcent(a.pole_part)} en ${a.nom.toLowerCase()}
+  (<strong>${a.pole_nom}</strong>)`).join(" et ")}.
+  Ces districts industriels, hérités d'un savoir-faire local, se voient sur la carte comme des
+  amas de points dans quelques vallées du Jura, des Alpes ou du Massif central.
+</p>`
+```
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+// Indice en classes, une teinte de bleu qui fonce (en clair) ou s'éclaircit
+// (en sombre) avec la spécialisation. En dessous de 2, pas de couleur.
+SEUILS = [2, 5, 20, 100]
+echelle = ({
+  type: "threshold",
+  domain: SEUILS,
+  range: ["transparent", ...(sombre
+    ? ["#184f95", "#2a78d6", "#6da7ec", "#b7d3f6"]
+    : ["#b7d3f6", "#6da7ec", "#2a78d6", "#184f95"])],
+  label: "Indice de spécialisation",
+  tickFormat: (d) => `${d}`
+})
+couleurPoint = sombre ? "#d95926" : "#eb6834"
+// Taille des points : surface proportionnelle aux salariés, avec un minimum
+// pour que les petits établissements restent visibles.
+tailles = ({type: "sqrt", domain: [0, 1000], range: [1.2, 9]})
+indices = d3.index(specialisation, (d) => d.activite, (d) => d.ze)
+
+function bulle(activite) {
+  return ({properties: p}) => {
+    const d = indices.get(activite)?.get(p.ze)
+    return d
+      ? `${p.nom}\n${entier(d.salaries)} salariés environ, ${d.etablissements} établissement${d.etablissements > 1 ? "s" : ""}\n${pourcent(d.part)} des salariés de France\nIndice : ${d.indice.toLocaleString("fr-FR", {maximumFractionDigits: 1})}`
+      : `${p.nom}\nAucun établissement employeur`
+  }
+}
+
+function carte(a, {width, domain, etiquettes = [a.pole_ze], inset = 4}) {
+  return Plot.plot({
+    width,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain, inset},
+    color: echelle,
+    r: tailles,
+    marks: [
+      Plot.geo(zones, {
+        fill: ({properties: p}) => indices.get(a.cle)?.get(p.ze)?.indice ?? 0,
+        stroke: "currentColor", strokeOpacity: 0.25, strokeWidth: 0.4, clip: "frame"
+      }),
+      Plot.dot(points.filter((d) => d.activite === a.cle), {
+        x: "lon", y: "lat", r: "salaries",
+        fill: couleurPoint, fillOpacity: 0.75, stroke: fond, strokeWidth: 0.5, clip: "frame"
+      }),
+      Plot.text(zones.features.filter((f) => etiquettes.includes(f.properties.ze)), Plot.centroid({
+        text: (f) => f.properties.nom, dy: -14, fontSize: 11, fontWeight: 600,
+        fill: "currentColor", stroke: fond, strokeWidth: 3, clip: "frame"
+      })),
+      Plot.tip(zones.features, Plot.pointer(Plot.centroid({title: bulle(a.cle)})))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+Plot.legend({color: echelle, width: 320})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+html`<div class="multiples">${activites.map((a) => html`<figure>
+  <figcaption><strong>${a.nom}</strong><br>
+  <small>${pourcent(a.pole_part)} des salariés en zone d'emploi ${a.pole_nom}</small></figcaption>
+  ${carte(a, {width: 320, domain: metropole})}
+</figure>`)}</div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small><span style="color:${couleurPoint}">●</span> Un établissement employeur ; surface
+proportionnelle à ses salariés (estimés à partir de la tranche d'effectif). Couleur des zones
+d'emploi : poids de l'activité dans l'emploi salarié de la zone, rapporté à son poids en France.
+Survolez une zone pour le détail.</small></p>`
+```
+
+## Zoom sur un district
+
+```{ojs}
+//| echo: false
+viewof choix = Inputs.select(new Map(activites.map((a) => [a.nom, a])), {label: "Activité"})
+```
+
+```{ojs}
+//| echo: false
+centres = new Map(zones.features.map((f) => [f.properties.ze, d3.geoCentroid(f)]))
+function dansCadre(ze) {
+  const [lon, lat] = centres.get(ze) ?? [NaN, NaN]
+  const [[o, s], [e, n]] = choix.cadre
+  return lon >= o && lon <= e && lat >= s && lat <= n
+}
+// Les zones d'emploi les plus spécialisées du cadre, nommées sur la carte.
+voisines = d3.sort(
+  specialisation.filter((d) => d.activite === choix.cle && d.indice >= 5 && dansCadre(d.ze)),
+  (d) => -d.salaries
+).slice(0, 5).map((d) => d.ze)
+// Sens des aiguilles d'une montre : sinon, d3 prend tout le globe sauf le cadre.
+cadreGeo = (([[o, s], [e, n]]) =>
+  ({type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}))(choix.cadre)
+carte(choix, {width: 760, domain: cadreGeo, etiquettes: voisines, inset: 0})
+```
+
+```{ojs}
+//| echo: false
+{
+  const d = indices.get(choix.cle).get(choix.pole_ze)
+  return html`<p>En zone d'emploi ${choix.pole_nom}, ${d.etablissements} établissements employeurs
+  ${choix.de} emploient environ <strong>${entier(d.salaries)} salariés</strong>, soit
+  ${pourcent(d.part)} de ceux de France et ${pourcent(d.salaries / d.total, 1)}
+  des salariés de la zone : ${Math.round(d.indice)} fois plus qu'en moyenne en France.</p>`
+}
+```
+
+## Les données
+
+La carte croise trois sources publiques :
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Base Sirene des établissements](https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/), stock au 1^er^ octobre 2026 | Insee | l'activité, la tranche d'effectif, la commune et la position de chaque établissement | Parquet |
+| [Zones d'emploi 2020](https://www.insee.fr/fr/information/4652957), géographie au 1^er^ janvier 2026 | Insee | le nom de chaque zone d'emploi | Excel |
+| [Communes et zones d'emploi 2026](https://github.com/InseeFrLab/cartiflette) | IGN et Insee, via cartiflette | la zone d'emploi de chaque commune et le contour des zones | GeoParquet |
+
+Le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) pour toutes les étapes de
+traitement.
+
+```{python}
+#| output: false
+import json
+import pathlib
+import tempfile
+import urllib.request
+import zipfile
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL excel; LOAD excel;
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les établissements (Sirene)
+
+Le [répertoire Sirene](https://www.insee.fr/fr/metadonnees/source/serie/s1236) immatricule les
+entreprises et leurs établissements. Le fichier stock des établissements, publié chaque mois en
+Parquet, compte une ligne par établissement, ouvert ou fermé, avec son activité principale (code
+[NAF rév. 2](https://www.insee.fr/fr/information/2406147)), sa commune, sa position en
+Lambert 93 et sa tranche d'effectif salarié.
+
+Le serveur de data.gouv.fr répond aux requêtes partielles : DuckDB ne lit que les colonnes
+utiles du fichier de 2,2 Go. On garde les établissements ouverts qui ont des salariés : la
+tranche `NN` regroupe ceux qui n'en ont pas (ou dont l'effectif est inconnu), la tranche `00`
+ceux qui en ont eu dans l'année mais aucun au 31 décembre.
+
+```{python}
+SIRENE_URL = (
+    "https://static.data.gouv.fr/resources/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/"
+    "20261001-073823/stock-stocketablissement-parquet.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE etablissements AS
+SELECT siret, codeCommuneEtablissement AS code, activitePrincipaleEtablissement AS naf,
+       trancheEffectifsEtablissement AS tranche,
+       TRY_CAST(coordonneeLambertAbscisseEtablissement AS DOUBLE) AS x,
+       TRY_CAST(coordonneeLambertOrdonneeEtablissement AS DOUBLE) AS y
+FROM read_parquet('{SIRENE_URL}')
+WHERE etatAdministratifEtablissement = 'A'
+  AND trancheEffectifsEtablissement NOT IN ('NN', '00')
+""")
+con.sql("SELECT * EXCLUDE (siret) FROM etablissements LIMIT 5").df().style.hide(axis="index")
+```
+
+### Les noms des zones d'emploi (Insee)
+
+Une [zone d'emploi](https://www.insee.fr/fr/metadonnees/definition/c1361) est un ensemble de
+communes où la plupart des actifs résident et travaillent : le bon niveau pour repérer un bassin
+industriel. L'Insee diffuse leur liste, avec leur nom, dans un classeur Excel compressé.
+
+```{python}
+ZE_URL = "https://www.insee.fr/fr/statistiques/fichier/4652957/ZE2020_au_01-01-2026.zip"
+
+with tempfile.TemporaryDirectory() as dossier:
+    archive = pathlib.Path(dossier) / "ze.zip"
+    with urllib.request.urlopen(ZE_URL, timeout=120) as reponse:
+        archive.write_bytes(reponse.read())
+    with zipfile.ZipFile(archive) as z:
+        z.extractall(dossier)
+    # L'en-tête est en ligne 6.
+    con.sql(f"""
+    CREATE TABLE libelles AS
+    SELECT ZE2020 AS ze, LIBZE2020 AS nom
+    FROM read_xlsx('{dossier}/ZE2020_au_01-01-2026.xlsx', sheet = 'ZE2020',
+                   range = 'A6:C400', header = true, all_varchar = true)
+    WHERE ZE2020 IS NOT NULL
+    """)
+con.sql("FROM libelles LIMIT 5").df().style.hide(axis="index")
+```
+
+### Les communes et les zones d'emploi (cartiflette)
+
+Sirene code les établissements de Paris, Lyon et Marseille par arrondissement : on lit le
+niveau `COMMUNE_ARRONDISSEMENT` de [cartiflette](https://github.com/InseeFrLab/cartiflette), où
+chaque commune (chaque arrondissement) porte sa zone d'emploi 2020 (`ZE2020`). Les contours
+des zones d'emploi de métropole servent de fond de carte.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level={level}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COG AS code, NOM AS nom, ZE2020 AS ze, AREA AS territoire, geometry
+FROM read_parquet('{CARTIFLETTE_URL.format(level="COMMUNE_ARRONDISSEMENT")}',
+                  hive_partitioning = false)
+""")
+
+con.sql(f"""
+CREATE TABLE zones AS
+SELECT ZE2020 AS ze, geometry
+FROM read_parquet('{CARTIFLETTE_URL.format(level="ZONE_EMPLOI")}', hive_partitioning = false)
+WHERE AREA = 'metropole'
+""")
+```
+
+## Les traitements
+
+### Estimer les salariés de chaque établissement
+
+Sirene ne donne pas l'effectif exact, seulement une tranche (de 1 ou 2 salariés à 10 000 et
+plus), ici celle de 2024. On prend le milieu de chaque tranche : une estimation grossière pour un
+établissement, mais qui se compense en partie quand on somme des centaines d'établissements.
+
+```{python}
+TRANCHES = [
+    ("01", "1 ou 2 salariés", 1.5),
+    ("02", "3 à 5 salariés", 4),
+    ("03", "6 à 9 salariés", 7.5),
+    ("11", "10 à 19 salariés", 14.5),
+    ("12", "20 à 49 salariés", 34.5),
+    ("21", "50 à 99 salariés", 74.5),
+    ("22", "100 à 199 salariés", 149.5),
+    ("31", "200 à 249 salariés", 224.5),
+    ("32", "250 à 499 salariés", 374.5),
+    ("41", "500 à 999 salariés", 749.5),
+    ("42", "1 000 à 1 999 salariés", 1499.5),
+    ("51", "2 000 à 4 999 salariés", 3499.5),
+    ("52", "5 000 à 9 999 salariés", 7499.5),
+    ("53", "10 000 salariés et plus", 10000),
+]
+con.sql("CREATE TABLE tranches (tranche VARCHAR, libelle VARCHAR, salaries DOUBLE)")
+con.executemany("INSERT INTO tranches VALUES (?, ?, ?)", TRANCHES)
+```
+
+### Choisir les activités
+
+Six activités dont le code NAF désigne un savoir-faire précis. Les articles en plastique
+regroupent deux codes : les pièces techniques et les autres articles (emballages exceptés).
+
+```{python}
+ACTIVITES = [
+    {"cle": "decolletage", "nom": "Décolletage", "de": "du décolletage", "naf": ["25.62A"]},
+    {"cle": "coutellerie", "nom": "Coutellerie", "de": "de la coutellerie", "naf": ["25.71Z"]},
+    {"cle": "horlogerie", "nom": "Horlogerie", "de": "de l'horlogerie", "naf": ["26.52Z"]},
+    {"cle": "lunetterie", "nom": "Lunetterie", "de": "de la lunetterie", "naf": ["32.50B"]},
+    {
+        "cle": "ceramique",
+        "nom": "Porcelaine et faïence",
+        "de": "de la porcelaine et de la faïence",
+        "naf": ["23.41Z"],  # articles céramiques à usage domestique ou ornemental
+    },
+    {
+        "cle": "plastique",
+        "nom": "Articles en plastique",
+        "de": "des articles en plastique",
+        "naf": ["22.29A", "22.29B"],
+    },
+]
+con.sql("CREATE TABLE activites (naf VARCHAR, activite VARCHAR)")
+con.executemany(
+    "INSERT INTO activites VALUES (?, ?)",
+    [(naf, a["cle"]) for a in ACTIVITES for naf in a["naf"]],
+)
+```
+
+### Rattacher chaque établissement à sa zone d'emploi
+
+Par le code de sa commune. Quelques établissements ont un code commune ancien ou étranger et
+sont laissés de côté.
+
+```{python}
+con.sql("""
+CREATE TABLE salaries AS
+SELECT e.*, t.salaries, c.ze, c.territoire, a.activite
+FROM etablissements e
+JOIN tranches t USING (tranche)
+JOIN communes c USING (code)
+LEFT JOIN activites a USING (naf)
+""")
+employeurs, perdus = con.sql("""
+SELECT count(*), count(*) - (SELECT count(*) FROM salaries) FROM etablissements
+""").fetchone()
+```
+
+Établissements employeurs sans zone d'emploi : `{python} f"{perdus:,}".replace(",", " ")` sur
+`{python} f"{employeurs:,}".replace(",", " ")`.
+
+### Calculer l'indice de spécialisation
+
+Pour une activité et une zone d'emploi, l'indice de spécialisation rapporte la part de
+l'activité dans les salariés de la zone à sa part dans les salariés de France :
+
+$$
+\text{indice} = \frac{\text{salariés de l'activité dans la zone} \;/\; \text{salariés de la zone}}{\text{salariés de l'activité en France} \;/\; \text{salariés en France}}
+$$
+
+Un indice de 1 : l'activité pèse autant dans la zone qu'en France. Un indice de 100 : elle y
+pèse cent fois plus. On calcule aussi la part des salariés de l'activité que la zone
+rassemble.
+
+```{python}
+con.sql("""
+CREATE TABLE specialisation AS
+WITH zone AS (SELECT ze, sum(salaries) AS total FROM salaries GROUP BY ze),
+activite AS (
+    SELECT activite, ze, sum(salaries) AS salaries, count(*) AS etablissements
+    FROM salaries WHERE activite IS NOT NULL GROUP BY ALL
+),
+france AS (
+    SELECT activite, sum(salaries) AS salaries_france FROM activite GROUP BY activite
+)
+SELECT a.activite, a.ze, l.nom, a.etablissements, a.salaries, z.total,
+       a.salaries / f.salaries_france AS part,
+       (a.salaries / z.total) / (f.salaries_france / (SELECT sum(total) FROM zone)) AS indice
+FROM activite a
+JOIN zone z USING (ze)
+JOIN france f USING (activite)
+JOIN libelles l USING (ze)
+""")
+```
+
+Pour chaque activité, son pôle : parmi les zones d'emploi au moins cinq fois plus spécialisées
+que la France, celle qui rassemble le plus de salariés de l'activité. Un district réunit
+plusieurs entreprises : on écarte les zones où l'activité tient à moins de cinq établissements
+(à Château-Thierry, un seul fait de la lunetterie une spécialité). Le zoom est centré sur le pôle.
+
+```{python}
+poles = con.sql("""
+WITH pole AS (
+    SELECT activite, arg_max(ze, salaries) AS ze
+    FROM specialisation WHERE indice >= 5 AND etablissements >= 5 GROUP BY activite
+)
+SELECT p.activite, s.nom, s.part, s.indice,
+       -- Le cadre du zoom : la zone, agrandie de 70 % de chaque côté.
+       ST_XMin(z.geometry) - 0.7 * (ST_XMax(z.geometry) - ST_XMin(z.geometry)) AS ouest,
+       ST_YMin(z.geometry) - 0.7 * (ST_YMax(z.geometry) - ST_YMin(z.geometry)) AS sud,
+       ST_XMax(z.geometry) + 0.7 * (ST_XMax(z.geometry) - ST_XMin(z.geometry)) AS est,
+       ST_YMax(z.geometry) + 0.7 * (ST_YMax(z.geometry) - ST_YMin(z.geometry)) AS nord,
+       p.ze
+FROM pole p
+JOIN specialisation s USING (activite, ze)
+JOIN zones z USING (ze)
+""").df().set_index("activite")
+poles[["nom", "part", "indice"]].style.format({"part": "{:.0%}", "indice": "{:.0f}"})
+```
+
+### Placer les établissements
+
+Chaque établissement des six activités est placé à sa position Sirene, reprojetée de Lambert 93
+en longitude, latitude ; à défaut, au milieu de sa commune. La carte se limite à la métropole,
+où se trouvent les districts.
+
+```{python}
+points = con.sql("""
+SELECT s.activite, c.nom AS commune, t.libelle AS tranche, s.salaries,
+       round(ST_X(p.geom), 4) AS lon, round(ST_Y(p.geom), 4) AS lat
+FROM salaries s
+JOIN tranches t USING (tranche)
+JOIN communes c USING (code),
+LATERAL (
+    SELECT coalesce(
+        ST_Transform(ST_Point(s.x, s.y), 'EPSG:2154', 'EPSG:4326'),
+        ST_PointOnSurface(c.geometry)
+    ) AS geom
+) p
+WHERE s.activite IS NOT NULL AND s.territoire = 'metropole'
+ORDER BY s.salaries DESC  -- les gros établissements dessous
+""").df()
+points.groupby("activite").size().rename("établissements").to_frame()
+```
+
+### Passer les données à la carte
+
+Les contours des zones d'emploi sont simplifiés ensemble (`ST_CoverageSimplify`, environ
+500 m) : ils restent jointifs, sans trou ni chevauchement.
+
+```{python}
+contours = con.sql("""
+WITH couverture AS (
+    SELECT list(ze ORDER BY ze) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY ze), 0.005) AS geom
+    FROM zones
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS ze, l.nom,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Collect(list(geom)), 0.0001)) AS geojson
+FROM morceaux JOIN libelles l ON l.ze = codes[path[1]]
+GROUP BY ALL
+""").fetchall()
+
+ojs_define(
+    zones={
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": {"ze": ze, "nom": nom}, "geometry": json.loads(geojson)}
+            for ze, nom, geojson in contours
+        ],
+    },
+    metropole={"type": "Polygon", "coordinates": [[[-5.2, 41.3], [-5.2, 51.1], [9.6, 51.1], [9.6, 41.3], [-5.2, 41.3]]]},
+    specialisation=con.sql("FROM specialisation").df().to_dict("records"),
+    points=points.to_dict("records"),
+    activites=[
+        {
+            **a,
+            "pole_ze": poles.loc[a["cle"], "ze"],
+            "pole_nom": poles.loc[a["cle"], "nom"],
+            "pole_part": float(poles.loc[a["cle"], "part"]),
+            "cadre": [
+                [float(poles.loc[a["cle"], "ouest"]), float(poles.loc[a["cle"], "sud"])],
+                [float(poles.loc[a["cle"], "est"]), float(poles.loc[a["cle"], "nord"])],
+            ],
+        }
+        for a in ACTIVITES
+    ],
+)
+```
+
+## Les données de la carte
+
+Pour chaque activité et chaque zone d'emploi où elle est présente : ses établissements
+employeurs, ses salariés estimés, la part de ceux de France et l'indice de spécialisation.
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+noms = new Map(activites.map((a) => [a.cle, a.nom]))
+tableau = specialisation.map((d) => ({
+  activite: noms.get(d.activite), zone: d.nom, etablissements: d.etablissements,
+  salaries: d.salaries, part: d.part, indice: d.indice
+}))
+viewof recherche = Inputs.search(tableau, {
+  placeholder: "Rechercher une activité, une zone d'emploi…",
+  format: (n) => `${n.toLocaleString("fr-FR")} lignes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  header: {
+    activite: "Activité", zone: "Zone d'emploi", etablissements: "Établissements",
+    salaries: "Salariés (estimés)", part: "Part de la France", indice: "Indice"
+  },
+  format: {
+    salaries: entier,
+    part: (x) => pourcent(x, 1),
+    indice: (x) => x.toLocaleString("fr-FR", {maximumFractionDigits: 1})
+  },
+  sort: "indice",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(tableau)], {type: "text/csv"}),
+  "specialisation_zones_emploi.csv",
+  "Télécharger le tableau (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Les salariés sont estimés au milieu de la tranche d'effectif : un établissement de 250 à
+  499 salariés compte pour 374,5. Dans une zone où l'activité tient à un ou deux gros
+  établissements, l'indice est donc approximatif.
+- Sirene classe chaque établissement dans une seule activité, la principale : un décolleteur
+  déclaré en mécanique générale (`25.62B`) n'est pas compté.
+- La tranche d'effectif est celle de 2024, et le répertoire n'est pas toujours à jour des
+  fermetures : quelques établissements peuvent avoir cessé leur activité.
+- Les établissements sans salarié (artisans, auto-entrepreneurs) ne sont pas sur la carte. À
+  Thiers, 36 des 58 établissements de coutellerie ouverts au 1^er^ octobre 2026 n'ont pas de
+  salarié.
+
+## Pour aller plus loin
+
+- Insee, [zonage en zones d'emploi 2020](https://www.insee.fr/fr/information/4652957) et sa
+  [méthode de constitution](https://www.insee.fr/fr/statistiques/fichier/4652957/methode_constitution_ze2020.pdf).
+- Insee, [documentation des fichiers Sirene](https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/) :
+  description des variables et des tranches d'effectif.

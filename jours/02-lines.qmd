@@ -1,0 +1,442 @@
+---
+title: "J2 · Lines — Les navettes domicile-travail"
+description: "Les flux de navetteurs entre bassins de vie, d'après le recensement de 2023."
+image: vignettes/02-lines.webp
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+millions = (x) => (x / 1e6).toLocaleString("fr-FR", {maximumFractionDigits: 1})
+html`<p class="lead">
+  En 2023, <strong>${millions(resume.sortants)} millions d'actifs</strong> travaillent hors du
+  bassin de vie où ils habitent, soit ${Math.round(100 * resume.sortants / resume.localises)} %
+  des actifs ayant un emploi. ${Math.round(100 * resume.voiture / resume.sortants)} % d'entre eux
+  y vont en voiture.
+</p>`
+```
+
+Chaque arc relie deux bassins de vie ; son épaisseur suit le nombre de navetteurs. Les arcs
+tournent dans le sens des aiguilles d'une montre : l'aller et le retour sont deux arcs distincts.
+Le recensement retient le lieu de travail déclaré, même lointain : d'où les longs arcs de Lyon,
+Lille ou Bordeaux vers Paris, des actifs qui n'y vont pas tous les jours.
+
+```{ojs}
+//| echo: false
+// Cadrages : [nom, [[ouest, sud], [est, nord]], seuil par défaut].
+cadrages = [
+  ["France métropolitaine", [[-5.2, 41.3], [9.6, 51.1]], 1000],
+  ["Paris", [[1.4, 48.1], [3.3, 49.4]], 2000],
+  ["Lyon", [[4.2, 45.3], [5.5, 46.2]], 200],
+  ["Toulouse", [[0.7, 43.1], [2.1, 44.1]], 200],
+  ["Bordeaux", [[-1.3, 44.4], [0.2, 45.3]], 200],
+  ["Marseille et Nice", [[4.6, 43.1], [7.6, 44.1]], 300],
+  ["Lille", [[2.3, 50.1], [3.8, 51.1]], 300],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]], 100]
+]
+viewof cadrage = Inputs.radio(new Map(cadrages.map((c) => [c[0], c])), {value: cadrages[0]})
+```
+
+```{ojs}
+//| echo: false
+viewof seuil = Inputs.range([100, 5000], {
+  value: cadrage[2],
+  step: 100,
+  label: "Navetteurs au moins"
+})
+```
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+couleurArc = sombre ? "#7cc0e8" : "#2a6f97"
+couleurPole = sombre ? "#ec8a74" : "#c8553d"
+```
+
+```{ojs}
+//| echo: false
+// Arc approché par une courbe de Bézier quadratique en lon/lat, la longitude
+// corrigée par le cosinus de la latitude. Il s'écarte à droite du trajet,
+// d'un cinquième de sa longueur.
+function arc(d, points = 24) {
+  const k = Math.cos(((d.lat1 + d.lat2) / 2) * Math.PI / 180)
+  const dx = (d.lon2 - d.lon1) * k
+  const dy = d.lat2 - d.lat1
+  const cx = (d.lon1 + d.lon2) / 2 * k + 0.2 * dy
+  const cy = (d.lat1 + d.lat2) / 2 - 0.2 * dx
+  const coordonnees = d3.range(points + 1).map((i) => {
+    const t = i / points
+    const x = (1 - t) ** 2 * d.lon1 * k + 2 * t * (1 - t) * cx + t ** 2 * d.lon2 * k
+    const y = (1 - t) ** 2 * d.lat1 + 2 * t * (1 - t) * cy + t ** 2 * d.lat2
+    return [x / k, y]
+  })
+  return {type: "LineString", coordinates: coordonnees}
+}
+
+// Sens des aiguilles d'une montre : sinon, d3 prend tout le globe sauf le cadre.
+function cadreGeo([[o, s], [e, n]]) {
+  return {type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}
+}
+
+// Le cadre, élargi de `marge` fois sa taille de chaque côté.
+function dansCadre(lon, lat, marge = 0) {
+  const [[o, s], [e, n]] = cadrage[1]
+  const mx = marge * (e - o)
+  const my = marge * (n - s)
+  return lon >= o - mx && lon <= e + mx && lat >= s - my && lat <= n + my
+}
+// Dans un zoom, les liaisons lointaines traverseraient tout le cadre : on ne
+// garde que celles dont les deux bouts sont proches.
+visibles = flux
+  .filter((d) => d.n >= seuil && dansCadre(d.lon1, d.lat1, 0.3) && dansCadre(d.lon2, d.lat2, 0.3))
+  .map((d) => ({...d, geometrie: arc(d)}))
+maxFlux = d3.max(flux, (d) => d.n)
+// Épaisseur proportionnelle au flux, plus grande quand on zoome.
+largeurMax = cadrage[0] === "France métropolitaine" ? 9 : 14
+polesVisibles = bassins.filter((d) => dansCadre(d.lon, d.lat))
+// Noms : les pôles qui attirent le plus de navetteurs dans le cadre.
+etiquettes = d3.sort(polesVisibles, (d) => -d.entrants)
+  .slice(0, cadrage[0] === "France métropolitaine" ? 25 : 15)
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: 900,
+  height: 820,
+  projection: cadrage[0] === "La Réunion"
+    ? {type: "mercator", domain: cadreGeo(cadrage[1]), inset: 10}
+    : {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0],
+       domain: cadreGeo(cadrage[1]), inset: 10},
+  r: {range: [0, 22], domain: [0, d3.max(bassins, (d) => d.entrants)]},
+  marks: [
+    Plot.geo(contours, {
+      stroke: "currentColor", strokeOpacity: 0.15, strokeWidth: 0.5, clip: "frame"
+    }),
+    Plot.geo(visibles, {
+      geometry: "geometrie",
+      stroke: couleurArc,
+      strokeOpacity: 0.55,
+      strokeWidth: (d) => Math.max(0.4, largeurMax * d.n / maxFlux),
+      strokeLinecap: "round",
+      clip: "frame"
+    }),
+    Plot.dot(polesVisibles, {
+      x: "lon", y: "lat", r: "entrants",
+      fill: couleurPole, fillOpacity: 0.35, stroke: couleurPole, strokeWidth: 0.6,
+      clip: "frame"
+    }),
+    Plot.text(etiquettes, {
+      x: "lon", y: "lat", text: "nom", dy: -10, fontSize: 11, fontWeight: 600,
+      stroke: "var(--bs-body-bg, white)", strokeWidth: 3, fill: "currentColor",
+      clip: "frame"
+    }),
+    Plot.tip(visibles, Plot.pointer(Plot.geoCentroid({
+      geometry: "geometrie",
+      channels: {
+        "De": "nom_origine",
+        "Vers": "nom_destination",
+        "Navetteurs": (d) => d.n.toLocaleString("fr-FR"),
+        "Voiture": (d) => `${d.part_voiture} %`,
+        "Transports en commun": (d) => `${d.part_transports} %`,
+        "Marche, vélo": (d) => `${d.part_marche_velo} %`
+      },
+      format: {x: false, y: false}
+    })))
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  ${visibles.length.toLocaleString("fr-FR")} liaisons d'au moins
+  ${seuil.toLocaleString("fr-FR")} navetteurs.
+  <span style="color:${couleurPole}">●</span> Navetteurs venus d'autres bassins de vie pour y travailler.
+</small></p>`
+```
+
+## Les données
+
+Deux sources, lues avec [DuckDB](https://duckdb.org/) : le recensement de l'Insee pour les
+navettes, [cartiflette](https://github.com/InseeFrLab/cartiflette) pour les communes et les
+bassins de vie.
+
+```{python}
+import json
+import shutil
+import tempfile
+import urllib.request
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les navettes (Insee, recensement 2023)
+
+L'Insee diffuse le [fichier détail des mobilités professionnelles](https://www.insee.fr/fr/statistiques/9004795)
+(MOBPRO) du recensement de 2023 : une ligne par actif ayant un emploi de 15 ans ou plus
+recensé, avec sa commune de résidence (`COMMUNE`, et `ARM` pour l'arrondissement à Paris, Lyon et
+Marseille), sa commune de travail (`DCLT`), son mode de transport principal (`TRANS`) et son poids
+(`IPONDI`) : chaque calcul se fait en sommant les poids. La
+[documentation](https://www.insee.fr/fr/information/2383243) décrit les variables.
+
+Le fichier est publié en Parquet, mais le serveur de l'Insee ne répond pas aux requêtes
+partielles : DuckDB ne peut pas le lire à distance. On le télécharge une fois (67 Mo) en
+vérifiant qu'il est complet, puis on garde en mémoire les cinq colonnes utiles.
+
+```{python}
+MOBPRO_URL = "https://www.insee.fr/fr/statistiques/fichier/9004795/RP2023_mobpro.parquet"
+
+
+# Le serveur coupe parfois le téléchargement sans erreur, et n'envoie pas la
+# taille : un fichier Parquet complet finit par « PAR1 ».
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+        except OSError:
+            if essai == essais - 1:
+                raise
+            continue
+        with open(chemin, "rb") as f:
+            f.seek(-4, 2)
+            if f.read() == b"PAR1":
+                return
+    raise RuntimeError(f"téléchargement incomplet : {url}")
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    chemin = f"{dossier}/mobpro.parquet"
+    telecharger(MOBPRO_URL, chemin)
+    con.sql(f"""
+    CREATE TABLE mobpro AS
+    SELECT COMMUNE, ARM, DCLT, TRANS, IPONDI FROM read_parquet('{chemin}')
+    """)
+
+actifs = con.sql("SELECT sum(IPONDI) FROM mobpro").fetchone()[0]
+con.sql("""
+SELECT CASE TRANS WHEN '1' THEN 'Pas de transport' WHEN '2' THEN 'Marche à pied'
+                  WHEN '3' THEN 'Vélo' WHEN '4' THEN 'Deux-roues motorisé'
+                  WHEN '5' THEN 'Voiture' WHEN '6' THEN 'Transports en commun' END AS mode,
+       round(sum(IPONDI)) AS actifs
+FROM mobpro GROUP BY TRANS ORDER BY TRANS
+""").df().style.hide(axis="index").format({"actifs": "{:,.0f}"})
+```
+
+### Les communes et les bassins de vie (cartiflette)
+
+Le recensement de 2023 est diffusé dans la géographie communale 2026, celle des contours
+cartiflette de 2026. Chaque commune (chaque arrondissement à Paris, Lyon et Marseille) y porte
+son [bassin de vie](https://www.insee.fr/fr/metadonnees/definition/c2060) 2022 (`BV2022`), le
+plus petit territoire où les habitants ont accès aux équipements et services courants. Le code
+d'un bassin de vie est celui de sa commune-pôle : elle lui donne son nom, et les arcs partent de
+son centre.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level={level}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+# Commune (arrondissement pour Paris, Lyon, Marseille) -> bassin de vie 2022.
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COG AS code, BV2022 AS bv
+FROM read_parquet('{CARTIFLETTE_URL.format(level="COMMUNE_ARRONDISSEMENT")}',
+                  hive_partitioning = false)
+""")
+
+# La commune-pôle de chaque bassin de vie : son nom et son centre.
+con.sql(f"""
+CREATE TABLE poles AS
+SELECT INSEE_COM AS bv, NOM AS nom, AREA AS territoire,
+       round(ST_X(ST_Centroid(geometry)), 4) AS lon,
+       round(ST_Y(ST_Centroid(geometry)), 4) AS lat
+FROM read_parquet('{CARTIFLETTE_URL.format(level="COMMUNE")}', hive_partitioning = false)
+WHERE INSEE_COM IN (SELECT bv FROM communes)
+""")
+
+# Contours des bassins de vie, allégés pour le fond de carte.
+contours = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"bv": bv}, "geometry": json.loads(geojson)}
+        for bv, geojson in con.sql(f"""
+            SELECT BV2022, ST_AsGeoJSON(ST_ReducePrecision(
+                       ST_SimplifyPreserveTopology(geometry, 0.003), 0.0001))
+            FROM read_parquet('{CARTIFLETTE_URL.format(level="BASSIN_VIE")}',
+                              hive_partitioning = false)
+        """).fetchall()
+    ],
+}
+```
+
+## Les traitements
+
+### Agréger les navettes par bassin de vie
+
+Chaque actif est rattaché au bassin de vie de sa commune de résidence et à celui de sa commune
+de travail ; on somme les poids pour chaque couple, au total et par mode de transport. Ceux qui
+travaillent à l'étranger ou dans une collectivité d'outre-mer n'ont pas de bassin de vie de
+travail : la jointure les écarte.
+
+```{python}
+con.sql("""
+CREATE TABLE navettes AS
+SELECT r.bv AS origine, t.bv AS destination,
+       sum(IPONDI) AS n,
+       sum(IPONDI) FILTER (WHERE TRANS = '5') AS voiture,
+       sum(IPONDI) FILTER (WHERE TRANS = '6') AS transports,
+       sum(IPONDI) FILTER (WHERE TRANS IN ('2', '3')) AS marche_velo
+FROM mobpro m
+JOIN communes r ON r.code = CASE WHEN m.ARM <> 'ZZZZZ' THEN m.ARM ELSE m.COMMUNE END
+JOIN communes t ON t.code = m.DCLT
+GROUP BY ALL
+""")
+```
+
+### Garder les liaisons importantes
+
+La carte ne montre que les liaisons d'au moins 100 navetteurs (`SEUIL`) entre deux bassins de vie
+différents. Comme le recommande l'Insee, les flux de moins de 200 personnes, estimés à partir
+d'un échantillon, sont des ordres de grandeur.
+
+```{python}
+# Liaisons gardées pour la page : le curseur de la carte ne descend pas plus bas.
+SEUIL = 100
+
+bilan = con.sql(f"""
+SELECT sum(n) AS localises,
+       sum(n) FILTER (WHERE origine <> destination) AS sortants,
+       sum(voiture) FILTER (WHERE origine <> destination) AS voiture,
+       sum(n) FILTER (WHERE origine <> destination AND n >= {SEUIL}) AS gardes,
+       count(*) FILTER (WHERE origine <> destination AND n >= {SEUIL}) AS liaisons
+FROM navettes
+""").df().iloc[0]
+
+flux = con.sql(f"""
+SELECT f.origine, o.nom AS nom_origine, o.lon AS lon1, o.lat AS lat1,
+       f.destination, d.nom AS nom_destination, d.lon AS lon2, d.lat AS lat2,
+       round(f.n) AS n,
+       round(100 * coalesce(f.voiture, 0) / f.n) AS part_voiture,
+       round(100 * coalesce(f.transports, 0) / f.n) AS part_transports,
+       round(100 * coalesce(f.marche_velo, 0) / f.n) AS part_marche_velo
+FROM navettes f
+JOIN poles o ON o.bv = f.origine
+JOIN poles d ON d.bv = f.destination
+WHERE f.origine <> f.destination AND f.n >= {SEUIL}
+ORDER BY f.n
+""").df()
+flux.sort_values("n", ascending=False).head(5).style.hide(axis="index")
+```
+
+Sur les `{python} f"{actifs / 1e6:.1f}".replace(".", ",")` millions d'actifs ayant un emploi,
+`{python} f"{(actifs - bilan.localises) / 1e3:.0f}"` milliers travaillent à l'étranger ou dans une
+collectivité d'outre-mer et ne sont pas sur la carte. Les
+`{python} f"{bilan.liaisons:,}".replace(",", " ")` liaisons gardées regroupent
+`{python} round(100 * bilan.gardes / bilan.sortants)` % des navetteurs qui changent de bassin de vie.
+
+### Résumer chaque bassin de vie
+
+Pour chaque bassin de vie : ceux qui y vivent et y travaillent, ceux qui viennent d'ailleurs y
+travailler (la taille des cercles), ceux qui en partent.
+
+```{python}
+bassins = con.sql("""
+SELECT p.bv, p.nom, p.territoire, p.lon, p.lat,
+       coalesce(round(sum(f.n) FILTER (WHERE f.origine = p.bv AND f.destination = p.bv)), 0) AS sur_place,
+       coalesce(round(sum(f.n) FILTER (WHERE f.destination = p.bv AND f.origine <> p.bv)), 0) AS entrants,
+       coalesce(round(sum(f.n) FILTER (WHERE f.origine = p.bv AND f.destination <> p.bv)), 0) AS sortants
+FROM poles p LEFT JOIN navettes f ON p.bv IN (f.origine, f.destination)
+GROUP BY ALL
+""").df()
+```
+
+### Passer les données à la carte
+
+Les tables sont transmises au JavaScript de la page avec `ojs_define`. Les arcs (courbes de
+Bézier) et la carte sont faits avec [Observable Plot](https://observablehq.com/plot/).
+
+```{python}
+ojs_define(
+    flux=flux.to_dict("records"),
+    bassins=bassins.to_dict("records"),
+    contours=contours,
+    resume={k: float(bilan[k]) for k in ["localises", "sortants", "voiture"]},
+)
+```
+
+## Les données de la carte
+
+Les liaisons entre bassins de vie d'au moins `{python} SEUIL` navetteurs.
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(flux, {
+  placeholder: "Rechercher un bassin de vie…",
+  columns: ["nom_origine", "nom_destination"],
+  format: (n) => `${n.toLocaleString("fr-FR")} liaisons`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["nom_origine", "nom_destination", "n", "part_voiture", "part_transports", "part_marche_velo"],
+  header: {
+    nom_origine: "Bassin de vie de résidence", nom_destination: "Bassin de vie de travail",
+    n: "Navetteurs", part_voiture: "Voiture (%)", part_transports: "Transports en commun (%)",
+    part_marche_velo: "Marche, vélo (%)"
+  },
+  format: {n: (x) => x.toLocaleString("fr-FR")},
+  sort: "n",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(flux)], {type: "text/csv"}),
+  "navettes_bassins_de_vie_2023.csv",
+  "Télécharger les liaisons (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Le recensement retient le lieu de travail habituel déclaré, pas un trajet quotidien : un actif
+  qui travaille à Paris deux jours par semaine depuis Lyon compte comme un navetteur Lyon-Paris.
+- Les flux de moins de 200 personnes sont des ordres de grandeur.
+- Une anomalie du recensement 2023 attribue à Maxey-sur-Vaise (Meuse) des emplois du quartier de
+  Vaise, à Lyon ([Insee](https://www.insee.fr/fr/statistiques/8998300)).
+
+## Pour aller plus loin
+
+- Insee Première n° 1835, janvier 2021, [« La voiture reste majoritaire pour les déplacements domicile-travail, même pour de courtes distances »](https://www.insee.fr/fr/statistiques/5013868).
+- Insee Première n° 1605, [« De plus en plus de personnes travaillent en dehors de leur commune de résidence »](https://www.insee.fr/fr/statistiques/2019022).
+- Insee, [Mobilités professionnelles en 2023 : déplacements domicile - lieu de travail](https://www.insee.fr/fr/statistiques/8998300) (flux agrégés par commune).

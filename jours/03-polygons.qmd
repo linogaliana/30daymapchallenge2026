@@ -1,0 +1,444 @@
+---
+title: "J3 · Polygons. Les parcelles agricoles"
+description: "Les 160 000 parcelles déclarées à la PAC dans le Pas-de-Calais en 2024, et ce que la carte à la commune en garde."
+image: vignettes/03-polygons.webp
+resources:
+  - donnees/j3/*.json
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+total = d3.sum(communes.features, (f) => f.properties.surface)
+html`<p class="lead">
+  En 2024, les agriculteurs du Pas-de-Calais ont déclaré à la PAC
+  <strong>${d3.sum(communes.features, (f) => f.properties.parcelles).toLocaleString("fr-FR")} parcelles</strong>,
+  soit ${Math.round(total).toLocaleString("fr-FR")} hectares :
+  ${familles.slice(0, 3).map((f) => `${f.nom.toLowerCase()} pour ${pourcent(d3.sum(communes.features, (c) => c.properties[f.cle]) / total)}`).join(", ")}.
+  À la commune, on ne voit que la culture qui domine ; à la parcelle, la mosaïque des champs
+  réapparaît. Choisissez une commune dans la liste ou cliquez sur la carte du département.
+</p>`
+```
+
+```{ojs}
+//| echo: false
+// Libellé de la liste : le nom, et le code pour les homonymes.
+viewof code = {
+  const homonymes = d3.rollup(communes.features, (v) => v.length, (f) => f.properties.nom)
+  const liste = communes.features
+    .map(({properties: p}) => [homonymes.get(p.nom) > 1 ? `${p.nom} (${p.commune})` : p.nom, p.commune])
+    .sort(([a], [b]) => a.localeCompare(b, "fr"))
+  return Inputs.select(new Map(liste), {label: "Commune", value: communeParDefaut})
+}
+```
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+// Plot dessine sur fond blanc par défaut : on prend celui du thème (cartes et bulles).
+stylePlot = `--plot-background: ${fond}; background: transparent`
+// Trois teintes validées pour une carte (toutes les paires côte à côte), un pas
+// par thème ; « Autres » en gris.
+couleurs = sombre
+  ? ["#c98500", "#9085e9", "#008300", "#5a5955"]
+  : ["#eda100", "#6250d6", "#008300", "#b5b3ab"]
+echelle = ({type: "ordinal", domain: familles.map((f) => f.nom), range: couleurs})
+pourcent = d3.format(".0%")
+hectares = (x) => `${x.toLocaleString("fr-FR", {maximumFractionDigits: x < 10 ? 1 : 0})} ha`
+
+commune = communes.features.find((f) => f.properties.commune === code)
+parcelles = fetch(`donnees/j3/${code}.json`).then((r) => r.json())
+
+function composition(p) {
+  return familles
+    .filter((f) => p[f.cle] > 0)
+    .map((f) => `${f.nom} : ${pourcent(p[f.cle] / p.surface)}`)
+    .join("\n")
+}
+```
+
+```{ojs}
+//| echo: false
+Plot.legend({color: echelle})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+carteDepartement = {
+  const plot = Plot.plot({
+    title: "Le département, commune par commune",
+    width: 560,
+    style: stylePlot,
+    projection: {type: "mercator", domain: communes},
+    color: echelle,
+    marks: [
+      Plot.geo(communes, {
+        fill: (f) => f.properties.dominante,
+        stroke: fond, strokeWidth: 0.3
+      }),
+      Plot.geo(commune, {stroke: "currentColor", strokeWidth: 2}),
+      Plot.tip(communes.features, Plot.pointer(Plot.centroid({
+        title: ({properties: p}) => p.surface
+          ? `${p.nom}\n${p.parcelles.toLocaleString("fr-FR")} parcelles, ${hectares(p.surface)}\n${composition(p)}`
+          : `${p.nom}\nAucune parcelle déclarée`
+      })))
+    ]
+  })
+  // Un clic sur une commune la choisit dans la liste.
+  plot.addEventListener("click", () => {
+    if (!plot.value) return
+    const liste = viewof code
+    liste.value = plot.value.properties.commune
+    liste.dispatchEvent(new Event("input", {bubbles: true}))
+  })
+  plot.style.cursor = "pointer"
+  return plot
+}
+
+carteCommune = Plot.plot({
+  title: `${commune.properties.nom}, parcelle par parcelle`,
+  width: 560,
+  style: stylePlot,
+  projection: {type: "mercator", domain: commune, inset: 10},
+  color: echelle,
+  marks: [
+    Plot.geo(commune, {fill: "currentColor", fillOpacity: 0.05}),
+    Plot.geo(parcelles, {fill: (f) => f.properties.famille, stroke: fond, strokeWidth: 0.5}),
+    Plot.geo(commune, {stroke: "currentColor", strokeWidth: 1.5}),
+    Plot.tip(parcelles.features, Plot.pointer(Plot.centroid({
+      title: ({properties: p}) => `${p.culture}\n${p.famille}\n${hectares(p.surface)}`
+    })))
+  ]
+})
+
+html`<div class="duo">${carteDepartement}${carteCommune}</div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+{
+  const p = commune.properties
+  if (!p.surface) return html`<p>${p.nom} n'a aucune parcelle déclarée à la PAC.</p>`
+    return html`<p>Sur la carte du département, ${p.nom} est d'une seule couleur :
+    ${p.dominante.toLowerCase()}. Ses <strong>${p.parcelles.toLocaleString("fr-FR")} parcelles</strong>
+    (${hectares(p.surface)}) se partagent entre
+    ${familles.filter((f) => p[f.cle] > 0).map((f) => `${f.nom.toLowerCase()} (${pourcent(p[f.cle] / p.surface)})`).join(", ")}.</p>`
+}
+```
+
+## Les données
+
+La carte croise trois sources publiques :
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Registre parcellaire graphique (RPG) 2024](https://geoservices.ign.fr/rpg), extrait du Pas-de-Calais | IGN, à partir des déclarations PAC (ASP) | le contour et la culture de chaque parcelle | GeoParquet |
+| [Nomenclature des cultures de la PAC](https://github.com/linogaliana/geodatadays-atelier-parquet/blob/main/code_culture_2026.xlsx) | Ministère de l'Agriculture | le libellé de chaque code culture | Excel |
+| [Communes 2024](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | la commune de chaque parcelle | GeoParquet |
+
+Le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) pour toutes les étapes de
+traitement.
+
+```{python}
+#| output: false
+import itertools
+import json
+import pathlib
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL excel; LOAD excel;
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les parcelles (RPG)
+
+Le [registre parcellaire graphique](https://geoservices.ign.fr/rpg) recense les parcelles que
+les agriculteurs déclarent chaque année pour toucher les aides de la politique agricole commune
+(PAC). L'IGN le diffuse sous une forme anonymisée : un polygone par parcelle et sa culture
+principale, sans l'exploitation. On part d'un extrait au format GeoParquet, limité au
+Pas-de-Calais, préparé pour l'[atelier GeoDataDays sur le format Parquet](https://github.com/linogaliana/geodatadays-atelier-parquet).
+Les polygones sont en Lambert 93 (EPSG:2154), en mètres.
+
+```{python}
+RPG_URL = "https://minio.lab.sspcloud.fr/lgaliana/data/geodata-days/rpg_pac_2024_62_comm_v11.parquet"
+
+con.sql(f"""
+CREATE TABLE parcelles AS
+SELECT code_cultu, code_group::INTEGER AS groupe, area / 10000 AS surface_ha, geom
+FROM read_parquet('{RPG_URL}')
+""")
+con.sql("SELECT * EXCLUDE (geom) FROM parcelles LIMIT 5").df().style.hide(axis="index")
+```
+
+### Les libellés des cultures
+
+Le RPG ne donne qu'un code de trois lettres par culture (`BTH` pour le blé tendre d'hiver,
+`BTN` pour la betterave non fourragère…). La nomenclature des cultures de la PAC donne leur
+libellé.
+
+```{python}
+NOMENCLATURE_URL = (
+    "https://raw.githubusercontent.com/linogaliana/geodatadays-atelier-parquet/main/code_culture_2026.xlsx"
+)
+
+con.sql(f"""
+CREATE TABLE cultures AS
+SELECT code_culture, nom_culture FROM read_xlsx('{NOMENCLATURE_URL}')
+""")
+```
+
+### Les communes (cartiflette)
+
+Les communes 2024 du Pas-de-Calais, de [cartiflette](https://github.com/InseeFrLab/cartiflette).
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2024/"
+    "administrative_level=COMMUNE/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=0/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COM AS commune, NOM AS nom, geometry AS geom
+FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+WHERE INSEE_DEP = '62'
+""")
+```
+
+## Les traitements
+
+### Regrouper les cultures en trois familles
+
+L'IGN classe les cultures en 28 groupes (blé tendre, maïs, orge, colza, prairies
+permanentes…). Une carte ne distingue bien que quelques couleurs : on les regroupe en trois
+familles, plus une catégorie « Autres » (jachères, vergers, divers). Le maïs ensilage, récolté
+pour nourrir le bétail, rejoint les fourrages ; le maïs grain reste une céréale.
+
+```{python}
+FAMILLES = [
+    {"cle": "cereales", "nom": "Céréales", "groupes": [1, 2, 3, 4, 14]},
+    {
+        "cle": "industrielles",
+        "nom": "Cultures industrielles et légumes",
+        # colza, tournesol, oléagineux, protéagineux, lin, légumineuses,
+        # betterave et autres cultures industrielles, légumes, canne à sucre
+        "groupes": [5, 6, 7, 8, 9, 15, 24, 25, 26],
+    },
+    {"cle": "prairies", "nom": "Prairies et fourrages", "groupes": [16, 17, 18, 19]},
+    {"cle": "autres", "nom": "Autres", "groupes": []},
+]
+cas = "\n".join(
+    f"WHEN groupe IN ({', '.join(map(str, f['groupes']))}) THEN '{f['nom']}'"
+    for f in FAMILLES
+    if f["groupes"]
+)
+
+con.sql(f"""
+CREATE TABLE parcelles_familles AS
+SELECT p.*, c.nom_culture AS culture,
+       CASE WHEN code_cultu = 'MIS' THEN 'Prairies et fourrages'  -- maïs ensilage
+            {cas}
+            ELSE 'Autres' END AS famille
+FROM parcelles p LEFT JOIN cultures c ON c.code_culture = p.code_cultu
+""")
+con.sql("""
+SELECT famille, count(*) AS parcelles, round(sum(surface_ha)) AS hectares,
+       round(100 * sum(surface_ha) / sum(sum(surface_ha)) OVER (), 1) AS "part (%)"
+FROM parcelles_familles GROUP BY famille ORDER BY hectares DESC
+""").df().style.hide(axis="index")
+```
+
+### Rattacher chaque parcelle à sa commune
+
+Une parcelle peut déborder sur deux communes : on la rattache à celle qui contient un point
+intérieur de la parcelle (`ST_PointOnSurface`), reprojeté en longitude, latitude comme les
+communes.
+
+```{python}
+con.sql("""
+CREATE TABLE parcelles_communes AS
+SELECT p.*, m.commune
+FROM parcelles_familles p
+JOIN communes m
+  ON ST_Contains(m.geom, ST_Transform(ST_PointOnSurface(p.geom), 'EPSG:2154', 'EPSG:4326'))
+""")
+hors_communes = con.sql("""
+SELECT count(*) FROM parcelles_familles
+""").fetchone()[0] - con.sql("SELECT count(*) FROM parcelles_communes").fetchone()[0]
+```
+
+Parcelles qui ne tombent dans aucune commune du département, et sont donc laissées de côté :
+`{python} hors_communes`.
+
+### Écrire un fichier par commune
+
+Toutes les parcelles du département pèseraient des dizaines de mégaoctets dans la page. Chaque
+commune a son fichier GeoJSON, chargé quand on la choisit. Les parcelles sont simplifiées à 5 m
+en Lambert 93, puis reprojetées en longitude, latitude au mètre près.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j3")
+SORTIE.mkdir(parents=True, exist_ok=True)
+for ancien in SORTIE.glob("*.json"):
+    ancien.unlink()
+
+lignes = con.sql("""
+SELECT commune, culture, famille, round(surface_ha, 2),
+       -- ST_MakeValid : quelques parcelles invalides font échouer la réduction de précision.
+       ST_AsGeoJSON(ST_ReducePrecision(
+           ST_MakeValid(ST_Transform(ST_SimplifyPreserveTopology(geom, 5), 'EPSG:2154', 'EPSG:4326')),
+           0.00001
+       ))
+FROM parcelles_communes
+ORDER BY commune
+""").fetchall()
+
+for commune, parcelles in itertools.groupby(lignes, key=lambda ligne: ligne[0]):
+    collection = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"culture": culture, "famille": famille, "surface": surface},
+                "geometry": json.loads(geojson),
+            }
+            for _, culture, famille, surface, geojson in parcelles
+        ],
+    }
+    (SORTIE / f"{commune}.json").write_text(json.dumps(collection, separators=(",", ":")))
+```
+
+### Résumer chaque commune
+
+Pour la carte du département : la surface de chaque famille dans la commune, et la famille qui
+y occupe le plus de place. Les contours des communes sont simplifiés ensemble
+(`ST_CoverageSimplify`, environ 80 m) : ils restent jointifs, sans trou ni chevauchement.
+
+```{python}
+surfaces = ",\n".join(
+    f"coalesce(sum(s.ha) FILTER (WHERE s.famille = '{f['nom']}'), 0) AS {f['cle']}"
+    for f in FAMILLES
+)
+con.sql(f"""
+CREATE TABLE resume AS
+WITH s AS (
+    SELECT commune, famille, sum(surface_ha) AS ha, count(*) AS n
+    FROM parcelles_communes GROUP BY ALL
+)
+SELECT m.commune, m.nom,
+       coalesce(sum(s.n), 0)::INTEGER AS parcelles,
+       coalesce(sum(s.ha), 0) AS surface,
+       {surfaces},
+       arg_max(s.famille, s.ha) AS dominante
+FROM communes m LEFT JOIN s USING (commune)
+GROUP BY ALL
+""")
+
+contours = con.sql("""
+WITH couverture AS (
+    SELECT list(commune ORDER BY commune) AS codes,
+           ST_CoverageSimplify(list(geom ORDER BY commune), 0.001) AS geom
+    FROM communes
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS commune,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Collect(list(geom)), 0.0001)) AS geojson
+FROM morceaux GROUP BY ALL
+""")
+
+resultat = con.sql("SELECT r.*, c.geojson FROM resume r JOIN contours c USING (commune)")
+communes = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": dict(zip(resultat.columns[:-1], ligne[:-1])),
+            "geometry": json.loads(ligne[-1]),
+        }
+        for ligne in resultat.fetchall()
+    ],
+}
+
+ojs_define(
+    communes=communes,
+    familles=[{"cle": f["cle"], "nom": f["nom"]} for f in FAMILLES],
+    # Par défaut, la commune qui a le plus de parcelles.
+    communeParDefaut=con.sql("SELECT commune FROM resume ORDER BY parcelles DESC LIMIT 1").fetchone()[0],
+)
+```
+
+## Les données de la carte
+
+Pour chaque commune, ses parcelles, sa surface déclarée et la part de chaque famille.
+
+```{ojs}
+//| echo: false
+tableau = communes.features.map(({properties: p}) => ({
+  commune: p.nom,
+  parcelles: p.parcelles,
+  surface: p.surface,
+  ...Object.fromEntries(familles.map((f) => [f.cle, p.surface ? p[f.cle] / p.surface : null]))
+}))
+viewof recherche = Inputs.search(tableau, {
+  placeholder: "Rechercher une commune…",
+  format: (n) => `${n.toLocaleString("fr-FR")} communes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  header: {
+    commune: "Commune", parcelles: "Parcelles", surface: "Surface (ha)",
+    ...Object.fromEntries(familles.map((f) => [f.cle, f.nom]))
+  },
+  format: {
+    surface: (x) => Math.round(x).toLocaleString("fr-FR"),
+    ...Object.fromEntries(familles.map((f) => [f.cle, (x) => (x === null ? "" : pourcent(x))]))
+  },
+  sort: "surface",
+  reverse: true,
+  rows: 12
+})
+```
+
+## Précautions
+
+- Le RPG ne contient que les parcelles déclarées à la PAC : les surfaces des exploitations qui
+  ne demandent pas d'aide (certains maraîchers, de petites exploitations) n'y figurent pas.
+- Chaque parcelle n'a qu'une culture, la principale de la campagne 2024 : les cultures
+  dérobées ou successives n'apparaissent pas.
+- Les trois familles sont un regroupement fait pour cette carte, pas une nomenclature
+  officielle.
+- La couleur d'une commune est sa famille la plus étendue, même si elle n'occupe qu'un tiers des
+  surfaces : c'est précisément ce que la carte à la parcelle permet de nuancer.
+
+## Pour aller plus loin
+
+- IGN, [registre parcellaire graphique](https://geoservices.ign.fr/rpg) : les données de toute
+  la France, depuis 2007, et leur documentation (codes et groupes de cultures).
+- [Atelier GeoDataDays sur le format Parquet](https://github.com/linogaliana/geodatadays-atelier-parquet) :
+  interroger le RPG avec DuckDB, directement dans le navigateur.

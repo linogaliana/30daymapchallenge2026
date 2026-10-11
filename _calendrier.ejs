@@ -1,0 +1,49 @@
+```{=html}
+<%
+// Les 30 thèmes de l'édition 2026 (https://30daymapchallenge.com/), du 1er au 30 novembre.
+const themes = [
+  "Points", "Lines", "Polygons", "Clusters", "Senses: Sight", "Vintage", "10 minute map",
+  "Utopia", "Urban-rural", "Prompting only", "Senses: Sound", "Power", "Interactions",
+  "Borgesian map", "Inside out", "Collaborative map", "Light & dark", "NULL",
+  "Senses: Smell", "Hexagons", "OpenStreetMap", "Projections", "Senses: Taste", "Network",
+  "Is this a map?", "Water", "New tool", "Senses: Feeling", "Raster", "Pen & paper"
+]
+const joursSemaine = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."]
+// Une page par jour : jours/01-points.qmd est le jour 1.
+const pages = new Map()
+for (const item of items) {
+  const numero = parseInt((item.path || "").split("/").pop(), 10)
+  if (numero) pages.set(numero, item)
+}
+// Sujet de la carte : le titre sans le préfixe « J1 · Points. ».
+const sujet = (titre) => (titre || "").replace(/^J\d+\s*·\s*[^.—–-]*[.—–-]\s*/, "")
+%>
+<div class="calendrier list">
+<% for (let semaine = 0; semaine < 5; semaine++) { %>
+  <% const premier = 7 * semaine + 1, dernier = Math.min(premier + 6, 30) %>
+  <h2 class="calendrier-semaine anchored" id="semaine-<%= semaine + 1 %>">
+    Semaine <%= semaine + 1 %> <span>J<%= premier %> à J<%= dernier %></span>
+  </h2>
+  <div class="calendrier-grille">
+  <% for (let jour = premier; jour <= dernier; jour++) { %>
+    <% const item = pages.get(jour), date = new Date(2026, 10, jour) %>
+    <% const etat = item && item.image ? "faite" : item ? "en-cours" : "a-venir" %>
+    <% const balise = item ? "a" : "div" %>
+    <<%= balise %> class="case case-<%= etat %>"<% if (item) { %> href="<%- item.path %>"<% } %>
+      <% if (item && item.description) { %> title="<%= item.description %>"<% } %>>
+      <% if (etat === "faite") { %>
+        <img src="<%- item.image %>" alt="Carte du jour <%= jour %> : <%= sujet(item.title) %>" loading="lazy">
+      <% } %>
+      <span class="case-date"><%= joursSemaine[date.getDay()] %> <%= jour %> nov.</span>
+      <span class="case-numero">J<%= jour %></span>
+      <span class="case-texte">
+        <span class="case-theme"><%= themes[jour - 1] %></span>
+        <% if (etat === "faite") { %><span class="case-sujet"><%= sujet(item.title) %></span><% } %>
+        <% if (etat === "en-cours") { %><span class="case-sujet">En préparation</span><% } %>
+      </span>
+    </<%= balise %>>
+  <% } %>
+  </div>
+<% } %>
+</div>
+```

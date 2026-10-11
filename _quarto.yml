@@ -1,0 +1,39 @@
+project:
+  type: website
+
+website:
+  title: "30daymapchallenge"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Accueil
+      - text: "Semaine 1 · J1 à J7"
+        menu:
+          - jours/01-points.qmd
+          - jours/02-lines.qmd
+          - jours/03-polygons.qmd
+          - jours/04-clusters.qmd
+          - jours/05-sight.qmd
+          - jours/06-vintage.qmd
+          - jours/07-10-minute-map.qmd
+      - about.qmd
+    right:
+      - icon: github
+        href: https://github.com/linogaliana/30daymapchallenge2026
+        aria-label: Code du site
+
+execute:
+  freeze: auto
+
+format:
+  html:
+    theme:
+      light: [cosmo, theme.scss]
+      dark: [darkly, theme.scss]
+    respect-user-color-scheme: true
+    css: styles.css
+    toc: true
+    author: Lino Galiana
+
+
+

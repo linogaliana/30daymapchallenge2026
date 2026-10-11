@@ -1,0 +1,65 @@
+name: Publication du site
+
+# Rend le site avec Quarto (installé par uv, paquet quarto-cli) et le publie sur
+# GitHub Pages. _freeze/ n'est pas versionné : les calculs sont gardés d'une
+# exécution à l'autre dans le cache d'Actions, et une page n'est recalculée que
+# si son .qmd a changé (freeze: auto). Sans cache, tout est retéléchargé.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rendu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Dépendances
+        run: uv sync --locked
+
+      # Une entrée par commit ; à défaut, la plus récente de la branche, puis
+      # celle de main.
+      - name: Cache des calculs (_freeze)
+        uses: actions/cache@v4
+        with:
+          path: _freeze
+          key: freeze-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            freeze-${{ github.ref_name }}-
+            freeze-main-
+
+      - name: Rendu
+        run: uv run quarto render
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: _site
+
+  publication:
+    if: github.event_name != 'pull_request'
+    needs: rendu
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    steps:
+      - id: deploiement
+        uses: actions/deploy-pages@v4

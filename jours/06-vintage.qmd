@@ -1,0 +1,21 @@
+---
+title: "J6 · Vintage — La carte de Dupin, 200 ans après"
+description: "La France obscure et la France éclairée, avec les données d'aujourd'hui."
+---
+
+## Idée
+
+Refaire la carte de Charles Dupin (1826), « France obscure et France éclairée », considérée comme la première choroplèthe, avec les données actuelles.
+
+## Données
+
+- Part de diplômés du supérieur (recensement, Insee) ou résultats de la DEPP.
+- Départements : cartiflette.
+
+## Traitement (DuckDB)
+
+- Indicateur par département.
+
+## Carte (Plot)
+
+- Style d'époque (papier sépia, hachures, serif), côte à côte avec l'original.

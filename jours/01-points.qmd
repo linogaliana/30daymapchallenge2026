@@ -1,0 +1,976 @@
+---
+title: "J1 · Points. Les maternités"
+description: "Un point par maternité, de 2000 à 2024 : 721 maternités en 2000, 445 en 2024."
+image: vignettes/01-points.webp
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+Comme tout commence par la naissance, pour la première journée du [*30 day map challenge*](https://30daymapchallenge.com/), on va représenter la localisation des maternités françaises en 2024 et celles qui ont fermées depuis 2000. 
+
+Cette carte (making of 👇) illustre l'évolution, depuis 2000, de la politique d'aménagement du territoire appliquée au domaine sanitaire. Le sujet des fermetures de maternité est régulièrement discuté dans les médias, par exemple [sur Radio France](https://www.radiofrance.fr/franceinter/podcasts/affaires-sensibles/affaires-sensibles-du-mardi-04-mars-2025-7447211).
+
+Comme pour l'ensemble des cartes de ce *challenge* sur ce site, **on va s'appuyer, de manière reproductible sur les données de la [Drees](https://drees.solidarites-sante.gouv.fr/)**, le service statistique du ministère de la Santé (voir @tip-pour-aller-plus-loin pour quelques publications sur ce sujet).
+
+<details>
+<summary>
+Lire la dernière fiche sur les maternités dans la panorama des établissements de santé en 2024 de la Drees
+</summary>
+
+
+```{=html}
+<embed title="Fiche n°19, les établissements de santé en 2024" src="https://drees.solidarites-sante.gouv.fr/sites/default/files/2026-05/ES2026%20-%20Fiche%2019%20-%20Les%20maternit%C3%A9s_0.pdf" width="100%" height="480" />
+```
+
+</details>
+
+--------
+
+```{ojs}
+//| echo: false
+premiere = controle[0]
+derniere = controle.at(-1)
+html`<p class="lead">
+  En ${premiere.annee}, la France comptait <strong>${premiere.drees} maternités</strong>.
+  Fin ${derniere.annee}, il en reste <strong>${derniere.drees}</strong>,
+  soit ${premiere.drees - derniere.drees} de moins.
+  <strong>${pertes.length} communes</strong> ont perdu la leur.
+  Lancez la lecture pour voir les fermetures année après année.
+</p>`
+```
+
+```{ojs}
+//| echo: false
+// Curseur avec lecture automatique. Pas de données entre 2001 et 2007 :
+// on passe de 2000 à 2008.
+viewof indice = {
+  const dernier = annees.length - 1
+  const form = html`<form class="lecteur">
+    <button type="button" name="lire">▶ Lire</button>
+    <input type="range" name="curseur" min="0" max="${dernier}" step="1" value="${dernier}">
+    <output name="annee"></output>
+  </form>`
+  let minuteur = null
+  const choisir = (i) => {
+    form.value = i
+    form.curseur.valueAsNumber = i
+    form.annee.value = annees[i]
+    form.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  const arreter = () => {
+    clearInterval(minuteur)
+    minuteur = null
+    form.lire.textContent = "▶ Lire"
+  }
+  form.lire.onclick = () => {
+    if (minuteur) return arreter()
+    if (form.value === dernier) choisir(0)
+    form.lire.textContent = "⏸ Pause"
+    minuteur = setInterval(() => (form.value < dernier ? choisir(form.value + 1) : arreter()), 1000)
+  }
+  form.curseur.oninput = (event) => {
+    event.stopPropagation()
+    arreter()
+    choisir(form.curseur.valueAsNumber)
+  }
+  form.onsubmit = (event) => event.preventDefault()
+  invalidation.then(arreter)
+  form.value = dernier
+  form.annee.value = annees[dernier]
+  return form
+}
+anneeData = annees[indice]
+```
+
+```{ojs}
+//| echo: false
+ouvertes = points.filter((d) => d.annee === anneeData)
+perdues = pertes.filter((d) => d.derniere < anneeData)
+couleurOuverte = "#2a6f97"
+couleurPerdue = "#c8553d"
+// Pour le texte et la courbe, une teinte plus claire sur fond sombre.
+texteOuverte = sombre ? "#7cc0e8" : couleurOuverte
+texteCouleurPerdue = sombre ? "#ec8a74" : couleurPerdue
+
+html`<p style="font-size: 1.1em">
+  <strong>${anneeData}</strong> :
+  <span style="color:${texteOuverte}">● ${ouvertes.length} maternités</span>
+  &nbsp;·&nbsp;
+  <span style="color:${texteCouleurPerdue}">✕ ${perdues.length} communes
+  ont perdu leur maternité depuis 2000</span>
+</p>`
+```
+
+```{ojs}
+//| echo: false
+maplibregl = {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
+}
+
+territoires = [
+  ["Métropole", [[-5.3, 41.3], [9.7, 51.1]]],
+  ["Guadeloupe", [[-61.85, 15.8], [-61.0, 16.55]]],
+  ["Martinique", [[-61.25, 14.38], [-60.8, 14.9]]],
+  ["Guyane", [[-54.6, 2.1], [-51.6, 5.8]]],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]]],
+  ["Mayotte", [[44.95, -13.05], [45.35, -12.6]]],
+  ["Saint-Martin", [[-63.17, 18.0], [-62.95, 18.13]]]
+]
+
+```
+
+```{ojs}
+//| echo: false
+viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+```
+
+```{ojs}
+//| echo: false
+conteneur = html`<div style="height: min(75vh, 680px); border-radius: 4px"></div>`
+```
+
+```{ojs}
+//| echo: false
+// Légende repliée. Rayons des cercles : ceux de la carte vue en entier
+// (zoom 5 environ), qui grossissent quand on zoome.
+legende = {
+  const etalons = [500, 2000, 5000]
+  const rayon = (n) => 0.17 * Math.sqrt(n)
+  const largeur = 200
+  const hauteur = 2 * rayon(5000) + 6
+  let x = 4
+  const cercles = etalons.map((n) => {
+    const r = rayon(n)
+    const cx = x + r
+    x += 2 * r + 30
+    return `<circle cx="${cx}" cy="${hauteur - r - 3}" r="${r}" fill="${couleurOuverte}"
+      fill-opacity="0.65" stroke="white" stroke-width="0.6"/>
+      <text x="${cx}" y="${hauteur + 12}" text-anchor="middle" font-size="11"
+      fill="currentColor">${n.toLocaleString("fr-FR")}</text>`
+  })
+  return html`<details class="legende">
+    <summary>Légende</summary>
+    <div class="legende-contenu">
+      <div>
+        <svg width="${largeur}" height="${hauteur + 16}">${cercles.join("")}</svg>
+        <div>Une maternité ouverte dans l'année ; surface proportionnelle au nombre d'accouchements</div>
+      </div>
+      <div>
+        <svg width="16" height="16" viewBox="0 0 16 16">
+          <path d="M3 3L13 13M13 3L3 13" stroke="${couleurPerdue}" stroke-width="2.5"/>
+        </svg>
+        <div>Une commune qui avait une maternité et n'en a plus, placée sur sa dernière maternité</div>
+      </div>
+    </div>
+    <p><small>Survolez un symbole pour le détail. Les boutons au-dessus de la carte mènent
+    en outre-mer ; ▶ Lire fait défiler les années.</small></p>
+  </details>`
+}
+```
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris.
+styleClair = fetch(
+  "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+).then((r) => r.json())
+
+styleSombre = {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
+```
+
+```{ojs}
+//| echo: false
+// La carte n'est créée qu'une fois ; les années changent ses données.
+carte = {
+  const map = new maplibregl.Map({
+    container: conteneur,
+    style: document.body.classList.contains("quarto-dark") ? styleSombre : styleClair,
+    bounds: territoires[0][1],
+    attributionControl: {customAttribution: "DREES, FINESS, IGN"}
+  })
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre).
+  const vide = {type: "FeatureCollection", features: []}
+  map.donnees = {ouvertes: vide, perdues: vide}
+  const ajouterCouches = () => {
+    const taille = 16
+    const croix = document.createElement("canvas")
+    croix.width = croix.height = taille
+    const ctx = croix.getContext("2d")
+    ctx.strokeStyle = couleurPerdue
+    ctx.lineWidth = 2.5
+    ctx.beginPath()
+    ctx.moveTo(3, 3); ctx.lineTo(taille - 3, taille - 3)
+    ctx.moveTo(taille - 3, 3); ctx.lineTo(3, taille - 3)
+    ctx.stroke()
+    map.addImage("croix", ctx.getImageData(0, 0, taille, taille), {pixelRatio: 2})
+
+    map.addSource("perdues", {type: "geojson", data: map.donnees.perdues})
+    map.addSource("ouvertes", {type: "geojson", data: map.donnees.ouvertes})
+    map.addLayer({
+      id: "perdues", type: "symbol", source: "perdues",
+      layout: {"icon-image": "croix", "icon-allow-overlap": true, "icon-size": [
+        "interpolate", ["linear"], ["zoom"], 4, 0.8, 10, 1.6
+      ]}
+    })
+    const racine = ["sqrt", ["coalesce", ["get", "accouchements"], 0]]
+    map.addLayer({
+      id: "ouvertes", type: "circle", source: "ouvertes",
+      paint: {
+        "circle-color": couleurOuverte,
+        "circle-opacity": 0.65,
+        "circle-stroke-color": "white",
+        "circle-stroke-width": 0.6,
+        "circle-radius": [
+          "interpolate", ["linear"], ["zoom"],
+          4, ["max", 1.5, ["*", 0.11, racine]],
+          10, ["max", 4, ["*", 0.45, racine]]
+        ]
+      }
+    })
+  }
+  map.on("style.load", ajouterCouches)
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "280px"})
+  const decrire = {
+    ouvertes: (p) => `<strong>${p.nom}</strong><br>${p.nom_commune}<br>
+      Type ${p.type} · ${p.statut.toLowerCase()}<br>
+      ${p.accouchements ?? "?"} accouchements en ${p.annee}<br>
+      <small>Localisation : ${p.source}</small>`,
+    perdues: (p) => `<strong>${p.nom_commune}</strong><br>
+      Dernière maternité en ${p.derniere}`
+  }
+  for (const couche of ["ouvertes", "perdues"]) {
+    map.on("mousemove", couche, (e) => {
+      map.getCanvas().style.cursor = "pointer"
+      bulle.setLngLat(e.lngLat).setHTML(decrire[couche](e.features[0].properties)).addTo(map)
+    })
+    map.on("mouseleave", couche, () => {
+      map.getCanvas().style.cursor = ""
+      bulle.remove()
+    })
+  }
+  return map
+}
+```
+
+```{ojs}
+//| echo: false
+function enGeoJSON(lignes) {
+  return {
+    type: "FeatureCollection",
+    features: lignes.map((d) => ({
+      type: "Feature",
+      properties: d,
+      geometry: {type: "Point", coordinates: [d.lon, d.lat]}
+    }))
+  }
+}
+// Cellules nommées : Quarto n'affiche pas leur valeur.
+miseAJour = {
+  carte.donnees = {ouvertes: enGeoJSON(ouvertes), perdues: enGeoJSON(perdues)}
+  carte.getSource("ouvertes")?.setData(carte.donnees.ouvertes)
+  carte.getSource("perdues")?.setData(carte.donnees.perdues)
+  return anneeData
+}
+theme = {
+  const style = sombre ? styleSombre : styleClair
+  if (carte.styleCourant !== undefined && carte.styleCourant !== style) {
+    carte.setStyle(style, {diff: false})
+  }
+  carte.styleCourant = style
+  return sombre
+}
+cadrage = carte.fitBounds(territoire, {padding: 20})
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  height: 220,
+  marginLeft: 50,
+  x: {label: null, tickFormat: "d"},
+  y: {label: "Maternités", grid: true, zero: true},
+  marks: [
+    Plot.lineY(controle, {x: "annee", y: "carte", stroke: texteOuverte, marker: "circle-stroke"}),
+    Plot.ruleX([anneeData], {stroke: "currentColor", strokeOpacity: 0.3})
+  ]
+})
+```
+
+--------
+
+On va maintenant s'atteler à décrire comment obtenir les données nécessaires à reproduire cette carte.
+
+## Les données
+
+
+La carte croise quatre sources publiques :
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Liste des maternités depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) | DREES | les maternités de chaque année, avec leur type, leur statut, leur adresse et leurs accouchements | Excel, une feuille par année |
+| [FINESS géolocalisé](https://www.data.gouv.fr/fr/datasets/finess-extraction-du-fichier-des-etablissements/) et [FINESS - Structures](https://www.data.gouv.fr/fr/datasets/finess-structures-1/) | Ministère de la Santé, Agence du numérique en santé | la position de chaque établissement, ouvert ou fermé | CSV, JSON |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | la commune de chaque maternité | GeoParquet |
+| [Service de géocodage](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) | IGN, Géoplateforme | la position des quelques maternités absentes de FINESS, à partir de leur adresse | API |
+
+En résumé, le code utilisé pour récupérer ces données s'appuie sur `Python`. [DuckDB](https://duckdb.org/) sert à gérer les étapes de travail de données.
+
+```{python}
+#| output: false
+import json
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+import duckdb
+
+ANNEES = [2000, *range(2008, 2025)]
+
+con = duckdb.connect()
+con.sql("""
+INSTALL excel; LOAD excel;
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true  -- coordonnées en (longitude, latitude)
+""")
+```
+
+### La liste des maternités (DREES)
+
+La DREES publie la [liste des maternités de France depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) sur son portail de données [data.drees/](data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/).
+
+En l'occurrence, ces données sont issues de la statistique annuelle des établissements de santé (SAE). 
+
+```{ojs}
+//| echo: false
+viewof rechercheDrees = Inputs.search(maternites_drees, {
+  placeholder: "Rechercher une maternité, une commune, une année…",
+  format: (n) => `${n.toLocaleString("fr-FR")} lignes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(rechercheDrees, {
+  columns: ["annee", "NOM_MAT", "TYPE", "STATUT", "FI_ET", "COM", "NOMCOM", "ADRESSE", "ACCTOT"],
+  format: {annee: (x) => x, ACCTOT: (x) => x?.toLocaleString("fr-FR") ?? ""},
+  rows: 10
+})
+```
+
+Les données sont diffusées sous forme d'Excel: une feuille par année, plus un tableau de
+synthèse[^explorateur]. Il faut un peu de travail pour les transformer en données utilisables :
+
+[^explorateur]: L'explorateur ne couvrant que 2013-2024, on privilégie l'Excel pour disposer d'un recul temporel plus important. 
+
+On construit d'abord la requête : une lecture par feuille annuelle (l'en-tête est en ligne 6),
+empilées les unes sur les autres.
+
+```{python}
+MATERNITES_URL = (
+    "https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/"
+    "datasets/fichier_maternites_112021/attachments/fichier_maternites_122025_mad_xlsx"
+)
+
+requete_maternites = "CREATE TABLE maternites AS\n" + "\nUNION ALL BY NAME\n".join(
+    f"""SELECT {annee} AS annee, NOM_MAT, TYPE, STATUT,
+       lpad(FI_ET, 9, '0') AS FI_ET,  -- zéro initial perdu en 2022
+       COM, NOMCOM, ADRESSE,
+       TRY_CAST(ACCTOT AS INTEGER) AS ACCTOT
+FROM read_xlsx('{MATERNITES_URL}', sheet = 'Maternités_{annee}',
+               header = true, all_varchar = true, range = 'A6:N2000')
+WHERE FI_ET IS NOT NULL"""
+    for annee in ANNEES
+)
+```
+
+<details>
+<summary>La requête SQL générée</summary>
+
+```{python}
+#| echo: false
+#| output: asis
+print(f"```sql\n{requete_maternites}\n```")
+```
+
+</details>
+
+Puis on l'exécute, et on lit le tableau de synthèse :
+
+```{python}
+#| output: false
+con.sql(requete_maternites)
+
+# Tableau de synthèse : une ligne d'années, puis le nombre de maternités.
+lignes = con.sql(f"""
+FROM read_xlsx('{MATERNITES_URL}', sheet = 'Tableau de synthèse', header = false,
+               all_varchar = true, stop_at_empty = false, range = 'B6:Z7')
+""").fetchall()
+synthese = {int(a): int(n) for a, n in zip(*lignes) if a and n}
+```
+
+```{python}
+#| echo: false
+ojs_define(
+    maternites_drees=con.sql("FROM maternites ORDER BY annee DESC, ACCTOT DESC").df().to_dict("records")
+)
+```
+
+### Les coordonnées des établissements (FINESS)
+
+La liste de la DREES donne une adresse mais pas de coordonnées. Le répertoire FINESS
+(Fichier national des établissements sanitaires et sociaux) en donne, et la DREES y identifie
+chaque maternité par son numéro d'établissement géographique (`FI_ET`). 
+
+Deux publications :
+
+- l'[extraction géolocalisée](https://www.data.gouv.fr/fr/datasets/finess-extraction-du-fichier-des-etablissements/) du ministère de la Santé, en Lambert 93 en métropole et dans une projection UTM propre à chaque DROM, mais **seulement pour les établissements ouverts** ;
+- le flux [FINESS - Structures](https://www.data.gouv.fr/fr/datasets/finess-structures-1/) de l'Agence du numérique en santé, en JSON, qui garde aussi **les établissements fermés et leur dernière position**, en longitude et latitude.
+
+```{python}
+FINESS_URL = (
+    "https://static.data.gouv.fr/resources/finess-extraction-du-fichier-des-etablissements/"
+    "20260512-091152/etalab-cs1100507-stock-20260512-0339.csv"
+)
+
+# Le CSV mêle deux types de lignes : "structureet" (l'établissement) et
+# "geolocalisation" (ses coordonnées), avec le système de coordonnées en clair.
+requete_finess = f"""CREATE TABLE finess AS
+WITH geo AS (
+    SELECT column01 AS finess,
+           TRY_CAST(column02 AS DOUBLE) AS x,
+           TRY_CAST(column03 AS DOUBLE) AS y,
+           regexp_extract(column04, 'EPSG:[0-9]+') AS epsg
+    FROM read_csv('{FINESS_URL}', sep = ';', header = false, skip = 1,
+                  all_varchar = true, null_padding = true, strict_mode = false)
+    WHERE column00 = 'geolocalisation' AND column01 IN (SELECT FI_ET FROM maternites)
+)
+""" + "\nUNION ALL\n".join(
+    # Une reprojection par système : Lambert 93, Antilles, La Réunion, Guyane, Mayotte.
+    f"""SELECT finess, epsg, ST_Transform(ST_Point(x, y), '{epsg}', 'EPSG:4326') AS geom
+FROM geo WHERE epsg = '{epsg}'"""
+    for epsg in ["EPSG:2154", "EPSG:5490", "EPSG:2975", "EPSG:2972", "EPSG:4471"]
+)
+```
+
+<details>
+<summary>La requête SQL générée</summary>
+
+```{python}
+#| echo: false
+#| output: asis
+print(f"```sql\n{requete_finess}\n```")
+```
+
+</details>
+
+```{python}
+#| output: false
+con.sql(requete_finess)
+```
+
+```{python}
+#| echo: false
+def apercu_finess(table, colonnes):
+    """Les lignes d'une table FINESS, avec le nom de la maternité pour s'y retrouver."""
+    return con.sql(f"""
+    SELECT t.finess, m.nom AS maternite, {colonnes}
+           round(ST_X(t.geom), 5) AS lon, round(ST_Y(t.geom), 5) AS lat
+    FROM {table} t
+    JOIN (SELECT FI_ET, arg_max(NOM_MAT, annee) AS nom FROM maternites GROUP BY FI_ET) m
+      ON m.FI_ET = t.finess
+    ORDER BY t.finess
+    """).df().to_dict("records")
+
+
+ojs_define(finess_apercu=apercu_finess("finess", "t.epsg AS projection,"))
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(finess_apercu, {
+  header: {finess: "FINESS", maternite: "Maternité (DREES)", projection: "Projection d'origine"},
+  layout: "auto",
+  rows: 8
+})
+```
+
+```{python}
+FINESS_ANS_URL = (
+    "https://static.data.gouv.fr/resources/finess-structures-1/"
+    "20261001-021940/finess-structures-mensuel-202609.json.gz"
+)
+
+# Personnes morales (pmej) > établissements géographiques (ege) > adresses.
+requete_finess_ans = f"""CREATE TABLE finess_ans AS
+WITH pm AS (
+    SELECT unnest(pmej) AS p
+    FROM read_json('{FINESS_ANS_URL}', columns = {{'pmej': 'JSON[]'}},
+                   maximum_object_size = 2000000000)
+),
+ege AS (SELECT unnest(from_json(p -> '$.ege', '["JSON"]')) AS e FROM pm),
+adresses AS (
+    SELECT e ->> '$.informationsGeneralesEGE.numFinessEge' AS finess,
+           unnest(from_json(e -> '$.adresse', '["JSON"]')) -> '$.coordonneesGeographique' AS c
+    FROM ege
+)
+SELECT finess,
+       ST_Point(any_value(c ->> '$.coordonneeX')::DOUBLE,
+                any_value(c ->> '$.coordonneeY')::DOUBLE) AS geom
+FROM (FROM adresses WHERE c ->> '$.coordonneeX' IS NOT NULL)
+WHERE finess IN (SELECT FI_ET FROM maternites)
+GROUP BY finess"""
+```
+
+<details>
+<summary>La requête SQL générée</summary>
+
+```{python}
+#| echo: false
+#| output: asis
+print(f"```sql\n{requete_finess_ans}\n```")
+```
+
+</details>
+
+```{python}
+#| output: false
+con.sql(requete_finess_ans)
+```
+
+```{python}
+#| echo: false
+ojs_define(finess_ans_apercu=apercu_finess("finess_ans", ""))
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(finess_ans_apercu, {
+  header: {finess: "FINESS", maternite: "Maternité (DREES)"},
+  layout: "auto",
+  rows: 8
+})
+```
+
+```{python}
+#| echo: false
+ojs_define(couverture_finess=con.sql("""
+SELECT (SELECT count(DISTINCT FI_ET) FROM maternites) AS maternites,
+       (SELECT count(*) FROM finess) AS ouverts,
+       (SELECT count(*) FROM finess_ans) AS ans
+""").df().to_dict("records")[0])
+```
+
+```{ojs}
+//| echo: false
+html`<p>Sur les <strong>${couverture_finess.maternites}</strong> établissements de la liste de la
+DREES, <strong>${couverture_finess.ouverts}</strong> sont dans l'extraction géolocalisée et
+<strong>${couverture_finess.ans}</strong> dans le flux de l'ANS.</p>`
+```
+
+### Les fonds de carte des communes avec `cartiflette`
+
+Pour rattacher chaque maternité à sa commune actuelle et compter les communes qui ont perdu la leur, on lit les contours des communes 2026 publiés par [cartiflette](https://github.com/InseeFrLab/cartiflette) en `Parquet` (voir [la documentation](https://inseefrlab.github.io/cartiflette/) pour les niveaux disponibles, les années et les autres façons de les récupérer).
+
+Paris, Lyon et Marseille sont lus par arrondissement, et aussi en entier : la DREES code certaines maternités de ces villes par la commune (`75056`), d'autres par l'arrondissement.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level={level}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+requete_communes = f"""CREATE TABLE communes AS
+SELECT INSEE_COG AS code, INSEE_COM AS commune, NOM AS nom, AREA AS territoire, geometry
+FROM read_parquet('{CARTIFLETTE_URL.format(level="COMMUNE_ARRONDISSEMENT")}',
+                  hive_partitioning = false)
+UNION ALL
+SELECT INSEE_COM, INSEE_COM, NOM, AREA, geometry
+FROM read_parquet('{CARTIFLETTE_URL.format(level="COMMUNE")}', hive_partitioning = false)
+WHERE INSEE_COM IN ('75056', '69123', '13055')"""
+```
+
+<details>
+<summary>La requête SQL générée</summary>
+
+```{python}
+#| echo: false
+#| output: asis
+print(f"```sql\n{requete_communes}\n```")
+```
+
+</details>
+
+```{python}
+#| output: false
+con.sql(requete_communes)
+```
+
+Le niveau `COMMUNE_ARRONDISSEMENT` mêle les deux : dans les Bouches-du-Rhône, Marseille y est
+découpée en ses 16 arrondissements, les autres communes restent entières.
+
+```{python}
+#| echo: false
+bouches_du_rhone = con.sql("""
+SELECT code, nom, code <> commune AS arrondissement,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Transform(geometry, 'EPSG:4326', 'EPSG:2154'), 1)) AS geometrie
+FROM communes WHERE code LIKE '13%' AND code <> '13055'
+""").fetchall()
+ojs_define(bouches_du_rhone={
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"code": code, "nom": nom, "arrondissement": arrondissement},
+            "geometry": json.loads(geometrie),
+        }
+        for code, nom, arrondissement, geometrie in bouches_du_rhone
+    ],
+})
+```
+
+```{ojs}
+//| echo: false
+// Coordonnées en Lambert 93 : une projection plane suffit.
+Plot.plot({
+  projection: {type: "reflect-y", domain: bouches_du_rhone},
+  height: 480,
+  marks: [
+    Plot.geo(bouches_du_rhone.features.filter((d) => !d.properties.arrondissement), {
+      stroke: "currentColor", strokeOpacity: 0.45, strokeWidth: 0.6
+    }),
+    Plot.geo(bouches_du_rhone.features.filter((d) => d.properties.arrondissement), {
+      fill: texteOuverte, fillOpacity: 0.15, stroke: texteOuverte, strokeWidth: 1.4
+    }),
+    Plot.tip(bouches_du_rhone.features, Plot.pointer(Plot.centroid({
+      title: (d) => `${d.properties.nom} (${d.properties.code})`
+    })))
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small><span style="color:${texteOuverte}">■</span> arrondissements de Marseille
+&nbsp;·&nbsp; <span style="opacity:0.6">□</span> autres communes. Source : IGN, ADMIN EXPRESS
+COG CARTO 2026, via cartiflette.</small></p>`
+```
+
+### Le géocodage des adresses (Géoplateforme)
+
+Pour les quelques maternités absentes des deux fichiers FINESS, on géocode leur dernière adresse
+connue avec le [service de géocodage de la Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) de l'IGN, qui s'appuie sur la Base adresse nationale. Plus de détails sur cette API et son utilisation avec `Python` dans mon cours de [Python pour la *data* (pythonds.linogaliana.fr/)(https://pythonds.linogaliana.fr/content/manipulation/04c_API_TP.html)].
+
+```{python}
+#| output: false
+GEOCODAGE_URL = "https://data.geopf.fr/geocodage/search"
+
+
+def geocode(adresse, essais=6):
+    """Coordonnées (lon, lat) d'une adresse, ou None si seule la commune est trouvée."""
+    url = GEOCODAGE_URL + "?" + urllib.parse.urlencode({"q": adresse, "limit": 1})
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as reponse:
+                resultats = json.load(reponse)["features"]
+            break
+        except urllib.error.HTTPError as erreur:
+            if (erreur.code != 429 and erreur.code < 500) or essai == essais - 1:
+                raise
+            time.sleep(2**essai)
+    time.sleep(0.25)
+    if not resultats or resultats[0]["properties"]["type"] == "municipality":
+        return None
+    return resultats[0]["geometry"]["coordinates"]
+```
+
+## Les traitements
+
+### Harmoniser les codes communes
+
+La DREES code les communes des DROM `9A101` (Guadeloupe) à `9F611` (Mayotte), là où le code
+officiel est `97101` ou `97611`. Deux communes de 2000 ont depuis fusionné. On ramène tout au
+code officiel géographique 2026, puis on garde pour chaque établissement (numéro FINESS) sa
+dernière adresse connue.
+
+```{python}
+#| output: false
+con.sql("""
+CREATE OR REPLACE TABLE maternites AS
+SELECT *,
+       CASE
+           WHEN COM = '59540' THEN '59183'  -- Saint-Pol-sur-Mer -> Dunkerque
+           WHEN COM = '91182' THEN '91228'  -- Courcouronnes -> Évry-Courcouronnes
+           -- 9A101 -> 97101 : la lettre remplace le 7 de 97
+           WHEN regexp_matches(COM, '^9[A-F]') THEN '97' || COM[3:]
+           ELSE COM
+       END AS code
+FROM maternites
+""")
+
+con.sql("""
+CREATE TABLE sites AS
+SELECT FI_ET AS finess, arg_max(ADRESSE, annee) AS adresse,
+       arg_max(NOMCOM, annee) AS nomcom, arg_max(code, annee) AS code
+FROM maternites GROUP BY FI_ET
+""")
+```
+
+### Placer chaque maternité
+
+Chaque maternité reçoit une position, prise dans la première source qui en donne une, de la
+plus sûre à la moins sûre :
+
+1. le FINESS géolocalisé, pour les établissements encore ouverts ;
+2. le flux FINESS de l'ANS, qui garde la position des établissements fermés ;
+3. l'adresse de la DREES, géocodée par la Géoplateforme, pour les maternités absentes des deux
+   FINESS. Le géocodage peut se tromper : on ne garde le point que s'il tombe dans la commune de
+   la maternité ;
+4. en dernier recours, un point au milieu de la commune.
+
+On commence par géocoder les adresses des maternités qu'aucun des deux FINESS ne situe. La
+fonction `geocode` renvoie `None` quand l'adresse n'est pas trouvée plus précisément que la
+commune : ces maternités passeront au point 4.
+
+```{python}
+#| output: false
+a_geocoder = con.sql("""
+SELECT finess, adresse || ' ' || nomcom FROM sites
+WHERE finess NOT IN (SELECT finess FROM finess UNION SELECT finess FROM finess_ans)
+""").fetchall()
+geocodes = [
+    (finess, *coords)
+    for finess, adresse in a_geocoder
+    if (coords := geocode(" ".join(adresse.split())))  # espaces en trop retirés
+]
+con.sql("CREATE TABLE geocodage (finess VARCHAR, lon DOUBLE, lat DOUBLE)")
+con.executemany("INSERT INTO geocodage VALUES (?, ?, ?)", geocodes)
+```
+
+On empile ensuite, pour chaque maternité, toutes les positions disponibles (`candidats`), avec
+leur `rang` de 1 à 4. Chaque position est rattachée à la commune où elle tombe
+(`ST_Intersects`). Les positions géocodées ou au centre de la commune (rangs 3 et 4) ne sont
+gardées que si cette commune est bien celle de la maternité. Il ne reste alors qu'à garder, pour
+chaque maternité, la position de plus petit rang (`QUALIFY row_number() ... = 1`).
+
+```{python}
+#| output: false
+con.sql("""
+CREATE TABLE positions AS
+-- Toutes les positions possibles de chaque maternité, numérotées de la plus sûre (1)
+-- à la moins sûre (4).
+WITH candidats AS (
+    SELECT s.finess, s.code, c.commune AS commune_attendue, 1 AS rang,
+           'FINESS' AS source, f.geom
+    FROM sites s JOIN finess f USING (finess) LEFT JOIN communes c USING (code)
+    UNION ALL
+    SELECT s.finess, s.code, c.commune, 2, 'FINESS, établissement fermé', a.geom
+    FROM sites s JOIN finess_ans a USING (finess) LEFT JOIN communes c USING (code)
+    UNION ALL
+    SELECT s.finess, s.code, c.commune, 3, 'adresse géocodée', ST_Point(g.lon, g.lat)
+    FROM sites s JOIN geocodage g USING (finess) LEFT JOIN communes c USING (code)
+    UNION ALL
+    SELECT s.finess, s.code, c.commune, 4, 'centre de la commune', ST_PointOnSurface(c.geometry)
+    FROM sites s JOIN communes c USING (code)
+)
+-- La commune où tombe chaque position (à défaut, celle de la DREES).
+SELECT p.finess, p.rang, p.source, p.geom,
+       coalesce(c.commune, p.code) AS commune,
+       coalesce(c.nom, s.nomcom) AS nom_commune,
+       coalesce(c.territoire, 'autre') AS territoire
+FROM candidats p
+JOIN sites s USING (finess)
+LEFT JOIN communes c ON ST_Intersects(c.geometry, p.geom)
+-- Les FINESS sont gardés tels quels ; le reste doit tomber dans la bonne commune.
+WHERE p.rang < 3 OR c.commune = p.commune_attendue
+-- Une seule position par maternité : celle de plus petit rang. Paris, Lyon,
+-- Marseille : le point tombe dans la commune et dans son arrondissement ; on
+-- garde l'arrondissement.
+QUALIFY row_number() OVER (PARTITION BY p.finess ORDER BY p.rang, c.code = c.commune) = 1
+""")
+```
+
+Enfin, chaque ligne du fichier de la DREES (une maternité, une année) reçoit la position de sa maternité. On compte au passage combien d'établissements chaque source a permis de placer.
+
+```{python}
+#| output: false
+con.sql("""
+CREATE TABLE points AS
+SELECT m.annee, m.NOM_MAT AS nom, m.TYPE AS type, m.STATUT AS statut,
+       m.FI_ET AS finess, m.ACCTOT AS accouchements, p.* EXCLUDE (finess, rang)
+FROM maternites m LEFT JOIN positions p ON p.finess = m.FI_ET
+""")
+
+sources = con.sql("""
+SELECT source AS localisation, count(*) AS etablissements
+FROM positions GROUP BY source ORDER BY min(rang)
+""").df()
+```
+
+```{python}
+#| echo: false
+ojs_define(sources=sources.to_dict("records"))
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(sources, {
+  header: {localisation: "Localisation", etablissements: "Établissements"},
+  layout: "auto"
+})
+```
+
+Comme ce n'est pas une notion présente de manière directement dans les données, on va dire qu'une commune perd sa maternité l'année qui suit la dernière où elle en avait une. La croix est placée sur sa dernière maternité[^cog].
+
+[^cog]: Pour se simplifier la vie, on est ici en géographie 2026 du code officiel géographiques. Les communes fusionnées depuis 2000 comptent pour une seule: cela peut expliquer des différences par rapport aux chiffres de la Drees (qui font foi ! L'exercice ici est expérimental).
+
+```{python}
+#| output: false
+con.sql(f"""
+CREATE TABLE pertes AS
+WITH derniere AS (
+    SELECT commune, max(annee) AS derniere
+    FROM points WHERE geom IS NOT NULL
+    GROUP BY commune
+)
+SELECT d.commune, d.derniere,
+       arg_max(p.nom_commune, p.annee) AS nom_commune,
+       arg_max(p.territoire, p.annee) AS territoire,
+       arg_max(round(ST_X(p.geom), 5), p.annee) AS lon,
+       arg_max(round(ST_Y(p.geom), 5), p.annee) AS lat
+FROM derniere d JOIN points p USING (commune)
+WHERE d.derniere < {ANNEES[-1]}
+GROUP BY ALL
+""")
+```
+
+### Contrôler le comptage
+
+Le nombre de maternités sur la carte doit être celui du tableau de synthèse de la DREES, année
+par année.
+
+```{python}
+#| output: false
+points = con.sql("""
+SELECT annee, nom, type, statut, accouchements, commune, nom_commune, territoire, source,
+       round(ST_X(geom), 5) AS lon, round(ST_Y(geom), 5) AS lat
+FROM points WHERE geom IS NOT NULL
+""").df()
+pertes = con.sql("FROM pertes").df()
+
+controle = [
+    {"annee": annee, "drees": synthese.get(annee), "carte": int((points.annee == annee).sum())}
+    for annee in ANNEES
+]
+assert all(c["drees"] == c["carte"] for c in controle), "comptage différent de la DREES"
+```
+
+Les `{python} len(ANNEES)` années concordent : de `{python} controle[0]["carte"]` maternités
+en 2000 à `{python} controle[-1]["carte"]` en 2024. C'est aussi le chiffre de la DREES dans son
+panorama 2026 (voir plus bas), qui compte, comme ici, Saint-Martin, Saint-Barthélemy et le
+service de santé des armées.
+
+```{python}
+#| echo: false
+ojs_define(
+    points=points.to_dict("records"),
+    pertes=pertes.to_dict("records"),
+    annees=ANNEES,
+    controle=controle,
+)
+```
+
+## Les données de la carte
+
+*In fine*, on aboutit avec les données suivantes pour produire la carte. Celle-ci est construite en `Javascript` pour permettre une interactivité. Le code source, assez verbeux, est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(ouvertes, {
+  placeholder: "Rechercher une maternité, une commune…",
+  format: (n) => `${n} maternité${n > 1 ? "s" : ""}`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["nom", "nom_commune", "accouchements", "type", "statut", "source"],
+  header: {
+    nom: "Maternité", nom_commune: "Commune", type: "Type", statut: "Statut",
+    accouchements: "Accouchements", source: "Localisation"
+  },
+  format: {accouchements: (x) => x?.toLocaleString("fr-FR") ?? ""},
+  sort: "accouchements",
+  reverse: true,
+  rows: 15,
+  width: {nom: 300, nom_commune: 180, accouchements: 110, type: 50}
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(points)], {type: "text/csv"}),
+  "maternites_2000_2024.csv",
+  "Télécharger toutes les années (CSV)"
+)
+```
+
+:::
+
+## Références
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
+## Pour aller plus loin
+
+Plusieurs publications de la Drees reviennent sur les enjeux des fermetures de maternité. Voici quelques unes:
+
+- DREES, [*Les établissements de santé en 2024*, édition 2026](https://drees.solidarites-sante.gouv.fr/publications-communique-de-presse-documents-de-reference/panoramas-de-la-drees/260520-Etablissements-de-sant%C3%A9-en-2024),
+  fiche 19 [« La naissance : les maternités »](https://drees.solidarites-sante.gouv.fr/sites/default/files/2026-07/ES%202026%20-%20Fiche%2019%20-%20La%20naissance%20-%20les%20maternit%C3%A9s.pdf) :
+  445 maternités en France fin 2024 (Saint-Martin et Saint-Barthélemy compris, service de santé
+  des armées compris), 88 de moins qu'en 2014.
+- DREES, Études et résultats n° 1353, novembre 2025, [« Dans les établissements de santé en 2024, la baisse du nombre de lits ralentit et les alternatives à l'hospitalisation complète poursuivent leur progression »](https://drees.solidarites-sante.gouv.fr/publications-communique-de-presse/etudes-et-resultats/251113_ER_etablissements-de-sante).
+- DREES, Études et résultats n° 1201, juillet 2021, [« La part des femmes en âge de procréer résidant à plus de 45 minutes d'une maternité augmente entre 2000 et 2017 »](https://drees.solidarites-sante.gouv.fr/sites/default/files/2021-07/ER1201.pdf).
+- DREES, jeu de données [« Liste des maternités de France au 31 décembre 2024 »](https://drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/liste-des-maternites-de-france-au-31-decembre).
+:::

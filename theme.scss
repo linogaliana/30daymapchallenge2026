@@ -1,0 +1,116 @@
+/*-- scss:defaults --*/
+
+// Open Sans pour tout le texte, à la place de Source Sans Pro (cosmo) et Lato
+// (darkly) : ces thèmes chargent leur police depuis $web-font-path.
+$web-font-path: "https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap";
+$font-family-sans-serif: "Open Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$headings-font-family: $font-family-sans-serif;
+
+$line-height-base: 1.7;
+$headings-line-height: 1.3;
+$headings-font-weight: 700;
+$paragraph-margin-bottom: 1.25rem;
+$code-font-size: 0.85em;
+
+/*-- scss:rules --*/
+
+// Titres : de l'air avant, un peu moins après.
+#quarto-document-content {
+  h2 {
+    margin-top: 3rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.4rem;
+  }
+
+  h3 {
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+  }
+
+  h4 {
+    margin-top: 2rem;
+  }
+}
+
+#title-block-header {
+  margin-bottom: 2.5rem;
+
+  .description {
+    margin-top: 0.5rem;
+    font-size: 1.1rem;
+    opacity: 0.8;
+  }
+}
+
+p.lead {
+  line-height: 1.6;
+  margin-bottom: 1.75rem;
+}
+
+// Listes : chaque point se détache du suivant.
+#quarto-document-content li {
+  margin-bottom: 0.5rem;
+}
+
+// Code : interligne plus serré que le texte, mais des marges autour du bloc.
+div.sourceCode {
+  margin: 1.5rem 0;
+}
+
+div.sourceCode pre.sourceCode {
+  padding: 1rem 1.25rem;
+  line-height: 1.55;
+}
+
+// Blocs repliables (fiche Drees, requête SQL générée, légende).
+#quarto-document-content details:not(.maplibregl-ctrl) {
+  margin: 1.25rem 0 1.75rem;
+
+  > summary {
+    margin-bottom: 0.5rem;
+  }
+}
+
+// Sorties visibles (curseur, ligne de l'année, cartes, tableaux) : une marge
+// sur chacune, pas sur les cellules, dont beaucoup ne montrent rien (code
+// masqué, définitions).
+.observablehq {
+  > form,
+  > p {
+    margin-bottom: 1rem;
+  }
+
+  > .maplibregl-map,
+  > svg,
+  > figure {
+    margin-top: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  > a[download] {
+    display: inline-block;
+    margin-top: 1rem;
+  }
+}
+
+// Tableaux Markdown : cellules moins tassées, de l'air après.
+#quarto-document-content table.table {
+  margin-bottom: 2rem;
+  line-height: 1.5;
+
+  > :not(caption) > * > * {
+    padding: 0.6rem 0.75rem;
+  }
+}
+
+// Séparateurs.
+#quarto-document-content hr {
+  margin: 2rem 0;
+}
+
+// Notes de bas de page : plus petites, mais lisibles.
+section.footnotes {
+  margin-top: 3rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
