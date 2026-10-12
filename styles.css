@@ -286,7 +286,7 @@ a[download] button:hover {
 
 /* Tableaux du texte (sources) : défilement horizontal sur un écran étroit */
 @media (max-width: 575.98px) {
-  #quarto-document-content table:not(.parallele) {
+  #quarto-document-content table:not(.nombres) {
     display: block;
     overflow-x: auto;
   }
@@ -375,7 +375,7 @@ a[download] button:hover {
   text-align: justify;
 }
 
-.parallele td:not(:first-child),
-.parallele th:not(:first-child) {
+.nombres td:not(:first-child),
+.nombres th:not(:first-child) {
   text-align: right;
 }
