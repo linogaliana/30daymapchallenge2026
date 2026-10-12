@@ -283,3 +283,99 @@ a[download] button:hover {
 .page-accueil p.author {
   display: none;
 }
+
+/* Tableaux du texte (sources) : défilement horizontal sur un écran étroit */
+@media (max-width: 575.98px) {
+  #quarto-document-content table:not(.parallele) {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* J6 : la planche de Dupin, sur papier dans les deux thèmes ; l'original plus étroit */
+.duo-dupin {
+  align-items: start;
+  margin-bottom: 2rem;
+}
+
+@media (min-width: 992px) {
+  .duo-dupin {
+    grid-template-columns: 2fr 3fr;
+  }
+}
+
+.duo-dupin figure {
+  margin: 0;
+}
+
+.duo-dupin .original img {
+  width: 100%;
+  height: auto;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.duo-dupin figcaption {
+  margin-top: 0.5em;
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+.planche {
+  padding: 1.2em 1em 1em;
+  border: 1px solid #2a2119;
+  outline: 3px double #2a2119;
+  outline-offset: -8px;
+  background: #f1e8cf;
+  color: #2a2119;
+  font-family: "IM Fell English", Georgia, serif;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.planche > svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.planche-titre {
+  font-family: "IM Fell English SC", Georgia, serif;
+  font-size: 1.15em;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+
+.planche-sous-titre {
+  font-style: italic;
+  text-align: center;
+}
+
+.planche-legende,
+.planche-outre-mer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.3em 1em;
+  margin-top: 0.5em;
+  font-size: 0.85em;
+}
+
+.planche-legende span,
+.planche-outre-mer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+.planche-note {
+  margin: 0.75em 0 0;
+  font-size: 0.85em;
+  font-style: italic;
+  line-height: 1.4;
+  text-align: justify;
+}
+
+.parallele td:not(:first-child),
+.parallele th:not(:first-child) {
+  text-align: right;
+}

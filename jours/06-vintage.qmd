@@ -1,21 +1,534 @@
 ---
-title: "J6 · Vintage — La carte de Dupin, 200 ans après"
-description: "La France obscure et la France éclairée, avec les données d'aujourd'hui."
+title: "J6 · Vintage. La carte de Dupin, 200 ans après"
+description: "La France obscure et la France éclairée de Charles Dupin (1826), redessinées avec les évaluations de début de sixième de la DEPP."
+execute:
+  echo: true
+code-overflow: wrap
+include-in-header:
+  text: |
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&display=swap" rel="stylesheet">
 ---
 
-## Idée
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+pourcent = (x) => `${virgule(x)} %`
+metropole = departements.filter((d) => d.nord !== null)
+plusClair = d3.least(metropole, (d) => d.part)
+plusSombre = d3.greatest(metropole, (d) => d.part)
+html`<p class="lead">
+  En 1826, le baron Charles Dupin publie la première carte choroplèthe : la France
+  « obscure » et la France « éclairée », selon le nombre d'habitants pour un garçon à
+  l'école. Deux siècles plus tard, à l'entrée en sixième, en ${annee},
+  <strong>${pourcent(france.part)} des élèves</strong> sont parmi les moins performants en
+  français. En métropole, cette part va de ${pourcent(plusClair.part)} (${plusClair.nom}) à
+  ${pourcent(plusSombre.part)} (${plusSombre.nom}). La Bretagne, la plus sombre en 1826, est aujourd'hui
+  parmi les plus claires ; l'ombre s'est déplacée vers le nord-est.
+</p>`
+```
 
-Refaire la carte de Charles Dupin (1826), « France obscure et France éclairée », considérée comme la première choroplèthe, avec les données actuelles.
+Pour ce sixième jour, consacré au vintage, on reprend la carte de Dupin avec sa manière : teintes
+gravées, nom et nombre de chaque département, ligne de Saint-Malo à Genève. Les données d'aujourd'hui
+viennent de la DEPP, le service statistique de l'Éducation nationale (making of 👇).
 
-## Données
+--------
 
-- Part de diplômés du supérieur (recensement, Insee) ou résultats de la DEPP.
-- Départements : cartiflette.
+```{ojs}
+//| echo: false
+// Teintes d'une gravure : un ton de papier sous des tailles horizontales de plus
+// en plus épaisses. La planche garde son papier dans les deux thèmes du site.
+papier = "#f1e8cf"
+encre = "#2a2119"
+seuils = [22, 26, 30, 34]
+tons = ["#efe5c9", "#d8caa7", "#b5a584", "#7b6c55", "#2c241c"]
+tailles = [0.3, 0.6, 1, 1.6, 2.6]
+classe = (part) => d3.bisectRight(seuils, part)
+hachure = (i) => `url(#j6-hachure-${i})`
+motifs = svg`<defs>${tons.map((ton, i) => svg`
+  <pattern id="j6-hachure-${i}" width="6" height="3" patternUnits="userSpaceOnUse">
+    <rect width="6" height="3" fill="${ton}"></rect>
+    <line x1="0" x2="6" y1="1.5" y2="1.5" stroke="${encre}" stroke-opacity="0.35"
+          stroke-width="${tailles[i]}"></line>
+  </pattern>`)}</defs>`
+gravure = "'IM Fell English', Georgia, serif"
+lignes = new Map(departements.map((d) => [d.code, d]))
+// Capitales espacées, comme les mers et les pays voisins de l'original.
+espacer = (texte) => [...texte].join(" ")
 
-## Traitement (DuckDB)
+// Le nom sur deux lignes s'il est long, coupé au tiret le plus proche du milieu.
+function etiquette(nom) {
+  if (nom.length < 12 || !nom.includes("-")) return nom
+  const tirets = [...nom.matchAll(/-/g)].map((m) => m.index)
+  const i = d3.least(tirets, (t) => Math.abs(t - nom.length / 2))
+  return `${nom.slice(0, i)}-\n${nom.slice(i + 1)}`
+}
+// Paris et la petite couronne : le nombre seul.
+petits = new Set(["75", "92", "93", "94"])
 
-- Indicateur par département.
+decrire = (d) => `${d.nom} (${d.code})\n` +
+  `${pourcent(d.part)} des élèves parmi les moins performants\n` +
+  `Score moyen : ${d.score}\nIndice de position sociale moyen : ${virgule(d.ips)}` +
+  (d.nord === null ? "" : `\nFrance du ${d.nord ? "Nord" : "Sud"} de Dupin`)
+```
 
-## Carte (Plot)
+::: {.column-page}
 
-- Style d'époque (papier sépia, hachures, serif), côte à côte avec l'original.
+```{ojs}
+//| echo: false
+planche = {
+  const carte = Plot.plot({
+    width: 640,
+    height: 600,
+    margin: 6,
+    style: {background: "transparent", color: encre, fontFamily: gravure},
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: contours, inset: 8},
+    color: {type: "identity"},
+    marks: [
+      Plot.geo(contours, {
+        fill: (f) => hachure(classe(lignes.get(f.properties.code).part)),
+        stroke: encre, strokeWidth: 0.6, strokeOpacity: 0.8
+      }),
+      Plot.text(voisins, {
+        x: "lon", y: "lat", text: (d) => espacer(d.nom), rotate: "angle", fontSize: 13,
+        fill: encre, fillOpacity: 0.55
+      }),
+      Plot.line(ligneDupin, {x: "lon", y: "lat", stroke: encre, strokeWidth: 1.2, strokeDasharray: "6 3"}),
+      Plot.text(ligneDupin, {
+        x: "lon", y: "lat", text: "ville", dy: -9, fontSize: 10, fontStyle: "italic", fill: encre,
+        stroke: papier, strokeWidth: 3
+      }),
+      // Nom et nombre de chaque département, en clair sur les teintes sombres.
+      Plot.text(contours.features, Plot.centroid({
+        text: (f) => {
+          const d = lignes.get(f.properties.code)
+          return petits.has(d.code) ? virgule(d.part) : `${etiquette(d.nom)}\n${virgule(d.part)}`
+        },
+        fontSize: (f) => (petits.has(f.properties.code) ? 6 : 8),
+        fill: (f) => (classe(lignes.get(f.properties.code).part) >= 3 ? papier : encre),
+        lineHeight: 1.05
+      })),
+      Plot.tip(contours.features, Plot.pointer(Plot.centroid({
+        title: (f) => decrire(lignes.get(f.properties.code))
+      })))
+    ]
+  })
+  carte.prepend(motifs)
+  return carte
+}
+
+pastille = (i) => svg`<svg width="34" height="18" aria-hidden="true">
+  <rect width="34" height="18" fill="${hachure(i)}" stroke="${encre}" stroke-width="0.6"></rect></svg>`
+bornes = ["moins de 22", "22 à 26", "26 à 30", "30 à 34", "34 ou plus"]
+outreMer = departements.filter((d) => d.nord === null)
+
+html`<div class="duo duo-dupin">
+  <figure class="original">
+    <a href="${DUPIN_PAGE}">
+      <img src="${DUPIN_IMAGE}" alt="Carte figurative de l'instruction populaire de la France, Charles Dupin, 1826 : départements en gris d'autant plus sombres qu'il y a d'habitants pour un enfant à l'école ; la Bretagne et le centre sont les plus noirs.">
+    </a>
+    <figcaption>Charles Dupin, <em>Carte figurative de l'instruction populaire de la France</em>,
+      1826 (dessin de J. Collon). Bibliothèque nationale de France, via Wikimedia Commons.
+      Domaine public.</figcaption>
+  </figure>
+  <figure class="planche">
+    <div class="planche-titre">Carte figurative de l'instruction de la France</div>
+    <div class="planche-sous-titre">à l'entrée en sixième, ${annee}</div>
+    ${planche}
+    <div class="planche-legende">
+      ${bornes.map((b, i) => html`<span>${pastille(i)} ${b}</span>`)}
+    </div>
+    <div class="planche-outre-mer">
+      <em>Outre-mer :</em>
+      ${outreMer.map((d) => html`<span>${pastille(classe(d.part))} ${d.nom} ${virgule(d.part)}</span>`)}
+    </div>
+    <p class="planche-note">La noirceur des teintes correspond à la grandeur des nombres placés
+      au-dessous du nom de chaque département : la part, en pour cent, des élèves de sixième
+      les moins performants en français (groupes 1 et 2 de l'évaluation nationale de
+      septembre ${annee}). Source : DEPP ; IGN, via cartiflette.</p>
+  </figure>
+</div>`
+```
+
+:::
+
+Dupin explique ainsi sa carte, dans la marge de la planche :
+
+> Dans notre carte, la noirceur des teintes correspond à la grandeur des nombres placés au-dessous
+> du nom de chaque Département. Cette teinte et ce nombre indiquent combien il faut de personnes
+> pour fournir un enfant mâle aux écoles. Ainsi le département de la Moselle compte un élève par
+> dix habitants, et celui de la Haute-Loire un par 268 habitants. […] J'appelle France du Nord
+> les 32 départements séparés par une ligne presque droite, menée de Saint-Malo jusqu'à Genève.
+> Les 54 autres départements forment la France du Sud.
+
+La nouvelle carte suit la même règle : plus le nombre est grand, plus la teinte est sombre. Mais le
+nombre n'est plus le même. Dupin comptait les garçons inscrits à l'école, à une époque où beaucoup
+d'enfants n'y allaient pas. Aujourd'hui, tous les enfants vont à l'école : on regarde ce qu'ils y
+ont appris, avec l'évaluation que passent tous les élèves à l'entrée en sixième.
+
+### Les plus obscurs de 1826, aujourd'hui
+
+```{ojs}
+//| echo: false
+{
+  const rang = new Map(d3.sort(metropole, (d) => d.part).map((d, i) => [d.code, i + 1]))
+  return html`<table class="table parallele">
+    <thead><tr><th>Département</th><th>Habitants pour un élève, 1826</th>
+      <th>Élèves les moins performants, ${annee}</th>
+      <th>Rang en ${annee}, du plus clair au plus sombre</th></tr></thead>
+    <tbody>${dupin.map((o) => {
+      const d = lignes.get(o.code)
+      return html`<tr><td>${d.nom}</td><td>${o.habitants}</td><td>${pourcent(d.part)}</td>
+        <td>${rang.get(o.code)}<sup>e</sup> sur ${metropole.length}</td></tr>`
+    })}</tbody>
+  </table>`
+}
+```
+
+### Le parallèle statistique
+
+Dupin opposait, sous sa carte, la France du Nord et la France du Sud. Le même tableau, avec les
+départements d'aujourd'hui placés de part et d'autre de sa ligne :
+
+```{ojs}
+//| echo: false
+html`<table class="table parallele">
+  <thead><tr><th></th><th>France du Nord</th><th>France du Sud</th><th>Métropole</th></tr></thead>
+  <tbody>
+    <tr><td>Départements</td>${parallele.map((p) => html`<td>${p.departements}</td>`)}</tr>
+    <tr><td>Élèves les moins performants (moyenne des départements)</td>
+      ${parallele.map((p) => html`<td>${pourcent(p.part)}</td>`)}</tr>
+    <tr><td>Indice de position sociale moyen (moyenne des départements)</td>
+      ${parallele.map((p) => html`<td>${virgule(p.ips)}</td>`)}</tr>
+  </tbody>
+</table>`
+```
+
+```{ojs}
+//| echo: false
+{
+  const [nord, sud] = parallele
+  return nord.part > sud.part
+    ? html`<p>La ligne de Saint-Malo à Genève sépare encore, mais dans l'autre sens : la France du
+      Nord, l'« éclairée » de 1826, compte aujourd'hui en moyenne ${pourcent(nord.part)} d'élèves
+      parmi les moins performants, contre ${pourcent(sud.part)} au sud. L'écart tient surtout à
+      l'origine sociale des élèves : plus elle est favorisée, moins il y a d'élèves en difficulté.</p>`
+    : html`<p>Comme en 1826, la France du Nord reste la plus claire : ${pourcent(nord.part)}
+      d'élèves parmi les moins performants en moyenne, contre ${pourcent(sud.part)} au sud. L'écart
+      tient surtout à l'origine sociale des élèves : plus elle est favorisée, moins il y a d'élèves
+      en difficulté.</p>`
+}
+```
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+```
+
+```{ojs}
+//| echo: false
+{
+  const fond = sombre ? "#222" : "#fff"
+  const couleurs = {
+    "France du Nord": sombre ? "#7cc0e8" : "#2a6f97",
+    "France du Sud": sombre ? "#f0a35e" : "#b8461c",
+    "Outre-mer": sombre ? "#aaa" : "#777"
+  }
+  const points = departements.map((d) => ({
+    ...d, groupe: d.nord === null ? "Outre-mer" : d.nord ? "France du Nord" : "France du Sud"
+  }))
+  // Noms : les extrêmes et les départements les plus sombres de Dupin.
+  const noms = points.filter((d) => d.part >= 34 || d.part <= 20 || dupin.some((o) => o.code === d.code))
+  return Plot.plot({
+    width: 760,
+    height: 460,
+    style: `--plot-background: ${fond}; background: transparent`,
+    marginLeft: 50,
+    marginTop: 30,
+    x: {label: "Indice de position sociale moyen des élèves →", grid: true},
+    y: {label: "↑ Élèves les moins performants (%)", grid: true, type: "log",
+        ticks: [15, 20, 30, 40, 60, 80], tickFormat: (y) => y.toLocaleString("fr-FR")},
+    color: {domain: Object.keys(couleurs), range: Object.values(couleurs), legend: true,
+            style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.dot(points, {x: "ips", y: "part", fill: "groupe", r: 5, fillOpacity: 0.75, stroke: fond}),
+      Plot.text(noms, {
+        x: "ips", y: "part", text: "nom", dy: -10, fontSize: 11,
+        stroke: fond, strokeWidth: 3, fill: "currentColor"
+      }),
+      Plot.tip(points, Plot.pointer({x: "ips", y: "part", title: decrire}))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Un point par département. France du Nord et du Sud au sens de Dupin, de part
+et d'autre de la ligne Saint-Malo–Genève. Échelle logarithmique en ordonnée. Source : DEPP,
+évaluations nationales de début de sixième ${annee}.</small></p>`
+```
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Résultats aux évaluations nationales de début de sixième par département](https://data.education.gouv.fr/explore/dataset/fr-en-evaluations_nationales_6eme_departement/) | DEPP | la part des élèves des groupes 1 et 2 en français, le score moyen et l'indice de position sociale moyen | Parquet |
+| [Départements 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour et le nom de chaque département | GeoParquet |
+| [Carte figurative de l'instruction populaire de la France](https://commons.wikimedia.org/wiki/File:Carte_figurative_de_l%27instruction_populaire_de_la_France_-_Collon,_del._-_btv1b530830640.jpg) | Charles Dupin, 1826 (BnF, via Wikimedia Commons) | l'original, et les nombres de ses départements les plus sombres, lus sur la planche | image |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import json
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les évaluations de sixième (DEPP)
+
+Depuis 2017, tous les élèves de sixième des collèges publics et privés sous contrat passent, en
+septembre, une évaluation nationale en français et en mathématiques. La DEPP publie, sur
+[data.education.gouv.fr](https://data.education.gouv.fr/), les résultats par département : le
+score moyen et la répartition des élèves en six groupes de niveau, du groupe 1 (les résultats les
+plus faibles) au groupe 6 (les plus élevés), construits à partir des scores de 2017. Les groupes 1
+et 2 réunissent les élèves les moins performants. Le jeu de données donne aussi l'indice de
+position sociale (IPS) moyen des élèves, qui résume le milieu social de leurs parents.
+
+Le portail exporte chaque jeu de données en Parquet : DuckDB le lit directement. On garde le
+français, pour tous les élèves (le fichier donne aussi filles et garçons à part).
+
+```{python}
+EVALUATIONS_URL = (
+    "https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/"
+    "fr-en-evaluations_nationales_6eme_departement/exports/parquet"
+)
+
+con.sql(f"""
+CREATE TABLE evaluations AS
+SELECT year(annee) AS annee, code_departement AS code, score_moyen AS score,
+       ips_moyen AS ips, round(groupe_1 + groupe_2, 1) AS part
+FROM read_parquet('{EVALUATIONS_URL}')
+WHERE discipline = 'Français' AND caracteristique = 'Ensemble'
+""")
+annee = con.sql("SELECT max(annee) FROM evaluations").fetchone()[0]
+con.sql(f"SELECT * FROM evaluations WHERE annee = {annee} ORDER BY part DESC LIMIT 8").df().style.hide(
+    axis="index"
+)
+```
+
+La ligne sans code de département est la France entière.
+
+### Les départements (cartiflette)
+
+Les contours des départements 2025 viennent de
+[cartiflette](https://github.com/InseeFrLab/cartiflette). Comme Dupin, on ne dessine que la
+métropole ; les départements d'outre-mer sont dans le cartouche sous la carte. Les contours sont
+simplifiés ensemble (`ST_CoverageSimplify`) pour rester jointifs.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
+    "administrative_level=DEPARTEMENT/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE noms AS
+SELECT INSEE_DEP AS code, LIBELLE_DEPARTEMENT AS nom, AREA = 'metropole' AS metropole, geometry
+FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+""")
+
+lignes = con.sql("""
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY code), 0.01) AS geom
+    FROM noms WHERE metropole
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Collect(list(geom)), 0.001)) AS geojson
+FROM morceaux GROUP BY ALL
+""").fetchall()
+
+contours = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"code": code}, "geometry": json.loads(geojson)}
+        for code, geojson in lignes
+    ],
+}
+```
+
+## Les traitements
+
+### La France du Nord et la France du Sud
+
+Dupin coupe la France par une droite de Saint-Malo à Genève. Un département est dans la France
+du Nord si un de ses points intérieurs (`ST_PointOnSurface`) est au nord de cette droite : le
+signe d'un produit vectoriel dit de quel côté il se trouve. La droite est prolongée au-delà de
+Genève, pour la Savoie et la Haute-Savoie, qui n'étaient pas françaises en 1826.
+
+```{python}
+SAINT_MALO = (-2.0257, 48.6493)
+GENEVE = (6.1432, 46.2044)
+
+con.sql(f"""
+CREATE TABLE departements AS
+WITH points AS (
+    SELECT code, nom, metropole, ST_PointOnSurface(geometry) AS p FROM noms
+)
+SELECT code, nom, e.part, e.score, e.ips,
+       CASE WHEN metropole THEN
+           ({GENEVE[0]} - {SAINT_MALO[0]}) * (ST_Y(p) - {SAINT_MALO[1]})
+           - ({GENEVE[1]} - {SAINT_MALO[1]}) * (ST_X(p) - {SAINT_MALO[0]}) > 0
+       END AS nord
+FROM points JOIN evaluations e USING (code)
+WHERE e.annee = {annee}
+ORDER BY code
+""")
+
+parallele = con.sql("""
+SELECT CASE WHEN nord THEN 'Nord' ELSE 'Sud' END AS france,
+       count(*) AS departements, round(avg(part), 1) AS part, round(avg(ips), 1) AS ips
+FROM departements WHERE nord IS NOT NULL GROUP BY ALL
+UNION ALL
+SELECT 'Métropole', count(*), round(avg(part), 1), round(avg(ips), 1)
+FROM departements WHERE nord IS NOT NULL
+""").df().set_index("france").loc[["Nord", "Sud", "Métropole"]].reset_index()
+parallele.style.hide(axis="index")
+```
+
+La moyenne des départements ne pèse pas chacun selon son nombre d'élèves : la Lozère compte
+autant que le Nord.
+
+### Contrôler
+
+Chaque département dessiné doit avoir ses résultats.
+
+```{python}
+#| output: false
+manquants = {f["properties"]["code"] for f in contours["features"]} - {
+    code for (code,) in con.sql("SELECT code FROM departements").fetchall()
+}
+assert not manquants, f"départements sans résultats : {manquants}"
+```
+
+### Ce qui passe à la carte
+
+Les départements, la France entière, la ligne de Dupin, et les nombres lus sur sa planche pour ses
+cinq départements les plus sombres.
+
+```{python}
+DUPIN = [
+    {"code": "43", "habitants": 268},  # Haute-Loire
+    {"code": "37", "habitants": 229},  # Indre-et-Loire
+    {"code": "56", "habitants": 222},  # Morbihan
+    {"code": "15", "habitants": 209},  # Cantal
+    {"code": "29", "habitants": 199},  # Finistère
+]
+IMAGE = "Carte_figurative_de_l%27instruction_populaire_de_la_France_-_Collon%2C_del._-_btv1b530830640.jpg"
+
+ojs_define(
+    annee=annee,
+    departements=con.sql("SELECT * FROM departements").df().to_dict("records"),
+    france=con.sql(f"SELECT part FROM evaluations WHERE annee = {annee} AND code IS NULL").df().to_dict("records")[0],
+    parallele=parallele.to_dict("records"),
+    contours=contours,
+    dupin=DUPIN,
+    ligneDupin=[
+        {"ville": "Saint-Malo", "lon": SAINT_MALO[0], "lat": SAINT_MALO[1]},
+        {"ville": "Genève", "lon": GENEVE[0], "lat": GENEVE[1]},
+    ],
+    voisins=[
+        {"nom": "LA MANCHE", "lon": -2.6, "lat": 50.0, "angle": 0},
+        {"nom": "OCÉAN", "lon": -4.3, "lat": 45.6, "angle": -90},
+        {"nom": "ESPAGNE", "lon": -1.2, "lat": 42.55, "angle": 0},
+        {"nom": "MER MÉDITERRANÉE", "lon": 5.4, "lat": 42.45, "angle": 0},
+    ],
+    DUPIN_IMAGE=f"https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/{IMAGE}/960px-{IMAGE}",
+    DUPIN_PAGE=f"https://commons.wikimedia.org/wiki/File:{IMAGE.replace('%2C', ',')}",
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(departements, {
+  placeholder: "Rechercher un département…",
+  format: (n) => `${n} départements`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["code", "nom", "part", "score", "ips", "nord"],
+  header: {
+    code: "Code", nom: "Département", part: "Groupes 1 et 2 (%)",
+    score: "Score moyen", ips: "IPS moyen", nord: "France de Dupin"
+  },
+  format: {
+    part: (x) => virgule(x), ips: (x) => virgule(x),
+    nord: (x) => (x === null ? "outre-mer" : x ? "Nord" : "Sud")
+  },
+  sort: "part",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(departements)], {type: "text/csv"}),
+  `evaluations_sixieme_francais_${annee}.csv`,
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Les deux cartes ne mesurent pas la même chose. Dupin rapportait des élèves inscrits à la
+  population ; on regarde ici des acquis, mesurés par un test.
+- Les groupes de niveau ont été fixés sur les scores de 2017. Les modalités de passation et les
+  exercices ont un peu changé depuis (en 2019 notamment) : les comparaisons d'une année à l'autre
+  demandent de la prudence.
+- L'évaluation couvre les collèges publics et privés sous contrat, pas les établissements hors
+  contrat ni l'instruction en famille.
+- Les écarts entre départements suivent de près l'indice de position sociale des élèves : la carte
+  dit où sont les élèves en difficulté, pas où l'école ferait moins bien son travail.
+- La France du Nord et du Sud est reconstruite avec une droite entre deux villes. Les départements
+  d'aujourd'hui ne sont pas tous ceux de Dupin : la Seine et la Seine-et-Oise ont été découpées,
+  la Savoie et le comté de Nice rattachés.
+
+## Pour aller plus loin
+
+- DEPP, Note d'information n° 25-22,
+  [« Évaluation exhaustive de début de sixième 2024 : des performances en légère hausse depuis 2017, y compris en REP+ »](https://www.education.gouv.fr/evaluation-exhaustive-de-debut-de-sixieme-2024-des-performances-en-legere-hausse-depuis-2017-y-450221).
+- Les mêmes résultats [par académie](https://data.education.gouv.fr/explore/dataset/fr-en-evaluations_nationales_6eme_academie/),
+  et pour les autres niveaux évalués (CP, CE1, CM1, quatrième, seconde) sur
+  [data.education.gouv.fr](https://data.education.gouv.fr/).
+- La carte de Dupin sur [Gallica](https://gallica.bnf.fr/ark:/12148/btv1b530830640), la
+  bibliothèque numérique de la BnF.
