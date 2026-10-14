@@ -1,0 +1,450 @@
+---
+title: "J11 · Sound. Un suffixe, six prononciations"
+description: "Cognac, Choisy, Vitré, Vénissieux : le même suffixe gaulois -acum s'entend différemment d'une région à l'autre. Les noms des 35 000 communes, classés par leur terminaison."
+resources:
+  - donnees/j11/*.csv
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x) => `${virgule(100 * x, 0)} %`
+html`<p class="lead">
+  Dans <em>Cognac</em>, <em>Choisy</em>, <em>Vitré</em> ou <em>Vénissieux</em>, on n'entend pas la
+  même terminaison. C'est pourtant souvent le même suffixe gaulois, <em>-acum</em>, qui désignait
+  un domaine, prononcé différemment selon les régions. Sur les
+  ${entier(totaux.communes)} communes de France, <strong>${entier(totaux.familles)}
+  (${pourcent(totaux.familles / totaux.communes)}) ont un nom qui finit par l'un de ses six
+  aboutissements</strong> : -ac, -at, -ieu, -é, -ay ou -ey, -y.
+</p>`
+```
+
+Pour ce onzième jour, consacré au son, on écoute les noms des communes. Chaque carte rassemble
+celles qui finissent de la même façon ; cliquez sur un point, ou sur un bouton 🔊, pour entendre
+le nom (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+couleurPoint = sombre ? "#3987e5" : "#2a78d6"
+couleurTerre = sombre ? "#333" : "#eceae4"
+
+// Les 35 000 communes sont dans un fichier à part, chargé après la page.
+communes = d3.csv("donnees/j11/communes.csv", (d) => ({
+  ...d, population: +d.population, lon: +d.lon, lat: +d.lat
+}))
+
+// Prononcer un nom avec la synthèse vocale du navigateur, en français.
+parler = (texte) => {
+  if (!("speechSynthesis" in window)) return
+  speechSynthesis.cancel()
+  const enonce = new SpeechSynthesisUtterance(texte)
+  enonce.lang = "fr-FR"
+  const voix = speechSynthesis.getVoices().find((v) => v.lang.startsWith("fr"))
+  if (voix) enonce.voice = voix
+  enonce.rate = 0.9
+  speechSynthesis.speak(enonce)
+}
+bouton = (nom) => {
+  const b = html`<button type="button" class="ecouter" title="Écouter">🔊 ${nom}</button>`
+  b.onclick = () => parler(nom)
+  return b
+}
+
+// Une carte de points ; un clic sur une commune la prononce.
+carte = (points, {width = 320, r = 1.4} = {}) => {
+  const plot = Plot.plot({
+    width,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 4},
+    marks: [
+      Plot.geo(departements, {fill: couleurTerre, stroke: fond, strokeWidth: 0.5}),
+      Plot.dot(points, {x: "lon", y: "lat", r, fill: couleurPoint, fillOpacity: 0.8}),
+      Plot.tip(points, Plot.pointer({
+        x: "lon", y: "lat", maxRadius: 12,
+        title: (c) => `${c.nom} (${c.departement})\n${entier(c.population)} habitants\nCliquer pour écouter`
+      }))
+    ]
+  })
+  plot.style.cursor = "pointer"
+  plot.addEventListener("click", () => plot.value && parler(plot.value.nom))
+  return plot
+}
+```
+
+## Les six sons d'*-acum*
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+html`<div class="multiples">${familles.map((f) => html`<figure>
+  <figcaption><strong>-${f.famille}</strong> · ${entier(f.communes)} communes<br>
+  ${f.exemples.map(bouton)}</figcaption>
+  ${carte(communes.filter((c) => c.famille === f.famille))}
+</figure>`)}</div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small><span style="color:${couleurPoint}">●</span> Une commune dont le nom (sans article
+ni complément : <em>Ambérieu</em> pour Ambérieu-en-Bugey) finit par la terminaison indiquée. Les
+noms en Saint- et Sainte- sont écartés. Les départements d'outre-mer sont rapprochés.
+Source : IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small></p>`
+```
+
+Chaque prononciation a son territoire. Le **-ac** couvre l'ouest du domaine occitan, de la
+Charente au Lot et à l'Aveyron, et reparaît en Bretagne (Loudéac, Muzillac, Carnac…) ; le **-at** se
+concentre en Auvergne, dans la Creuse et en Bresse ; le **-ieu** dans le Lyonnais, le Bugey et le Dauphiné.
+Plus au nord, le suffixe s'est réduit à une voyelle : **-é** dans le Maine, l'Anjou et la
+Haute-Bretagne, **-ay** et **-ey** en Bourgogne et en Franche-Comté, **-y** dans tout le Bassin
+parisien, de la Picardie à la Bourgogne.
+
+Tout nom qui finit ainsi ne vient pas d'*-acum* : La Ciotat, Sélestat ou Lisieux ont d'autres
+origines. Mais à l'échelle de milliers de communes, ces aboutissements dessinent les grands
+ensembles linguistiques : langue d'oc, francoprovençal, langue d'oïl.
+
+## À vous d'écouter
+
+D'autres terminaisons, d'autres origines. Tapez une fin de nom précédée d'un tiret
+(`-ville`), ou un début suivi d'un tiret (`plou-`), ou choisissez une proposition.
+
+```{ojs}
+//| echo: false
+viewof motif = Inputs.text({label: "Terminaison", value: "-ville", placeholder: "-ville, -heim, plou-…"})
+```
+
+```{ojs}
+//| echo: false
+{
+  const propositions = ["-ville", "-court", "-heim", "-ange", "-willer", "-ghem", "-tot", "-argues",
+                        "-ens", "-euil", "plou-", "ker-"]
+  return html`<p class="propositions">${propositions.map((p) => {
+    const b = html`<button type="button" class="ecouter">${p}</button>`
+    b.onclick = () => {
+      viewof motif.value = p
+      viewof motif.dispatchEvent(new Event("input", {bubbles: true}))
+    }
+    return b
+  })}</p>`
+}
+```
+
+```{ojs}
+//| echo: false
+recherche = {
+  const m = motif.trim().toLowerCase()
+  const coeur = m.replace(/^-|-$/g, "")
+  if (!coeur) return []
+  const correspond = m.startsWith("-") ? (t) => t.endsWith(coeur)
+    : m.endsWith("-") ? (t) => t.startsWith(coeur)
+    : (t) => t.includes(coeur)
+  return communes.filter((c) => c.toponyme && correspond(c.toponyme))
+}
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const plusPeuplees = d3.sort(recherche, (c) => -c.population).slice(0, 8)
+  return html`<div class="duo">
+    ${carte(recherche, {width: 560, r: 1.8})}
+    <div>
+      <p><strong>${entier(recherche.length)} communes</strong>
+      ${recherche.length ? html`(${virgule(100 * recherche.length / communes.length)} %)` : ""}
+      ${recherche.length ? "Les plus peuplées :" : ""}</p>
+      <p>${plusPeuplees.map((c) => bouton(c.nom))}</p>
+    </div>
+  </div>`
+}
+```
+
+:::
+
+Quelques pistes : **-ville** et **-court** (« domaine », « ferme ») datent du haut Moyen Âge et
+couvrent le nord ; **-heim**, **-willer** et **-ange** (forme romane de l'allemand *-ingen*)
+marquent l'Alsace et la Moselle, **-ghem** la Flandre ; **-tot** est un mot scandinave
+(« terrain, ferme ») laissé en Normandie ; **plou-** et **ker-** sont bretons (« paroisse »,
+« village »).
+
+--------
+
+On va maintenant décrire comment obtenir les données de ces cartes.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le nom, le code officiel, la population et le contour de chaque commune, outre-mer rapproché | GeoParquet |
+| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le fond de carte | GeoParquet |
+
+Les noms et les codes sont ceux du [code officiel géographique](https://www.insee.fr/fr/information/2560452)
+de l'Insee au 1^er^ janvier 2026, repris par l'IGN dans ADMIN EXPRESS. Comme pour les autres
+jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import json
+import pathlib
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+```
+
+```{python}
+con.sql(f"""
+CREATE TABLE contours AS
+SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS code_departement,
+       LIBELLE_DEPARTEMENT AS departement, POPULATION AS population, geometry AS geom
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false)
+""")
+con.sql("SELECT count(*) AS communes, sum(population) AS population FROM contours").df()
+```
+
+## Les traitements
+
+### Le cœur du nom
+
+Le suffixe se cherche à la fin du toponyme proprement dit, pas du nom officiel complet. On
+retire donc :
+
+- l'article initial (*Le*, *La*, *Les*, *L'*) : *Les Abymes* donne *Abymes* ;
+- les compléments introduits par une préposition ou un article (*-sur-*, *-en-*, *-lès-*,
+  *-le-*, *-d'*…) : *Ambérieu-en-Bugey* donne *Ambérieu*, *Saint-Martin-d'Hères* donne
+  *Saint-Martin* ;
+- pour un nom composé restant, on garde le premier élément : *Neuville-Coppegueule* donne
+  *Neuville*.
+
+Les noms en Saint- ou Sainte- (des noms de saints, ou hagiotoponymes) n'ont pas de toponyme à
+proprement parler : ils sont mis à part.
+
+```{python}
+con.sql(r"""
+CREATE TABLE noms AS
+WITH sans_article AS (
+    SELECT *, regexp_replace(nom, '^(Le |La |Les |L'')', '') AS nom_court FROM contours
+),
+tetes AS (
+    SELECT *,
+           regexp_replace(
+               nom_court,
+               '(-(sur|sous|en|lès|lez|les|le|la|de|du|des|aux|au|à|près|et)-|-[dl]'').*$', ''
+           ) AS tete
+    FROM sans_article
+)
+SELECT * EXCLUDE (nom_court, tete),
+       CASE WHEN NOT (tete LIKE 'Saint-%' OR tete LIKE 'Sainte-%' OR tete LIKE 'Saintes-%')
+            THEN lower(split_part(tete, '-', 1)) END AS toponyme
+FROM tetes
+""")
+con.sql("""
+SELECT nom, toponyme FROM noms
+WHERE nom IN ('Ambérieu-en-Bugey', 'Saint-Martin-d''Hères', 'Neuville-Coppegueule', 'Les Abymes',
+              'Cognac', 'Vitré')
+""").df().style.hide(axis="index")
+```
+
+### Les six aboutissements d'*-acum*
+
+Le suffixe *-(i)acum* a donné **-ac** en langue d'oc et en Bretagne, **-at** dans une partie de
+l'Auvergne et du Limousin, **-ieu** (ou **-ieux**) en francoprovençal, et en langue d'oïl
+**-é**, **-ay**, **-ey** ou **-y**. On classe chaque toponyme par sa terminaison, de la plus longue à
+la plus courte (un nom en -ay n'est pas compté en -y). *Vieux*, premier élément de noms comme
+Vieux-Condé, n'est pas un nom de domaine : on l'écarte.
+
+```{python}
+con.sql(r"""
+CREATE TABLE communes AS
+SELECT *,
+       CASE
+           WHEN toponyme = 'vieux' THEN NULL
+           WHEN regexp_matches(toponyme, '(ac|acq)$') THEN 'ac'
+           WHEN regexp_matches(toponyme, 'at$') THEN 'at'
+           WHEN regexp_matches(toponyme, 'ieux?$') THEN 'ieu'
+           WHEN regexp_matches(toponyme, 'é$') THEN 'é'
+           WHEN regexp_matches(toponyme, '[ae]y$') THEN 'ay, -ey'
+           WHEN regexp_matches(toponyme, 'y$') THEN 'y'
+       END AS famille
+FROM noms
+""")
+con.sql("""
+SELECT coalesce(famille, CASE WHEN toponyme IS NULL THEN '(Saint-, Sainte-)' ELSE '(autre)' END) AS famille,
+       count(*) AS communes
+FROM communes GROUP BY ALL ORDER BY communes DESC
+""").df().style.hide(axis="index")
+```
+
+Pour les exemples à écouter, on prend, dans les trois départements qui comptent le plus de
+communes de la famille, la plus peuplée : on entend ainsi la terminaison là où elle est la
+plus fréquente, plutôt que des noms isolés qui n'ont souvent pas la même origine.
+
+```{python}
+familles = con.sql("""
+WITH par_departement AS (
+    SELECT famille, code_departement, count(*) AS communes,
+           arg_max(nom, population) AS exemple
+    FROM communes WHERE famille IS NOT NULL
+    GROUP BY ALL
+)
+SELECT famille, sum(communes)::INTEGER AS communes,
+       list(exemple ORDER BY communes DESC, code_departement)[:3] AS exemples
+FROM par_departement
+GROUP BY famille
+ORDER BY array_position(['ac', 'at', 'ieu', 'é', 'ay, -ey', 'y'], famille)
+""").df()
+familles
+```
+
+```{python}
+totaux = con.sql("""
+SELECT count(*) AS communes, count(famille) AS familles,
+       count(*) FILTER (toponyme IS NULL) AS saints
+FROM communes
+""").df().to_dict("records")[0]
+totaux
+```
+
+### Les points et le fond de carte
+
+Chaque commune est réduite à un point intérieur (`ST_PointOnSurface`). La table des 35 000
+communes est écrite à part, en CSV, dans `donnees/j11/` : la page la charge après coup, sans
+s'alourdir.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j11")
+SORTIE.mkdir(parents=True, exist_ok=True)
+con.sql(f"""
+COPY (
+    SELECT code, nom, departement, population, toponyme, famille,
+           round(ST_X(p), 3) AS lon, round(ST_Y(p), 3) AS lat
+    FROM (SELECT *, ST_PointOnSurface(geom) AS p FROM communes)
+    ORDER BY code
+) TO '{SORTIE / "communes.csv"}' (HEADER)
+""")
+```
+
+Le fond de carte, ce sont les départements, simplifiés ensemble à 1 km environ
+(`ST_CoverageSimplify`) pour rester jointifs.
+
+```{python}
+departements = con.sql(f"""
+WITH couverture AS (
+    SELECT list(INSEE_DEP ORDER BY INSEE_DEP) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY INSEE_DEP), 0.01) AS geom
+    FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.001)) AS geojson
+FROM morceaux GROUP BY ALL
+""").fetchall()
+departements = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"code": code}, "geometry": json.loads(geojson)}
+        for code, geojson in departements
+    ],
+}
+len(departements["features"])
+```
+
+### Ce qui passe à la carte
+
+```{python}
+ojs_define(
+    departements=departements,
+    familles=familles.assign(exemples=familles["exemples"].map(list)).to_dict("records"),
+    totaux=totaux,
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof tableau = Inputs.search(communes, {
+  placeholder: "Rechercher une commune…",
+  format: (n) => `${entier(n)} communes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["code", "nom", "departement", "population", "toponyme", "famille"],
+  header: {
+    code: "Code", nom: "Commune", departement: "Département", population: "Population",
+    toponyme: "Toponyme", famille: "Aboutissement d'-acum"
+  },
+  format: {population: entier, famille: (f) => (f ? `-${f}` : "")},
+  sort: "population",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "population", "toponyme", "famille"])], {type: "text/csv"}),
+  "communes_toponymes_2026.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Le classement repose sur la seule graphie actuelle. Une terminaison n'est pas une étymologie :
+  beaucoup de noms en -y, -at ou -ieux ne viennent pas d'*-acum* (La Ciotat, Lisieux…), et des
+  noms issus d'*-acum* ont pris d'autres formes (-ai, -ecques, -ies…). Seuls les dictionnaires de
+  toponymie, appuyés sur les formes anciennes, tranchent nom par nom.
+- Les communes nouvelles ont souvent un nom neuf (Sèvremoine, Chemillé-en-Anjou) : les noms des
+  communes fusionnées, devenues déléguées, n'apparaissent pas ici. Les régions où les fusions ont
+  été nombreuses (Normandie, Anjou) sont donc moins bien représentées.
+- La prononciation passe par la synthèse vocale du navigateur : elle peut se tromper sur des noms
+  locaux (le *-ac* final se prononce, le *-x* de *-ieux* non), et ne fonctionne pas si aucune
+  voix française n'est installée.
+
+## Pour aller plus loin
+
+- Insee, [Code officiel géographique](https://www.insee.fr/fr/information/2560452).
+- Ernest Nègre, *Toponymie générale de la France*, Droz, 1990-1998, et Albert Dauzat et
+  Charles Rostaing, *Dictionnaire étymologique des noms de lieux en France*, Larousse, 1963.
+- Wiktionnaire, [-ac](https://fr.wiktionary.org/wiki/-ac) : les aboutissements du suffixe
+  *-acum*.

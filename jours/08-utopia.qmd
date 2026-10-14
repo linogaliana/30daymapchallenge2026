@@ -1,0 +1,631 @@
+---
+title: "J8 · Utopia. Nulle part en France"
+description: "Utopia, c'est le lieu qui n'est nulle part : les carreaux de 1 km de France métropolitaine où personne n'habite, d'après les données carroyées de l'Insee."
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x) => `${virgule(100 * x)} %`
+// Superficie de la Belgique, en km², pour donner l'échelle du plus grand bloc.
+BELGIQUE = 30689
+premier = blocs[0]
+html`<p class="lead">
+  <em>Utopia</em>, l'île imaginée par Thomas More en 1516, tire son nom du grec
+  <em>ou-topos</em> : le lieu qui n'est nulle part. En France métropolitaine, ce nulle part a une
+  surface. Sur les ${entier(france.carreaux)} carreaux de 1 km de côté qui couvrent le territoire,
+  <strong>${entier(france.vides)} n'abritent aucun ménage</strong>, soit
+  ${pourcent(france.vides / france.carreaux)} du territoire. Le plus grand bloc vide d'un seul
+  tenant couvre <strong>${entier(premier.superficie)} km²</strong> (${premier.departements}…)${
+  premier.superficie > BELGIQUE ? ", plus que la Belgique" : ""}.
+</p>`
+```
+
+Pour ce huitième jour, consacré à l'utopie, on prend le mot au pied de la lettre et on cherche
+les lieux où personne ne vit. L'Insee découpe le territoire en carreaux de 1 km de côté et compte
+les habitants de chacun, à partir des déclarations fiscales : il suffit de chercher les carreaux
+qui manquent. La carte est en négatif : la France habitée y reste blanche, on ne dessine que le
+vide (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+// Le vide à l'encre, plus pâle à mesure que le seuil monte ; les grands blocs en couleur.
+encres = sombre ? ["#ece6d8", "#a29c90", "#6a665e"] : ["#1d2a35", "#6b7a86", "#b3bdc5"]
+accent = sombre ? "#ec8a74" : "#c8553d"
+
+// La grille arrive compressée (zlib, en base64) : un octet par carreau, ligne par ligne
+// du nord au sud. 0 : hors du territoire ; 1 : aucun habitant ; 2 : de 1 à 9 ;
+// 3 : de 10 à 49 ; 4 : 50 ou plus ; 5 + k : aucun habitant, dans le k-ième plus grand bloc.
+codes = {
+  const octets = Uint8Array.from(atob(grille.donnees), (c) => c.charCodeAt(0))
+  const flux = new Blob([octets]).stream().pipeThrough(new DecompressionStream("deflate"))
+  return new Uint8Array(await new Response(flux).arrayBuffer())
+}
+```
+
+```{ojs}
+//| echo: false
+seuils = new Map([["Aucun habitant", 1], ["Moins de 10 habitants", 2], ["Moins de 50 habitants", 3]])
+viewof seuil = Inputs.radio(seuils, {value: 1, label: "Carreaux dessinés"})
+viewof grandsBlocs = Inputs.toggle({label: "Les cinq plus grands blocs vides", value: true})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const n = codes.length
+  const couleurs = new Array(n)
+  const opacites = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const c = codes[i]
+    if (c >= 5) {
+      couleurs[i] = grandsBlocs ? accent : encres[0]
+      opacites[i] = 1
+    } else if (c >= 1 && c <= 3) {
+      couleurs[i] = encres[c - 1]
+      opacites[i] = c <= seuil ? 1 : 0
+    }
+  }
+  const {x0, y0, largeur, hauteur} = grille
+  const etiquettes = grandsBlocs ? blocs : []
+  return Plot.plot({
+    width: 820,
+    height: 820 * hauteur / largeur,
+    margin: 0,
+    style: stylePlot,
+    x: {domain: [x0, x0 + largeur], axis: null},
+    y: {domain: [y0, y0 + hauteur], axis: null},
+    marks: [
+      Plot.raster({length: n}, {
+        width: largeur, height: hauteur,
+        x1: x0, x2: x0 + largeur, y1: y0 + hauteur, y2: y0,
+        fill: couleurs, fillOpacity: opacites, imageRendering: "pixelated"
+      }),
+      Plot.line(contours, {x: "x", y: "y", z: "trait", stroke: "currentColor",
+        strokeOpacity: (d) => (d.france ? 0.7 : 0.25), strokeWidth: (d) => (d.france ? 0.8 : 0.5)}),
+      // Superficies au-dessus de leur point, le pôle et les communes en dessous ; vers la
+      // gauche près du bord droit (la Corse).
+      ...["middle", "end"].map((ancre) => Plot.text(
+        etiquettes.filter((d) => (d.x > x0 + 0.85 * largeur) === (ancre === "end")), {
+          x: "x", y: "y", text: (d) => `${entier(d.superficie)} km²`, fontSize: 12, fontWeight: "bold",
+          dy: -12, textAnchor: ancre, fill: "currentColor", stroke: fond, strokeWidth: 3
+        })),
+      Plot.dot(communesVides, {x: "x", y: "y", r: 2, fill: accent, stroke: fond, strokeWidth: 0.5}),
+      Plot.text([d3.mean(communesVides, (c) => c.x)], {
+        x: (d) => d, y: () => d3.min(communesVides, (c) => c.y),
+        text: () => `Les ${communesVides.length} communes\nsans habitant`,
+        dy: 18, fontSize: 11, fill: "currentColor", stroke: fond, strokeWidth: 3
+      }),
+      Plot.dot([pole], {x: "x", y: "y", r: 5, stroke: "currentColor", strokeWidth: 1.5, symbol: "times"}),
+      Plot.text([pole], {
+        x: "x", y: "y", text: () => `Le plus loin de tout :\n${virgule(pole.distance)} km`,
+        dy: 20, fontSize: 11, fill: "currentColor", stroke: fond, strokeWidth: 3
+      })
+    ]
+  })
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>Un pixel par carreau de 1 km de côté. Un carreau est vide quand aucun ménage
+fiscal n'y a sa résidence principale ; les carreaux habités restent couleur du fond. Les nombres
+donnent la superficie des cinq plus grands blocs de carreaux vides qui se touchent par un côté,
+placés en leur point le plus éloigné d'un carreau habité. La croix marque le point de métropole
+le plus loin de tout ménage. Source : Insee, Filosofi 2021, données carroyées ; IGN, ADMIN
+EXPRESS COG CARTO 2025, via cartiflette.</small></p>`
+```
+
+### Les plus grands blocs vides
+
+Le vide n'est pas seulement en montagne. Le plus grand bloc d'un seul tenant traverse les plaines
+de Champagne et du Barrois. Dans ces régions de grandes cultures, l'habitat est groupé en
+villages espacés : entre deux villages, des kilomètres de champs sans une maison. S'y ajoutent
+les camps militaires de Champagne (Suippes, Mourmelon, Mailly), où personne ne réside.
+
+```{ojs}
+//| echo: false
+html`<table class="table">
+  <thead><tr><th>Rang</th><th style="white-space: nowrap">Superficie</th><th>Départements les plus couverts</th>
+    <th>Point le plus éloigné d'un carreau habité</th></tr></thead>
+  <tbody>${blocs.map((b, i) => html`<tr><td>${i + 1}</td><td style="white-space: nowrap">${entier(b.superficie)} km²</td>
+    <td>${b.departements}</td><td>${virgule(b.distance)} km, à ${b.commune}</td></tr>`)}</tbody>
+</table>`
+```
+
+```{ojs}
+//| echo: false
+html`<p>Le point de métropole le plus éloigné d'un carreau habité est à
+  <strong>${virgule(pole.distance)} km</strong> du premier ménage, sur la commune de
+  ${pole.commune} (${pole.departement}).</p>`
+```
+
+### Six communes sans habitant
+
+```{ojs}
+//| echo: false
+html`<p>En métropole, ${communesVides.length} communes n'ont aucun habitant, toutes dans la
+  Meuse, près de Verdun : ${communesVides.map((c) => c.nom).join(", ")}. Détruits pendant la
+  bataille de Verdun en 1916, ces villages n'ont jamais été reconstruits. Ils ont été déclarés
+  « morts pour la France » et gardent une existence administrative : chacun est administré par
+  un conseil de trois membres nommés par le préfet.</p>`
+```
+
+### Le vide, département par département
+
+```{ojs}
+//| echo: false
+{
+  const variable = ["vides", "moins_10", "moins_50"][seuil - 1]
+  const tries = d3.sort(departements, (d) => -d[variable]).slice(0, 20)
+  return Plot.plot({
+    width: 760,
+    height: 480,
+    style: stylePlot,
+    marginLeft: 170,
+    x: {label: `Part du territoire (%), carreaux : ${[...seuils.keys()][seuil - 1].toLowerCase()} →`,
+        grid: true, domain: [0, 100]},
+    y: {label: null},
+    marks: [
+      Plot.barX(tries, {y: "nom", x: variable, fill: encres[0], sort: {y: "-x"}}),
+      Plot.ruleX([100 * [france.vides, france.moins_10, france.moins_50][seuil - 1] / france.carreaux],
+        {stroke: accent, strokeDasharray: "4 3"}),
+      Plot.text(tries, {y: "nom", x: variable, text: (d) => virgule(d[variable]), textAnchor: "start",
+        dx: 4, fontSize: 11, fill: "currentColor"}),
+      Plot.ruleX([0])
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Les vingt départements où la part du territoire est la plus grande, pour le seuil
+choisi au-dessus de la carte. Les pointillés marquent la France métropolitaine. Un carreau est
+rattaché au département qui contient son centre.</small></p>`
+```
+
+--------
+
+On va maintenant décrire comment obtenir les données de ces cartes.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Revenus, pauvreté et niveau de vie en 2021, données carroyées](https://www.insee.fr/fr/statistiques/8735171) | Insee, Filosofi | les carreaux de 1 km habités et leur nombre d'habitants | CSV |
+| [Départements et communes 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque département, la population et le contour de chaque commune | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import base64
+import json
+import math
+import shutil
+import tempfile
+import urllib.request
+import zipfile
+import zlib
+from collections import Counter
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les carreaux habités (Insee, Filosofi)
+
+Le dispositif [Filosofi](https://www.insee.fr/fr/metadonnees/source/serie/s1172) rapproche les
+déclarations de revenus et les fichiers de la taxe d'habitation : chaque ménage fiscal y est
+localisé à son adresse. L'Insee en tire des données sur une grille de carreaux de 200 m et de
+1 km de côté, dans la projection européenne LAEA (`EPSG:3035`). Seuls les carreaux habités sont
+diffusés : un carreau où aucun ménage n'a sa résidence principale n'apparaît pas dans le fichier.
+
+On utilise les carreaux de 1 km, en 2021. L'identifiant de chaque carreau donne les coordonnées
+de son coin sud-ouest, en mètres (`CRS3035RES1000mN2029000E4252000`) : on les garde en
+kilomètres. Le fichier compte aussi le nombre d'habitants (`ind`).
+
+```{python}
+FILOSOFI_URL = "https://www.insee.fr/fr/statistiques/fichier/8735171/Filosofi2021_carreaux_1km_csv.zip"
+
+
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+        except OSError:
+            if essai == essais - 1:
+                raise
+            continue
+        if zipfile.is_zipfile(chemin):
+            return
+    raise RuntimeError(f"téléchargement incomplet : {url}")
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    telecharger(FILOSOFI_URL, f"{dossier}/carreaux.zip")
+    with zipfile.ZipFile(f"{dossier}/carreaux.zip") as z:
+        z.extract("carreaux_1km_met.csv", dossier)
+    con.sql(f"""
+    CREATE TABLE habites AS
+    SELECT regexp_extract(idcar_1km, 'E(\\d+)$', 1)::INTEGER // 1000 AS x,
+           regexp_extract(idcar_1km, 'N(\\d+)E', 1)::INTEGER // 1000 AS y,
+           ind AS habitants
+    FROM read_csv('{dossier}/carreaux_1km_met.csv')
+    """)
+con.sql("SELECT count(*) AS carreaux, sum(habitants) AS habitants FROM habites").df().style.hide(axis="index")
+```
+
+### Les départements et les communes (cartiflette)
+
+Pour savoir quels carreaux manquent, il faut la liste de tous les carreaux du territoire. On la
+tire des contours des départements de métropole, dans leur version la plus précise
+(`simplification=0`), passés dans la projection des carreaux avec `ST_Transform`. Les contours
+des communes donnent leur population et situent les points remarquables.
+
+```{python}
+def cartiflette(niveau, simplification=0):
+    return (
+        "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+        "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
+        f"administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
+        f"vectorfile_format=parquet/simplification={simplification}/raw.parquet"
+    )
+
+
+con.sql(f"""
+CREATE TABLE contours_departements AS
+SELECT INSEE_DEP AS code, LIBELLE_DEPARTEMENT AS nom,
+       ST_Transform(geometry, 'EPSG:4326', 'EPSG:3035') AS geom
+FROM read_parquet('{cartiflette("DEPARTEMENT")}', hive_partitioning = false)
+WHERE AREA = 'metropole'
+""")
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COM AS code, NOM AS nom, LIBELLE_DEPARTEMENT AS departement,
+       POPULATION AS population, ST_Transform(geometry, 'EPSG:4326', 'EPSG:3035') AS geom
+FROM read_parquet('{cartiflette("COMMUNE")}', hive_partitioning = false)
+WHERE AREA = 'metropole'
+""")
+```
+
+## Les traitements
+
+### Tous les carreaux du territoire
+
+On parcourt tous les carreaux de 1 km du rectangle qui englobe la métropole et on garde ceux dont
+le centre tombe dans un département. Les départements sont d'abord découpés en morceaux
+(`ST_Dump`) : DuckDB fait alors une jointure spatiale, qui ne teste un point que contre les
+morceaux dont le rectangle le contient.
+
+```{python}
+con.sql("""
+CREATE TABLE grille AS
+WITH morceaux AS (
+    SELECT code, unnest(ST_Dump(geom), recursive := true) FROM contours_departements
+),
+bornes AS (
+    SELECT floor(min(ST_XMin(geom)) / 1000)::INTEGER AS x0, ceil(max(ST_XMax(geom)) / 1000)::INTEGER AS x1,
+           floor(min(ST_YMin(geom)) / 1000)::INTEGER AS y0, ceil(max(ST_YMax(geom)) / 1000)::INTEGER AS y1
+    FROM morceaux
+),
+centres AS (
+    SELECT x, y, ST_Point(x * 1000 + 500, y * 1000 + 500) AS centre
+    FROM bornes, range(x0, x1) AS a(x), range(y0, y1) AS b(y)
+)
+SELECT m.code, c.x, c.y FROM centres c JOIN morceaux m ON ST_Contains(m.geom, c.centre)
+""")
+```
+
+On y joint les carreaux habités. Quelques carreaux habités ont leur centre hors du territoire
+(en mer ou de l'autre côté d'une frontière) : on les garde pour la carte, sans département.
+
+```{python}
+con.sql("""
+CREATE TABLE carreaux AS
+SELECT coalesce(g.x, h.x) AS x, coalesce(g.y, h.y) AS y, g.code, coalesce(h.habitants, 0) AS habitants
+FROM grille g FULL JOIN habites h ON g.x = h.x AND g.y = h.y
+""")
+con.sql("""
+SELECT count(*) FILTER (code IS NOT NULL) AS territoire,
+       count(*) FILTER (habitants = 0) AS vides,
+       count(*) FILTER (code IS NULL) AS habites_hors_territoire
+FROM carreaux
+""").df().style.hide(axis="index")
+```
+
+### Les blocs de carreaux vides
+
+Deux carreaux vides qui se touchent par un côté font partie du même bloc. On parcourt la grille
+de proche en proche (un parcours en profondeur) pour numéroter les blocs.
+
+```{python}
+vides = {(x, y) for x, y in con.sql("SELECT x, y FROM carreaux WHERE habitants = 0").fetchall()}
+habites = {(x, y) for x, y in con.sql("SELECT x, y FROM carreaux WHERE habitants > 0").fetchall()}
+
+bloc_de = {}
+tailles = []
+for depart in vides:
+    if depart in bloc_de:
+        continue
+    numero = len(tailles)
+    bloc_de[depart] = numero
+    pile = [depart]
+    taille = 0
+    while pile:
+        x, y = pile.pop()
+        taille += 1
+        for voisin in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if voisin in vides and voisin not in bloc_de:
+                bloc_de[voisin] = numero
+                pile.append(voisin)
+    tailles.append(taille)
+
+# Les cinq plus grands, numérotés de 0 à 4.
+grands = sorted(range(len(tailles)), key=lambda b: -tailles[b])[:5]
+rang = {b: i for i, b in enumerate(grands)}
+len(tailles), [tailles[b] for b in grands]
+```
+
+### La distance au premier ménage
+
+Pour chaque carreau vide, on cherche le carreau habité le plus proche, centre à centre. On
+inspecte des couronnes de carreaux de plus en plus larges autour de lui ; une fois un carreau
+habité trouvé à la couronne `r`, un plus proche peut encore se trouver en diagonale, jusqu'à la
+couronne `r × √2`.
+
+```{python}
+def couronne(x, y, r):
+    for i in range(-r, r + 1):
+        yield from ((x + i, y - r), (x + i, y + r))
+    for j in range(-r + 1, r):
+        yield from ((x - r, y + j), (x + r, y + j))
+
+
+def distance(x, y):
+    r = 1
+    while not any(c in habites for c in couronne(x, y, r)):
+        r += 1
+    return min(
+        math.hypot(cx - x, cy - y)
+        for s in range(r, math.ceil(r * math.sqrt(2)) + 1)
+        for cx, cy in couronne(x, y, s)
+        if (cx, cy) in habites
+    )
+
+
+distances = {c: distance(*c) for c in vides}
+```
+
+Le point le plus éloigné de chaque grand bloc sert à placer son étiquette ; celui de tout le
+territoire est le « pôle » du vide. La commune qui contient chacun de ces points vient des
+contours des communes.
+
+```{python}
+def commune(x, y):
+    return con.sql(f"""
+    SELECT nom, departement FROM communes
+    WHERE ST_Contains(geom, ST_Point({x} * 1000 + 500, {y} * 1000 + 500))
+    """).fetchone()
+
+
+departement_de = dict(((x, y), code) for x, y, code in con.sql("SELECT x, y, code FROM grille").fetchall())
+noms_departements = dict(con.sql("SELECT code, nom FROM contours_departements").fetchall())
+
+blocs = []
+for b in grands:
+    cases = [c for c in vides if bloc_de[c] == b]
+    x, y = max(cases, key=distances.get)
+    nom, departement = commune(x, y)
+    principaux = Counter(departement_de[c] for c in cases).most_common(3)
+    blocs.append({
+        "superficie": len(cases),
+        "departements": ", ".join(noms_departements[code] for code, _ in principaux),
+        "x": x + 0.5, "y": y + 0.5,
+        "distance": distances[(x, y)],
+        "commune": f"{nom} ({departement})",
+    })
+
+x, y = max(distances, key=distances.get)
+nom, departement = commune(x, y)
+pole = {"x": x + 0.5, "y": y + 0.5, "distance": distances[(x, y)], "commune": nom, "departement": departement}
+pole
+```
+
+### Les communes sans habitant
+
+La population de chaque commune (population municipale) est dans les contours de cartiflette.
+
+```{python}
+communes_vides = con.sql("""
+SELECT code, nom, departement, ST_X(c) / 1000 AS x, ST_Y(c) / 1000 AS y
+FROM (SELECT *, ST_Centroid(geom) AS c FROM communes WHERE population = 0)
+ORDER BY nom
+""").df()
+communes_vides[["code", "nom", "departement"]].style.hide(axis="index")
+```
+
+### La part de vide par département
+
+Pour chaque département, la part des carreaux sans habitant, de moins de 10 et de moins de
+50 habitants.
+
+```{python}
+con.sql("""
+CREATE TABLE parts AS
+SELECT code, d.nom, count(*) AS carreaux,
+       round(100 * avg((habitants = 0)::INTEGER), 1) AS vides,
+       round(100 * avg((habitants < 10)::INTEGER), 1) AS moins_10,
+       round(100 * avg((habitants < 50)::INTEGER), 1) AS moins_50
+FROM carreaux JOIN contours_departements d USING (code)
+GROUP BY ALL
+ORDER BY code
+""")
+france = con.sql("""
+SELECT count(*) AS carreaux, count(*) FILTER (habitants = 0) AS vides,
+       count(*) FILTER (habitants < 10) AS moins_10, count(*) FILTER (habitants < 50) AS moins_50
+FROM carreaux WHERE code IS NOT NULL
+""").df().to_dict("records")[0]
+con.sql("FROM parts ORDER BY vides DESC LIMIT 5").df().style.hide(axis="index")
+```
+
+### Ce qui passe à la carte
+
+Le navigateur reçoit la grille comme une image : un octet par carreau du rectangle englobant,
+ligne par ligne du nord au sud, compressé avec `zlib` puis codé en base64. Le code de chaque
+octet est expliqué en commentaire.
+
+```{python}
+x0, x1, y0, y1 = con.sql("SELECT min(x), max(x) + 1, min(y), max(y) + 1 FROM carreaux").fetchone()
+largeur, hauteur = x1 - x0, y1 - y0
+
+
+def code_carreau(habitants, case):
+    if habitants == 0:  # 1 : vide ; 5 à 9 : vide, dans l'un des cinq plus grands blocs
+        return 5 + rang[bloc_de[case]] if bloc_de[case] in rang else 1
+    return 2 if habitants < 10 else 3 if habitants < 50 else 4
+
+
+octets = bytearray(largeur * hauteur)  # 0 : hors du territoire
+for x, y, habitants in con.sql("SELECT x, y, habitants FROM carreaux").fetchall():
+    octets[(y1 - 1 - y) * largeur + (x - x0)] = code_carreau(habitants, (x, y))
+grille = {
+    "x0": x0, "y0": y0, "largeur": largeur, "hauteur": hauteur,
+    "donnees": base64.b64encode(zlib.compress(bytes(octets), 9)).decode(),
+}
+```
+
+Les limites des départements et le contour de la France sont simplifiés ensemble
+(`ST_CoverageSimplify`, à 500 m près), puis passés en kilomètres, comme la grille.
+
+```{python}
+traits = con.sql("""
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 500) AS geom
+    FROM contours_departements
+),
+departements AS (
+    SELECT unnest(ST_Dump(geom), recursive := true) FROM couverture
+)
+SELECT false AS france, ST_AsGeoJSON(ST_Boundary(geom)) FROM departements
+UNION ALL
+SELECT true, ST_AsGeoJSON(ST_Boundary(ST_Union_Agg(geom))) FROM departements
+""").fetchall()
+
+contours = []
+trait = 0
+for france_entiere, geojson in traits:
+    forme = json.loads(geojson)
+    lignes = [forme["coordinates"]] if forme["type"] == "LineString" else forme["coordinates"]
+    for ligne in lignes:
+        trait += 1
+        contours += [
+            {"x": round(px / 1000, 2), "y": round(py / 1000, 2), "trait": trait, "france": france_entiere}
+            for px, py in ligne
+        ]
+```
+
+```{python}
+ojs_define(
+    grille=grille,
+    contours=contours,
+    blocs=blocs,
+    pole=pole,
+    communesVides=communes_vides.to_dict("records"),
+    departements=con.sql("FROM parts").df().to_dict("records"),
+    france=france,
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(departements, {
+  placeholder: "Rechercher un département…",
+  format: (n) => `${n} départements`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["code", "nom", "carreaux", "vides", "moins_10", "moins_50"],
+  header: {
+    code: "Code", nom: "Département", carreaux: "Carreaux de 1 km",
+    vides: "Sans habitant (%)", moins_10: "Moins de 10 habitants (%)", moins_50: "Moins de 50 habitants (%)"
+  },
+  format: {carreaux: entier, vides: virgule, moins_10: virgule, moins_50: virgule},
+  sort: "vides",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(departements, ["code", "nom", "carreaux", "vides", "moins_10", "moins_50"])], {type: "text/csv"}),
+  "carreaux_vides_departements_2021.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Un carreau vide est un carreau où aucun **ménage fiscal** n'a sa **résidence principale**. Un
+  hameau de résidences secondaires, un refuge, une caserne, un monastère ou un foyer peuvent s'y
+  trouver : les personnes qui vivent en communauté ne sont pas comptées dans Filosofi, pas plus
+  que les personnes sans domicile.
+- La grille de 1 km est grossière : une seule ferme suffit à rendre un carreau habité. Le vide
+  est donc sous-estimé ; le seuil « moins de 10 habitants » en donne une idée plus large. Avec
+  les carreaux de 200 m, la part du vide serait bien plus forte.
+- Les carreaux de moins de 11 ménages ont des caractéristiques imputées pour protéger le secret
+  statistique, mais leur présence dans le fichier est réelle : un carreau absent est bien un
+  carreau sans ménage.
+- La distance au premier ménage ne tient compte que des ménages de France. Le long des Alpes et
+  des Pyrénées, un village italien ou espagnol peut être plus proche.
+- Un carreau est rattaché au département qui contient son centre ; les carreaux du littoral dont
+  le centre est en mer ne sont pas comptés dans le territoire.
+- Les données carroyées de 2021 couvrent aussi la Martinique et La Réunion, laissées de côté ici.
+
+## Pour aller plus loin
+
+- Insee, [documentation des données carroyées Filosofi 2021](https://www.insee.fr/fr/statistiques/8735243),
+  et les mêmes données au [carreau de 200 m](https://www.insee.fr/fr/statistiques/8735162).
+- Insee, la [grille communale de densité](https://www.insee.fr/fr/information/6439600), qui
+  classe les communes selon la répartition de leur population en carreaux.
+- Thomas More, [*L'Utopie*](https://fr.wikipedia.org/wiki/L%27Utopie) (1516).

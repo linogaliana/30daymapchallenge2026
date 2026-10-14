@@ -1,0 +1,746 @@
+---
+title: "J13 · Interactions. Qui va au musée ?"
+description: "Les entrées dans les musées de France, de 2001 à 2024, musée par musée : cliquez sur la carte, le graphique suit."
+resources:
+  - donnees/j13/*.csv
+  - donnees/j13/*.geojson
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+millions = (x) => `${virgule(x / 1e6)} millions`
+html`<p class="lead">
+  En ${chiffres.annee}, les ${entier(chiffres.musees)} musées de France qui ont déclaré leur
+  fréquentation ont reçu <strong>${millions(chiffres.entrees)} d'entrées</strong>. Le Louvre et
+  Versailles en font ${pourcent(chiffres.part_deux)} à eux deux, les dix premiers musées
+  ${pourcent(chiffres.part_dix)}. Un musée sur deux reçoit moins de
+  ${entier(chiffres.mediane)} visiteurs par an. En 2020, la fréquentation avait chuté de
+  ${pourcent(chiffres.baisse_2020)} par rapport à 2019.
+</p>`
+```
+
+Pour ce treizième jour, consacré aux interactions, on regarde la rencontre entre des lieux et leur
+public : les entrées dans les musées de France, que le ministère de la Culture recense chaque
+année, musée par musée. Cliquez sur un musée de la carte : le graphique à côté montre ses entrées
+depuis 2001 (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+couleurMusee = sombre ? "#b58be0" : "#6a3d9a"
+couleurChoisi = sombre ? "#f5a142" : "#e0700b"
+// Entrées payantes, gratuites, et non ventilées quand le musée ne donne que le total.
+types = ["Payantes", "Gratuites", "Non ventilées"]
+couleursTypes = sombre ? ["#7ea3d1", "#f08a3c", "#6b6b6b"] : ["#3a6aa8", "#d95f02", "#b0b0b0"]
+
+// Les musées (nom, commune, position) et leurs entrées, année par année.
+musees = d3.csv("donnees/j13/musees.csv", (d) => ({...d3.autoType({...d}), id: d.id}))
+series = d3.csv("donnees/j13/series.csv", (d) => ({...d3.autoType({...d}), id: d.id}))
+infos = new Map(musees.map((m) => [m.id, m]))
+parMusee = d3.group(series, (d) => d.id)
+annees = d3.range(premiereAnnee, chiffres.annee + 1)
+```
+
+```{ojs}
+//| echo: false
+maplibregl = {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
+}
+
+territoires = [
+  ["Métropole", [[-5.3, 41.3], [9.7, 51.1]]],
+  ["Paris", [[2.22, 48.81], [2.47, 48.91]]],
+  ["Guadeloupe", [[-61.85, 15.8], [-61.0, 16.55]]],
+  ["Martinique", [[-61.25, 14.38], [-60.8, 14.9]]],
+  ["Guyane", [[-54.6, 2.1], [-51.6, 5.8]]],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]]]
+]
+
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris.
+styleClair = fetch(
+  "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+).then((r) => r.json())
+
+styleSombre = {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
+
+// Cercles d'aire proportionnelle aux entrées de l'année ; ils grossissent un peu avec le zoom.
+entreesAnnee = (a) => ["coalesce", ["get", String(a)], 0]
+rayon = (a) => {
+  const racine = ["sqrt", entreesAnnee(a)]
+  return ["interpolate", ["linear"], ["zoom"],
+          4, ["max", 1.5, ["*", 0.008, racine]],
+          8, ["max", 2.5, ["*", 0.016, racine]],
+          12, ["max", 4, ["*", 0.03, racine]]]
+}
+```
+
+```{ojs}
+//| echo: false
+// Curseur des années, avec lecture automatique.
+viewof annee = {
+  const form = html`<form class="lecteur">
+    <button type="button" name="lire">▶ Lire</button>
+    <input type="range" name="curseur" min="${annees[0]}" max="${annees.at(-1)}" step="1" value="${annees.at(-1)}">
+    <output name="sortie"></output>
+  </form>`
+  let minuteur = null
+  const choisir = (a) => {
+    form.value = a
+    form.curseur.valueAsNumber = a
+    form.sortie.value = a
+    form.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  const arreter = () => {
+    clearInterval(minuteur)
+    minuteur = null
+    form.lire.textContent = "▶ Lire"
+  }
+  form.lire.onclick = () => {
+    if (minuteur) return arreter()
+    if (form.value === annees.at(-1)) choisir(annees[0])
+    form.lire.textContent = "⏸ Pause"
+    minuteur = setInterval(() => (form.value < annees.at(-1) ? choisir(form.value + 1) : arreter()), 700)
+  }
+  form.curseur.oninput = (event) => {
+    event.stopPropagation()
+    arreter()
+    choisir(form.curseur.valueAsNumber)
+  }
+  form.onsubmit = (event) => event.preventDefault()
+  invalidation.then(arreter)
+  form.value = annees.at(-1)
+  form.sortie.value = annees.at(-1)
+  return form
+}
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+```
+
+:::: {.duo .duo-musees}
+
+```{ojs}
+//| echo: false
+conteneur = html`<div style="height: min(72vh, 640px); border-radius: 4px"></div>`
+```
+
+::::: {}
+
+```{ojs}
+//| echo: false
+// Le musée choisi : par un clic sur la carte, ou dans la liste. Vide : l'ensemble des musées.
+viewof musee = Inputs.select(
+  ["", ...d3.sort(geojson.features.map((f) => f.properties), (p) => p.commune, (p) => p.nom).map((p) => p.id)],
+  {
+    format: (id) => (id ? `${infos.get(id).commune} · ${infos.get(id).nom}` : "Ensemble des musées de France"),
+    width: "100%"
+  }
+)
+```
+
+```{ojs}
+//| echo: false
+// Les entrées du musée choisi (ou de l'ensemble), réparties en payantes et gratuites.
+detail = {
+  if (!musee) {
+    return {
+      titre: "Ensemble des musées de France",
+      sousTitre: "Somme des musées qui ont déclaré leur fréquentation",
+      lignes: ensemble.map((d) => ({...d, payant: d.payant, gratuit: d.gratuit, autre: d.total - d.payant - d.gratuit}))
+    }
+  }
+  const m = infos.get(musee)
+  return {
+    titre: m.nom,
+    sousTitre: `${m.commune} (${m.departement})`,
+    lien: m.lien_nom,
+    lignes: (parMusee.get(musee) ?? []).map((d) => ({
+      ...d,
+      payant: d.payant ?? 0,
+      gratuit: d.gratuit ?? 0,
+      autre: d.payant === null ? d.total : 0
+    }))
+  }
+}
+cetteAnnee = detail.lignes.find((d) => d.annee === annee)
+
+html`<div class="fiche-musee">
+  <h4>${detail.titre}</h4>
+  <p class="sous-titre">${detail.sousTitre}</p>
+  <p>${cetteAnnee && cetteAnnee.total > 0
+    ? html`En <strong>${annee}</strong> : <strong>${entier(cetteAnnee.total)} entrées</strong>${
+        cetteAnnee.autre === 0 && cetteAnnee.total > 0
+          ? `, dont ${pourcent(cetteAnnee.gratuit / cetteAnnee.total)} gratuites` : ""}.`
+    : html`En <strong>${annee}</strong> : pas d'entrées déclarées.`}
+  ${detail.lien ? html`<br><small>Entrées comptées avec : ${detail.lien}.</small>` : ""}</p>
+</div>`
+```
+
+```{ojs}
+//| echo: false
+{
+  const long = detail.lignes.flatMap((d) => [
+    {annee: d.annee, type: "Payantes", n: d.payant},
+    {annee: d.annee, type: "Gratuites", n: d.gratuit},
+    {annee: d.annee, type: "Non ventilées", n: d.autre}
+  ]).filter((d) => d.n > 0)
+  const max = d3.max(detail.lignes, (d) => d.total) ?? 0
+  const echelle = max >= 1e6 ? [1e6, "millions"] : max >= 1e4 ? [1e3, "milliers"] : [1, ""]
+  return Plot.plot({
+    width: 460,
+    height: 300,
+    style: stylePlot,
+    marginLeft: 44,
+    x: {type: "band", domain: annees, label: null, ticks: annees.filter((a) => a % 5 === 0), tickFormat: String},
+    y: {label: `↑ Entrées${echelle[1] ? ` (${echelle[1]})` : ""}`, grid: true,
+        tickFormat: (d) => (d / echelle[0]).toLocaleString("fr-FR")},
+    color: {domain: types, range: couleursTypes, legend: true,
+            style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.barY(long, {
+        x: "annee", y: "n", fill: "type", order: types,
+        fillOpacity: (d) => (d.annee === annee ? 1 : 0.55),
+        tip: true,
+        title: (d) => `${d.annee}\n${d.type} : ${entier(d.n)}`
+      }),
+      Plot.ruleY([0])
+    ]
+  })
+}
+```
+
+:::::
+
+::::
+
+:::
+
+```{ojs}
+//| echo: false
+// La carte n'est créée qu'une fois ; l'année et le musée choisis changent ses couches.
+carte = {
+  // Le style de départ est retenu : la cellule « theme » ne le change que s'il diffère.
+  const styleDepart = document.body.classList.contains("quarto-dark") ? styleSombre : styleClair
+  const map = new maplibregl.Map({
+    container: conteneur,
+    style: styleDepart,
+    bounds: territoires[0][1],
+    attributionControl: {customAttribution: "Ministère de la Culture, IGN"}
+  })
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+  map.styleCourant = styleDepart
+  map.annee = annees.at(-1)
+  map.choix = ""
+  const filtre = (a) => [">", entreesAnnee(a), 0]
+  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre).
+  const ajouterCouches = () => {
+    const sombreIci = document.body.classList.contains("quarto-dark")
+    map.addSource("musees", {type: "geojson", data: geojson})
+    map.addLayer({
+      id: "musees", type: "circle", source: "musees", filter: filtre(map.annee),
+      // Les petits musées par-dessus les grands, pour pouvoir cliquer dessus.
+      layout: {"circle-sort-key": ["-", 0, entreesAnnee(map.annee)]},
+      paint: {
+        "circle-radius": rayon(map.annee),
+        "circle-color": sombreIci ? "#b58be0" : "#6a3d9a",
+        "circle-opacity": 0.55,
+        "circle-stroke-color": sombreIci ? "#222" : "#fff",
+        "circle-stroke-width": 0.6
+      }
+    })
+    map.addLayer({
+      id: "choisi", type: "circle", source: "musees",
+      filter: ["==", ["get", "id"], map.choix],
+      paint: {
+        "circle-radius": rayon(map.annee),
+        "circle-color": "rgba(0, 0, 0, 0)",
+        "circle-stroke-color": sombreIci ? "#f5a142" : "#e0700b",
+        "circle-stroke-width": 3
+      }
+    })
+  }
+  map.on("style.load", ajouterCouches)
+  map.changerAnnee = (a) => {
+    map.annee = a
+    if (!map.getLayer("musees")) return
+    map.setFilter("musees", filtre(a))
+    map.setLayoutProperty("musees", "circle-sort-key", ["-", 0, entreesAnnee(a)])
+    map.setPaintProperty("musees", "circle-radius", rayon(a))
+    map.setPaintProperty("choisi", "circle-radius", rayon(a))
+  }
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "280px"})
+  map.on("mousemove", "musees", (e) => {
+    const p = e.features[0].properties
+    map.getCanvas().style.cursor = "pointer"
+    bulle.setLngLat(e.features[0].geometry.coordinates)
+      .setHTML(`<strong>${p.nom}</strong><br>${p.commune}<br>${entier(p[map.annee] ?? 0)} entrées en ${map.annee}`)
+      .addTo(map)
+  })
+  map.on("mouseleave", "musees", () => {
+    map.getCanvas().style.cursor = ""
+    bulle.remove()
+  })
+  // Un clic choisit le musée dans la liste, qui met à jour le graphique.
+  map.on("click", "musees", (e) => {
+    viewof musee.value = e.features[0].properties.id
+    viewof musee.dispatchEvent(new Event("input", {bubbles: true}))
+  })
+  return map
+}
+```
+
+```{ojs}
+//| echo: false
+// Cellules nommées : Quarto n'affiche pas leur valeur.
+miseAJourAnnee = carte.changerAnnee(annee)
+miseAJourMusee = {
+  carte.choix = musee
+  if (carte.getLayer("choisi")) carte.setFilter("choisi", ["==", ["get", "id"], musee])
+  // Choisi dans la liste : on recentre la carte s'il n'est pas dans le cadre.
+  const m = infos.get(musee)
+  if (m && !carte.getBounds().contains([m.lon, m.lat])) {
+    carte.easeTo({center: [m.lon, m.lat], zoom: Math.max(carte.getZoom(), 9)})
+  }
+  return musee
+}
+theme = {
+  const style = sombre ? styleSombre : styleClair
+  if (carte.styleCourant !== style) {
+    carte.setStyle(style, {diff: false})
+    carte.styleCourant = style
+  }
+  return sombre
+}
+cadrage = carte.fitBounds(territoire, {padding: 20})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Un cercle par musée de France, d'aire proportionnelle à ses entrées de l'année
+choisie ; les musées sans entrées déclarées cette année-là ne sont pas dessinés. Cliquez sur un
+musée, ou choisissez-le dans la liste, pour voir ses entrées depuis ${annees[0]} ; zoomez pour
+séparer les musées de Paris. Source : ministère de la Culture, fréquentation des musées de France
+; fond Plan IGN.</small></p>`
+```
+
+--------
+
+On va maintenant décrire comment obtenir les données de cette carte.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Fréquentation des musées de France](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1), fichier des entrées depuis 2014 | Ministère de la Culture | les entrées payantes, gratuites et totales de chaque musée, de 2014 à 2024 | CSV |
+| [Fréquentation des musées de France](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1), fichier historique | Ministère de la Culture | les mêmes entrées, de 2001 à 2016 | Excel |
+| [Liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france) | Ministère de la Culture | le nom officiel, la commune et la position de chaque musée | CSV |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import json
+import pathlib
+import shutil
+import tempfile
+import urllib.request
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("INSTALL excel; LOAD excel; SET enable_progress_bar = false")
+```
+
+### La fréquentation des musées de France (ministère de la Culture)
+
+L'appellation « musée de France » est attribuée par l'État à quelque 1 200 musées, publics ou
+privés, dont les collections sont jugées d'intérêt public. Chaque année, le ministère de la
+Culture leur demande leur fréquentation : les entrées payantes, les entrées gratuites et leur
+total. Les données sont publiées en deux fichiers, l'un de 2001 à 2016 (un classeur Excel, une
+feuille par type d'entrées, une colonne par année), l'autre depuis 2014 (un CSV, une ligne par
+musée et par année). Un musée y est repéré par un identifiant à sept chiffres, le même dans les
+deux fichiers.
+
+La [liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france)
+donne, pour chacun, son nom officiel, sa commune et sa position. Elle porte deux identifiants :
+celui de la base Muséofile, et celui des fichiers de fréquentation.
+
+On télécharge les trois fichiers par leur lien stable sur data.gouv.
+
+```{python}
+FREQUENTATION_URL = "https://www.data.gouv.fr/fr/datasets/r/7708e380-e7f8-4b56-936a-5d2a262d852d"
+HISTORIQUE_URL = "https://www.data.gouv.fr/fr/datasets/r/4cf7f64a-a107-409b-afc9-06972425b1a5"
+LISTE_URL = "https://www.data.gouv.fr/fr/datasets/r/29406189-15e9-4f2f-9e9d-d18649762198"
+
+
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+            return
+        except OSError:
+            if essai == essais - 1:
+                raise
+
+
+def feuille(chemin, nom, colonne):
+    # Une feuille du classeur : une colonne par année, à remettre en lignes. Les cellules
+    # sans nombre (« NC » non communiqué, « F » fermé…) deviennent des valeurs manquantes.
+    return f"""
+    SELECT id, annee::INTEGER AS annee, TRY_CAST(valeur AS BIGINT) AS {colonne}
+    FROM (
+        UNPIVOT (SELECT COLUMNS('^REF') AS id, COLUMNS('^20\\d\\d$')
+                 FROM read_xlsx('{chemin}', sheet = '{nom}', all_varchar = true))
+        ON COLUMNS('^20') INTO NAME annee VALUE valeur
+    )
+    """
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    telecharger(FREQUENTATION_URL, f"{dossier}/frequentation.csv")
+    telecharger(HISTORIQUE_URL, f"{dossier}/historique.xlsx")
+    telecharger(LISTE_URL, f"{dossier}/liste.csv")
+    con.sql(f"""
+    CREATE TABLE recent AS
+    SELECT IDPatrimostat AS id, IDMuseofile AS museofile, nom_du_musee AS nom,
+           lien_avec, annee::INTEGER AS annee,
+           payant::BIGINT AS payant, gratuit::BIGINT AS gratuit, total::BIGINT AS total
+    FROM read_csv('{dossier}/frequentation.csv', delim = ';', header = true, all_varchar = true)
+    """)
+    con.sql(f"""
+    CREATE TABLE historique AS
+    SELECT *
+    FROM ({feuille(f"{dossier}/historique.xlsx", "FREQUENTATION TOTALE", "total")})
+    FULL JOIN ({feuille(f"{dossier}/historique.xlsx", "FREQ PAYANTE", "payant")}) USING (id, annee)
+    FULL JOIN ({feuille(f"{dossier}/historique.xlsx", "FREQ GRATUITE", "gratuit")}) USING (id, annee)
+    """)
+    con.sql(f"""
+    CREATE TABLE noms_historiques AS
+    SELECT "REF DU MUSEE" AS id, "NOM DU MUSEE" AS nom, VILLE AS commune
+    FROM read_xlsx('{dossier}/historique.xlsx', sheet = 'FREQUENTATION TOTALE', all_varchar = true)
+    """)
+    con.sql(f"""
+    CREATE TABLE liste AS
+    SELECT "Identifiant Muséofile" AS museofile, REF_Deps AS ref,
+           "Nom officiel du musée" AS nom, Commune AS commune, "Département" AS departement,
+           Longitude::DOUBLE AS lon, Latitude::DOUBLE AS lat
+    FROM read_csv('{dossier}/liste.csv', delim = ';', header = true, all_varchar = true)
+    """)
+
+con.sql("""
+SELECT 'depuis 2014' AS fichier, min(annee) AS de, max(annee) AS a, count(DISTINCT id) AS musees FROM recent
+UNION ALL
+SELECT 'historique', min(annee), max(annee), count(DISTINCT id) FROM historique
+UNION ALL
+SELECT 'liste', NULL, NULL, count(*) FROM liste
+""").df().style.hide(axis="index")
+```
+
+## Les traitements
+
+### Raccorder les deux fichiers
+
+Les deux fichiers se recouvrent de 2014 à 2016. Ils ne donnent pas tout à fait les mêmes chiffres :
+le fichier récent a été révisé pour quelque 200 musées par an, et l'écart sur le total est de
+l'ordre de 1 %.
+
+```{python}
+con.sql("""
+SELECT annee,
+       (SELECT sum(total) FROM historique h WHERE h.annee = r.annee) AS total_historique,
+       sum(total) AS total_recent,
+       (SELECT count(*) FROM historique h JOIN recent USING (id, annee)
+        WHERE h.annee = r.annee AND h.total IS DISTINCT FROM recent.total) AS musees_differents
+FROM recent r WHERE annee <= 2016 GROUP BY annee ORDER BY annee
+""").df().style.hide(axis="index")
+```
+
+On garde donc le fichier historique jusqu'en 2013 et le fichier récent à partir de 2014. Le
+fichier récent a une ligne en double (un musée, une année, avec deux décomptes voisins) : on garde
+le plus élevé. Enfin, la répartition entre entrées payantes et gratuites n'est retenue que
+lorsqu'elle s'additionne au total ; sinon, le total est dit « non ventilé ».
+
+```{python}
+con.sql("""
+CREATE TABLE series AS
+WITH toutes AS (
+    SELECT id, annee, total, payant, gratuit FROM historique WHERE annee < 2014 AND total IS NOT NULL
+    UNION ALL
+    SELECT id, annee, total, payant, gratuit FROM recent
+    QUALIFY row_number() OVER (PARTITION BY id, annee ORDER BY total DESC) = 1
+)
+SELECT id, annee, total,
+       CASE WHEN payant + gratuit = total THEN payant END AS payant,
+       CASE WHEN payant + gratuit = total THEN gratuit END AS gratuit
+FROM toutes
+""")
+con.sql("""
+SELECT count(*) AS lignes, count(DISTINCT id) AS musees,
+       count(*) FILTER (total > 0 AND payant IS NULL) AS non_ventilees
+FROM series
+""").df().style.hide(axis="index")
+```
+
+### Placer les musées
+
+On rattache chaque musée de la fréquentation à la liste par l'identifiant des fichiers de
+fréquentation, qui figure aussi dans la liste, et, à défaut, par l'identifiant Muséofile. Ce
+dernier n'est pas tout à fait unique dans la liste (un même identifiant y désigne par exemple le
+musée des Confluences et le musée Guimet) : on n'utilise que ceux qui le sont. Les
+musées sortis de la liste (fermés, ou qui ont perdu l'appellation) ne sont pas placés : ils
+comptent dans le total, pas sur la carte.
+
+Certains musées déclarent leurs entrées avec celles d'un autre, par exemple quand plusieurs
+musées d'une ville partagent un même billet : la colonne `lien_avec` du fichier récent donne
+alors l'identifiant du musée qui les compte.
+
+```{python}
+con.sql("""
+CREATE TABLE musees AS
+WITH derniers AS (
+    SELECT id, arg_max(museofile, annee) AS museofile, arg_max(nom, annee) AS nom,
+           arg_max(lien_avec, annee) AS lien_avec
+    FROM recent GROUP BY id
+),
+par_ref AS (SELECT DISTINCT ON (ref) * FROM liste WHERE ref IS NOT NULL ORDER BY ref, museofile),
+par_museofile AS (SELECT * FROM liste QUALIFY count(*) OVER (PARTITION BY museofile) = 1),
+places AS (
+    SELECT s.id, d.lien_avec,
+           coalesce(l1.nom, l2.nom, d.nom, h.nom) AS nom,
+           coalesce(l1.commune, l2.commune, h.commune) AS commune,
+           coalesce(l1.departement, l2.departement) AS departement,
+           coalesce(l1.lon, l2.lon) AS lon, coalesce(l1.lat, l2.lat) AS lat
+    FROM (SELECT DISTINCT id FROM series) s
+    LEFT JOIN derniers d USING (id)
+    LEFT JOIN par_ref l1 ON l1.ref = s.id
+    LEFT JOIN par_museofile l2 ON l2.museofile = d.museofile
+    LEFT JOIN noms_historiques h USING (id)
+)
+-- Les noms officiels commencent par une minuscule (« musée de Brou ») : on met une capitale.
+SELECT id, upper(nom[1]) || nom[2:] AS nom, commune, departement,
+       round(lon, 5) AS lon, round(lat, 5) AS lat, lien_avec
+FROM places
+""")
+con.sql("""
+SELECT count(*) AS musees, count(lon) AS places,
+       count(*) FILTER (lien_avec IS NOT NULL) AS comptes_avec_un_autre
+FROM musees
+""").df().style.hide(axis="index")
+```
+
+### Les chiffres de l'ensemble
+
+On additionne les entrées de tous les musées qui en ont déclaré, placés ou non. Le nombre de
+musées qui répondent change d'une année à l'autre : il faut en tenir compte pour comparer les
+totaux.
+
+```{python}
+ensemble = con.sql("""
+SELECT annee, count(*) FILTER (total > 0) AS musees, sum(total) AS total,
+       coalesce(sum(payant), 0) AS payant, coalesce(sum(gratuit), 0) AS gratuit
+FROM series GROUP BY annee ORDER BY annee
+""").df()
+
+derniere = int(ensemble.annee.max())
+chiffres = con.sql(f"""
+WITH classement AS (SELECT total, row_number() OVER (ORDER BY total DESC) AS rang
+               FROM series WHERE annee = {derniere} AND total > 0)
+SELECT {derniere} AS annee, count(*) AS musees, sum(total) AS entrees,
+       sum(total) FILTER (rang <= 2) / sum(total) AS part_deux,
+       sum(total) FILTER (rang <= 10) / sum(total) AS part_dix,
+       median(total) AS mediane,
+       1 - (SELECT sum(total) FROM series WHERE annee = 2020)
+         / (SELECT sum(total) FROM series WHERE annee = 2019) AS baisse_2020
+FROM classement
+""").df().to_dict("records")[0]
+ensemble.tail()
+```
+
+Les dix musées les plus fréquentés :
+
+```{python}
+con.sql(f"""
+SELECT m.nom, m.commune, s.total
+FROM series s JOIN musees m USING (id)
+WHERE annee = {derniere} ORDER BY total DESC LIMIT 10
+""").df().style.hide(axis="index")
+```
+
+### Ce qui passe à la carte
+
+La carte reçoit les musées placés, en GeoJSON, avec leurs entrées de chaque année dans une
+propriété nommée par l'année (`"2024"`…). Les séries complètes et la table des musées sont
+écrites à part, en CSV, pour le graphique et le téléchargement, dans `donnees/j13/`.
+
+```{python}
+SORTIE = pathlib.Path("donnees/j13")
+SORTIE.mkdir(parents=True, exist_ok=True)
+
+lignes = con.sql("""
+SELECT m.id, m.nom, m.commune, m.lon, m.lat,
+       list({'annee': s.annee, 'total': s.total} ORDER BY s.annee) AS entrees
+FROM musees m JOIN series s USING (id)
+WHERE m.lon IS NOT NULL AND s.total > 0
+GROUP BY ALL ORDER BY m.id
+""").fetchall()
+geojson = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"id": id, "nom": nom, "commune": commune,
+                           **{str(e["annee"]): e["total"] for e in entrees}},
+            "geometry": {"type": "Point", "coordinates": [lon, lat]},
+        }
+        for id, nom, commune, lon, lat, entrees in lignes
+    ],
+}
+(SORTIE / "musees.geojson").write_text(json.dumps(geojson, separators=(",", ":"), ensure_ascii=False))
+
+con.sql(f"""
+COPY (
+    SELECT m.id, m.nom, m.commune, m.departement, m.lon, m.lat, l.nom AS lien_nom
+    FROM musees m LEFT JOIN musees l ON l.id = m.lien_avec
+    ORDER BY m.id
+) TO '{SORTIE / "musees.csv"}' (HEADER)
+""")
+con.sql(f"""
+COPY (SELECT * FROM series ORDER BY id, annee) TO '{SORTIE / "series.csv"}' (HEADER)
+""")
+len(geojson["features"]), f"{(SORTIE / 'musees.geojson').stat().st_size / 1e3:.0f} ko"
+```
+
+```{python}
+ojs_define(
+    geojson=geojson,
+    ensemble=ensemble.to_dict("records"),
+    chiffres=chiffres,
+    premiereAnnee=int(ensemble.annee.min()),
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+tableau = {
+  const entrees = d3.rollup(series, (v) => v[0].total, (d) => d.id, (d) => d.annee)
+  return musees.map((m) => {
+    const e = entrees.get(m.id) ?? new Map()
+    return {
+      id: m.id, nom: m.nom, commune: m.commune, departement: m.departement,
+      e2001: e.get(2001) ?? null, e2019: e.get(2019) ?? null, e2020: e.get(2020) ?? null,
+      derniere: e.get(chiffres.annee) ?? null
+    }
+  })
+}
+viewof recherche = Inputs.search(tableau, {
+  placeholder: "Rechercher un musée…",
+  format: (n) => `${entier(n)} musées`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["nom", "commune", "departement", "e2001", "e2019", "e2020", "derniere"],
+  header: {
+    nom: "Musée", commune: "Commune", departement: "Département", e2001: "Entrées 2001",
+    e2019: "Entrées 2019", e2020: "Entrées 2020", derniere: `Entrées ${chiffres.annee}`
+  },
+  format: Object.fromEntries(["e2001", "e2019", "e2020", "derniere"].map((c) => [c, (x) => (x === null ? "" : entier(x))])),
+  sort: "derniere",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => {
+    const lignes = series.map((d) => ({...infos.get(d.id), ...d}))
+    return new Blob([d3.csvFormat(lignes, ["id", "nom", "commune", "departement", "annee", "total", "payant", "gratuit"])], {type: "text/csv"})
+  },
+  "frequentation_musees_de_france.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Seuls les musées qui ont l'appellation « musée de France » sont comptés. Beaucoup de lieux
+  très visités n'en sont pas : les monuments (le Mont-Saint-Michel, l'Arc de triomphe…), les
+  lieux d'exposition sans collection, les musées privés sans appellation.
+- La fréquentation est déclarée par les musées. Tous ne répondent pas chaque année :
+  `{python} int(ensemble.musees.iloc[0])` musées ont des entrées déclarées en
+  `{python} int(ensemble.annee.iloc[0])`, `{python} int(ensemble.musees.max())` au plus fort,
+  `{python} int(ensemble.musees.iloc[-1])` en `{python} derniere`. L'évolution du total mêle donc
+  celle des visites et celle des musées qui répondent.
+- Quand des musées partagent un billet, leurs entrées sont comptées dans un seul d'entre eux ;
+  les autres déclarent zéro et n'apparaissent pas sur la carte.
+- Le fichier récent révise les années 2014 à 2016 du fichier historique ; on garde la version
+  révisée.
+- La répartition entre entrées payantes et gratuites n'est pas toujours donnée, ou ne
+  s'additionne pas toujours au total : ces entrées sont alors « non ventilées ».
+- La liste des musées de France, qui donne leur position, est archivée sur data.gouv depuis
+  juin 2026. Les musées qui en sont sortis comptent dans le total, mais ne sont pas sur la carte.
+
+## Pour aller plus loin
+
+- Ministère de la Culture, [Base des lieux et équipements culturels (Basilic)](https://www.data.gouv.fr/datasets/61777ddaa9101d073e5506cd),
+  qui recense les musées, mais aussi les cinémas, bibliothèques, salles de spectacle…
+- Ministère de la Culture, [Plateforme ouverte du patrimoine (POP)](https://pop.culture.gouv.fr/),
+  qui donne accès à la base Muséofile et aux collections des musées de France.

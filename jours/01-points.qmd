@@ -889,6 +889,7 @@ par année.
 
 ```{python}
 #| output: false
+
 points = con.sql("""
 SELECT annee, nom, type, statut, accouchements, commune, nom_commune, territoire, source,
        round(ST_X(geom), 5) AS lon, round(ST_Y(geom), 5) AS lat

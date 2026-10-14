@@ -17,7 +17,7 @@ Ne jamais faire `git commit` ni `git push`, sauf demande explicite. Ne pas non p
 
 ## Ce qui n'est pas versionné
 
-`_site/`, `_freeze/` et les données produites au rendu (`jours/donnees/`, écrites par J3) : tout se reconstruit à partir des `.qmd`. En CI, `_freeze/` est gardé dans le cache d'Actions. Ne rien écrire de généré ailleurs que dans ces dossiers.
+`_site/`, `_freeze/` et les données produites au rendu (`jours/donnees/`, écrites par J3, J9, J10 et J11) : tout se reconstruit à partir des `.qmd`. En CI, `_freeze/` est gardé dans le cache d'Actions. Ne rien écrire de généré ailleurs que dans ces dossiers.
 
 ## Une page de jour
 
@@ -28,6 +28,7 @@ Ne jamais faire `git commit` ni `git push`, sauf demande explicite. Ne pas non p
 - Fonds de carte : [cartiflette](https://github.com/InseeFrLab/cartiflette), GeoParquet lu en HTTPS par DuckDB (`read_parquet(..., hive_partitioning = false)`) sur `https://minio.lab.sspcloud.fr/projet-cartiflette/production/...`. Lecture seule.
 - DuckDB : `LOAD spatial` puis `SET geometry_always_xy = true` (coordonnées en longitude, latitude).
 - Les sources sont téléchargées au rendu depuis leur URL officielle : pas de fichier de données ajouté à la main dans le dépôt.
+  Seule exception : `jours/sources/`, pour les fichiers que le rendu ne peut pas télécharger (le site de la Dares est derrière un pare-feu à captcha, lu par J10). Le code essaie toujours l'URL officielle d'abord.
 
 ## Style
 

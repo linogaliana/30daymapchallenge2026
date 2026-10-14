@@ -1,0 +1,810 @@
+---
+title: "J12 · Power. Qui sont les maires ?"
+description: "Sexe, âge, profession : les maires élus en 2026, commune par commune, d'après le répertoire national des élus."
+resources:
+  - donnees/j12/*.csv
+  - donnees/j12/*.geojson
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+html`<p class="lead">
+  Après les élections municipales de mars 2026, <strong>${entier(totaux.maires)} maires</strong>
+  sont en fonction en France métropolitaine et dans les départements d'outre-mer.
+  ${pourcent(totaux.part_femmes)} sont des femmes, contre ${pourcent(totaux.part_femmes_conseil)}
+  de l'ensemble des conseillers municipaux. Ils ont en moyenne ${entier(totaux.age_moyen)} ans à
+  leur entrée en fonction, et ${pourcent(totaux.part_retraites)} sont retraités.
+</p>`
+```
+
+Pour ce douzième jour, consacré au pouvoir, on regarde celui qui s'exerce au plus près des
+habitants : celui du maire. Le répertoire national des élus donne, pour chacun, son sexe, sa date
+de naissance et sa profession. La carte les montre commune par commune (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+gris = sombre ? "#6b6b6b" : "#a8a8a8"
+
+// Les 35 000 communes (tableau, décomptes) sont dans un fichier à part.
+communes = d3.csv("donnees/j12/communes.csv", (d) => ({...d, age: d.age === "" ? null : +d.age}))
+
+// Une vue par caractéristique du maire, lue dans une propriété des contours (s, a, g) qui
+// donne le rang de la classe. Les communes sans maire renseigné sont en gris.
+// Sur fond sombre, l'âge va du foncé au clair : les plus âgés restent les plus visibles.
+vues = [
+  {
+    nom: "Sexe",
+    propriete: "s",
+    classes: libelles.sexe,
+    couleurs: sombre ? ["#f08a3c", "#4a4640"] : ["#d95f02", "#e8e1d3"]
+  },
+  {
+    nom: "Âge",
+    propriete: "a",
+    classes: libelles.age,
+    couleurs: sombre ? ["#4a2a1a", "#8c4a2a", "#d9603b", "#fbb48a"]
+                     : ["#fde0c5", "#f6a77a", "#d9603b", "#8c2d04"]
+  },
+  {
+    nom: "Profession",
+    propriete: "g",
+    classes: libelles.groupe
+  }
+]
+// En vue « Profession », une seule catégorie en couleur, les autres en gris.
+vert = sombre ? "#4cc26b" : "#1a9850"
+grisPale = sombre ? "#4a4a4a" : "#d4d4d4"
+```
+
+```{ojs}
+//| echo: false
+maplibregl = {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
+}
+
+territoires = [
+  ["Métropole", [[-5.3, 41.3], [9.7, 51.1]]],
+  ["Guadeloupe", [[-61.85, 15.8], [-61.0, 16.55]]],
+  ["Martinique", [[-61.25, 14.38], [-60.8, 14.9]]],
+  ["Guyane", [[-54.6, 2.1], [-51.6, 5.8]]],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]]],
+  ["Mayotte", [[44.95, -13.05], [45.35, -12.6]]]
+]
+
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris.
+styleClair = fetch(
+  "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+).then((r) => r.json())
+
+styleSombre = {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
+```
+
+```{ojs}
+//| echo: false
+viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[2]})
+```
+
+```{ojs}
+//| echo: false
+viewof categorie = Inputs.select(libelles.groupe, {label: "Catégorie", value: libelles.groupe[0]})
+```
+
+```{ojs}
+//| echo: false
+// Le choix de la catégorie ne sert qu'en vue « Profession ».
+afficherCategorie = {
+  viewof categorie.style.display = vue.nom === "Profession" ? "" : "none"
+  return vue.nom
+}
+```
+
+```{ojs}
+//| echo: false
+// Couleur de chaque commune (expression MapLibre) et légende de la vue choisie.
+coloriage = {
+  if (vue.nom === "Profession") {
+    const rang = libelles.groupe.indexOf(categorie)
+    const n = communes.filter((c) => c.groupe === categorie).length
+    const total = communes.filter((c) => c.groupe !== "").length
+    return {
+      expression: ["case", ["==", ["get", "g"], rang], vert, grisPale],
+      legende: [[`${categorie} : ${entier(n)} maires (${pourcent(n / total, 1)})`, vert],
+                ["Autres catégories, ou maire non renseigné", grisPale]]
+    }
+  }
+  const paires = vue.classes.map((c, i) => [c, vue.couleurs[i]])
+  return {
+    expression: ["match", ["coalesce", ["get", vue.propriete], -1],
+                 ...paires.flatMap(([, couleur], i) => [i, couleur]), gris],
+    legende: [...paires, ["Non renseigné", gris]]
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p class="legende-carte">${coloriage.legende.map(([texte, couleur]) => html`<span>
+  <svg width="14" height="14"><rect width="14" height="14" rx="2" fill="${couleur}"/></svg>
+  ${texte}</span>`)}</p>`
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+```
+
+```{ojs}
+//| echo: false
+conteneur = html`<div style="height: min(75vh, 680px); border-radius: 4px"></div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+// La carte n'est créée qu'une fois ; le choix de la vue change sa couleur.
+carte = {
+  const map = new maplibregl.Map({
+    container: conteneur,
+    style: document.body.classList.contains("quarto-dark") ? styleSombre : styleClair,
+    bounds: territoires[0][1],
+    attributionControl: {customAttribution: "Ministère de l'Intérieur, IGN"}
+  })
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+  const donnees = new URL("donnees/j12/communes.geojson", document.baseURI).href
+  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre), sous les
+  // noms de lieux du fond de carte.
+  const ajouterCouches = () => {
+    const sombreIci = document.body.classList.contains("quarto-dark")
+    const dessous = map.getStyle().layers.find((c) => c.type === "symbol")?.id
+    map.addSource("communes", {type: "geojson", data: donnees})
+    map.addLayer({
+      id: "communes", type: "fill", source: "communes",
+      paint: {"fill-color": map.couleur ?? grisPale, "fill-opacity": 0.85}
+    }, dessous)
+    map.addLayer({
+      id: "limites", type: "line", source: "communes",
+      paint: {
+        "line-color": sombreIci ? "#222" : "#fff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0, 7, 0.3, 11, 1.2]
+      }
+    }, dessous)
+  }
+  map.on("style.load", ajouterCouches)
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "280px"})
+  map.on("mousemove", "communes", (e) => {
+    const p = e.features[0].properties
+    const maire = p.s === undefined || p.s === null
+      ? "Maire non renseigné"
+      : `${p.s === 0 ? "Une maire" : "Un maire"} de ${p.age} ans<br>${p.p}`
+    bulle.setLngLat(e.lngLat).setHTML(`<strong>${p.nom}</strong> (${p.code})<br>${maire}`).addTo(map)
+  })
+  map.on("mouseleave", "communes", () => bulle.remove())
+  return map
+}
+```
+
+```{ojs}
+//| echo: false
+// Cellules nommées : Quarto n'affiche pas leur valeur.
+miseAJour = {
+  carte.couleur = coloriage.expression
+  if (carte.getLayer("communes")) carte.setPaintProperty("communes", "fill-color", coloriage.expression)
+  return vue.nom
+}
+theme = {
+  const style = sombre ? styleSombre : styleClair
+  if (carte.styleCourant !== undefined && carte.styleCourant !== style) {
+    carte.setStyle(style, {diff: false})
+  }
+  carte.styleCourant = style
+  return sombre
+}
+cadrage = carte.fitBounds(territoire, {padding: 20})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Chaque commune prend la couleur de son maire ; l'âge est celui de l'entrée en
+fonction. Zoomez et déplacez-vous dans la carte ; survolez une commune pour le détail ; les
+boutons au-dessus de la carte mènent en outre-mer. Source : ministère de l'Intérieur, répertoire
+national des élus (${extraction}) ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette ; fond
+Plan IGN.</small></p>`
+```
+
+### Par département
+
+```{ojs}
+//| echo: false
+indicateurs = [
+  {cle: "part_femmes", titre: "Part de femmes parmi les maires", format: (x) => pourcent(x)},
+  {cle: "age_moyen", titre: "Âge moyen des maires", format: (x) => `${virgule(x)} ans`},
+  {cle: "part_retraites", titre: "Part de retraités parmi les maires", format: (x) => pourcent(x)},
+  {cle: "part_agriculteurs", titre: "Part d'agriculteurs exploitants parmi les maires", format: (x) => pourcent(x)}
+]
+parDepartement = new Map(departementsChiffres.map((d) => [d.code, d]))
+extremes = (cle) => {
+  const tries = d3.sort(departementsChiffres.filter((d) => d.maires >= 20), (d) => d[cle])
+  return {bas: tries[0], haut: tries[tries.length - 1]}
+}
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+html`<div class="multiples">${indicateurs.map((i) => html`<figure>
+  <figcaption><strong>${i.titre}</strong></figcaption>
+  ${Plot.plot({
+    width: 360,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 4},
+    color: {type: "quantile", n: 5, scheme: "viridis", legend: true, tickFormat: i.format,
+            label: null, style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.geo(departements, {fill: (f) => parDepartement.get(f.properties.code)?.[i.cle],
+                              stroke: fond, strokeWidth: 0.5}),
+      Plot.tip(departements, Plot.pointer(Plot.geoCentroid({
+        title: (f) => {
+          const d = parDepartement.get(f.properties.code)
+          return `${d.departement}\n${i.format(d[i.cle])}\n${entier(d.maires)} maires`
+        }
+      })))
+    ]
+  })}
+</figure>`)}</div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+{
+  const f = extremes("part_femmes"), a = extremes("age_moyen"), g = extremes("part_agriculteurs")
+  return html`<p>La part de femmes parmi les maires va de ${pourcent(f.bas.part_femmes)}
+  (${f.bas.departement}) à ${pourcent(f.haut.part_femmes)} (${f.haut.departement}). L'âge moyen
+  va de ${virgule(a.bas.age_moyen)} ans (${a.bas.departement}) à ${virgule(a.haut.age_moyen)} ans
+  (${a.haut.departement}). Les agriculteurs en activité sont ${pourcent(g.haut.part_agriculteurs)}
+  des maires en ${g.haut.departement}, la part la plus élevée.</p>
+  <p><small>Classes par quintiles. Les départements de moins de 20 communes (Paris,
+  Mayotte) sont écartés des extrêmes.</small></p>`
+}
+```
+
+### Les maires et leur conseil
+
+Le maire est élu par le conseil municipal, parmi ses membres. Les deux populations n'ont pas tout
+à fait le même profil : les maires sont plus âgés, plus souvent retraités ou agriculteurs.
+
+```{ojs}
+//| echo: false
+{
+  const lignes = professions.flatMap((p) => [
+    {groupe: p.groupe, qui: "Maires", part: p.part_maires},
+    {groupe: p.groupe, qui: "Conseillers municipaux", part: p.part_conseillers}
+  ])
+  const couleurs = sombre ? ["#f08a3c", "#7ea3d1"] : ["#d95f02", "#3a6aa8"]
+  return Plot.plot({
+    width: 760,
+    height: 420,
+    style: stylePlot,
+    marginLeft: 250,
+    x: {label: "Part (%) →", grid: true},
+    y: {axis: null, domain: ["Maires", "Conseillers municipaux"]},
+    fy: {label: null, domain: libelles.groupe, axis: "left"},
+    color: {domain: ["Maires", "Conseillers municipaux"], range: couleurs, legend: true,
+            style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.barX(lignes, {
+        fy: "groupe", y: "qui", x: (d) => 100 * d.part, fill: "qui",
+        tip: true, title: (d) => `${d.qui}\n${d.groupe}\n${pourcent(d.part, 1)}`
+      })
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Grande catégorie de la profession déclarée par l'élu. Les conseillers municipaux
+comprennent les maires et les adjoints. Âge moyen à l'entrée en fonction : ${virgule(totaux.age_moyen)} ans
+pour les maires, ${virgule(totaux.age_moyen_conseil)} ans pour l'ensemble des conseillers.</small></p>`
+```
+
+### Le maire et ses adjoints
+
+Une fois le maire élu, le conseil élit ses adjoints, sur une liste qui doit alterner les sexes : un
+homme puis une femme, ou une femme puis un homme. Depuis 2026, la règle vaut dans toutes les
+communes. On la voit dans les données : la part de femmes oscille d'un rang à l'autre, autour de
+celle des conseillers sans fonction.
+
+```{ojs}
+//| echo: false
+{
+  const couleur = sombre ? "#f08a3c" : "#d95f02"
+  const nom = (r) => (r === 0 ? "Maire" : r === 1 ? "1er adj." : `${r}e adj.`)
+  return Plot.plot({
+    width: 760,
+    height: 320,
+    style: stylePlot,
+    x: {label: null, tickFormat: nom, ticks: rangs.map((r) => r.rang)},
+    y: {label: "↑ Part de femmes (%)", domain: [0, 70], grid: true},
+    marks: [
+      Plot.ruleY([100 * totaux.part_femmes_sans_fonction], {stroke: "currentColor", strokeDasharray: "4,3", strokeOpacity: 0.6}),
+      Plot.text([100 * totaux.part_femmes_sans_fonction], {
+        x: 0, y: (d) => d, dx: 4, dy: -8, textAnchor: "start", fontSize: 11,
+        text: () => "conseillers sans fonction"
+      }),
+      Plot.line(rangs, {x: "rang", y: (d) => 100 * d.part_femmes, stroke: couleur, strokeOpacity: 0.5}),
+      Plot.dot(rangs, {
+        x: "rang", y: (d) => 100 * d.part_femmes, fill: couleur, r: 5,
+        tip: true, title: (d) => `${nom(d.rang)}\n${pourcent(d.part_femmes, 1)} de femmes\n${entier(d.elus)} élus`
+      })
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Part de femmes selon la fonction. ${pourcent(totaux.alternance, 1)} des paires
+d'adjoints de rangs consécutifs (1er et 2e, 2e et 3e…) sont de sexes différents.</small></p>`
+```
+
+--------
+
+On va maintenant décrire comment obtenir les données de cette carte.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), fichier des maires | Ministère de l'Intérieur | le sexe, la date de naissance et la profession du maire de chaque commune | CSV |
+| [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), fichier des conseillers municipaux | Ministère de l'Intérieur | les mêmes informations pour les 500 000 conseillers, et leur fonction (maire, adjoint) | CSV |
+| [Communes et départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune et de chaque département | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import json
+import pathlib
+import shutil
+import tempfile
+import urllib.request
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Le répertoire national des élus (ministère de l'Intérieur)
+
+Le [répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/)
+recense les élus en fonction, mandat par mandat : un fichier pour les maires, un pour les
+conseillers municipaux, d'autres pour les conseillers départementaux, les députés… Il est tenu par
+les préfectures et mis à jour plusieurs fois par an. Chaque élu y figure avec son sexe, sa date de
+naissance, sa catégorie socioprofessionnelle (déclarée par l'élu) et les dates de début de son
+mandat et de sa fonction.
+
+On télécharge chaque fichier par son lien stable sur data.gouv, qui renvoie vers la dernière
+version. Ce sont des CSV séparés par des points-virgules.
+
+```{python}
+MAIRES_URL = "https://www.data.gouv.fr/fr/datasets/r/2876a346-d50c-4911-934e-19ee07b0e503"
+CONSEILLERS_URL = "https://www.data.gouv.fr/fr/datasets/r/d5f400de-ae3f-4966-8cb6-a85c70c6c24a"
+
+
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+            return reponse.url  # l'adresse finale, qui date la version
+        except OSError:
+            if essai == essais - 1:
+                raise
+
+
+def lire_elus(chemin, colonnes=""):
+    return f"""
+    SELECT "Code de la commune" AS code, "Code sexe" AS sexe,{colonnes}
+           -- âge révolu à l'entrée en fonction (date_sub compte les années pleines)
+           date_sub('year', "Date de naissance"::DATE,
+                    coalesce("Date de début de la fonction", "Date de début du mandat")::DATE) AS age,
+           "Code de la catégorie socio-professionnelle" AS csp,
+           "Libellé de la catégorie socio-professionnelle" AS profession
+    FROM read_csv('{chemin}', delim = ';', header = true, all_varchar = true)
+    """
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    url_maires = telecharger(MAIRES_URL, f"{dossier}/maires.csv")
+    telecharger(CONSEILLERS_URL, f"{dossier}/conseillers.csv")
+    con.sql(f"CREATE TABLE maires AS {lire_elus(f'{dossier}/maires.csv')}")
+    fonction = '\n           "Libellé de la fonction" AS fonction,'
+    con.sql(f"CREATE TABLE conseillers AS {lire_elus(f'{dossier}/conseillers.csv', fonction)}")
+url_maires
+```
+
+La date de la version se lit dans l'adresse finale du fichier (`AAAAMMJJ-hhmmss`).
+
+```{python}
+#| output: false
+import re
+
+aaaa, mm, jj = re.search(r"/(\d{4})(\d{2})(\d{2})-\d{6}/", url_maires).groups()
+extraction = f"version du {int(jj)}/{mm}/{aaaa}"
+```
+
+Un maire par commune, et aucune valeur manquante pour le sexe, l'âge et la profession :
+
+```{python}
+con.sql("""
+SELECT count(*) AS maires, count(DISTINCT code) AS communes,
+       count(*) FILTER (sexe IS NULL OR age IS NULL OR csp IS NULL) AS incomplets
+FROM maires
+""").df().style.hide(axis="index")
+```
+
+### Les communes et les départements (cartiflette)
+
+Pour la carte interactive, on prend les contours des communes de 2026 à leur place réelle
+(`layout=FRANCE_ENTIERE`), outre-mer compris. Pour les petites cartes par département, on prend
+les départements dans la version où l'outre-mer est rapproché de la métropole
+(`layout=FRANCE_ENTIERE_DROM_RAPPROCHES`).
+
+```{python}
+def cartiflette(niveau, disposition):
+    return (
+        "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+        "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+        f"administrative_level={niveau}/crs=4326/layout={disposition}/"
+        "vectorfile_format=parquet/simplification=50/raw.parquet"
+    )
+
+
+con.sql(f"""
+CREATE TABLE contours AS
+SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS code_departement,
+       LIBELLE_DEPARTEMENT AS departement, geometry AS geom
+FROM read_parquet('{cartiflette("COMMUNE", "FRANCE_ENTIERE")}', hive_partitioning = false)
+""")
+con.sql(f"""
+CREATE TABLE contours_departements AS
+SELECT INSEE_DEP AS code, geometry AS geom
+FROM read_parquet('{cartiflette("DEPARTEMENT", "FRANCE_ENTIERE_DROM_RAPPROCHES")}', hive_partitioning = false)
+""")
+```
+
+## Les traitements
+
+### Regrouper les âges et les professions
+
+Les âges sont répartis en quatre classes. Les professions sont codées dans la nomenclature des
+[professions et catégories socioprofessionnelles](https://www.insee.fr/fr/metadonnees/pcs2003/categorieSocioprofessionnelleAgregee/1)
+de l'Insee, en une quarantaine de postes : le premier chiffre du code donne la grande catégorie.
+Les anciens agriculteurs, artisans, cadres… sont tous rangés avec les retraités (code `7x`).
+
+```{python}
+con.sql("""
+CREATE TABLE groupes AS
+SELECT * FROM (VALUES
+    ('1', 'Agriculteurs exploitants'),
+    ('2', 'Artisans, commerçants, chefs d''entreprise'),
+    ('3', 'Cadres, professions intellectuelles supérieures'),
+    ('4', 'Professions intermédiaires'),
+    ('5', 'Employés'),
+    ('6', 'Ouvriers'),
+    ('7', 'Retraités'),
+    ('8', 'Autres sans activité professionnelle')
+) AS t(chiffre, groupe)
+""")
+
+CLASSE_AGE = """CASE WHEN age < 50 THEN 'Moins de 50 ans' WHEN age < 60 THEN '50 à 59 ans'
+                     WHEN age < 70 THEN '60 à 69 ans' ELSE '70 ans ou plus' END"""
+for table in ["maires", "conseillers"]:
+    con.sql(f"""
+    CREATE OR REPLACE TABLE {table} AS
+    SELECT e.*, CASE sexe WHEN 'F' THEN 'Femme' WHEN 'M' THEN 'Homme' END AS libelle_sexe,
+           {CLASSE_AGE} AS classe_age, g.groupe
+    FROM {table} e LEFT JOIN groupes g ON g.chiffre = left(e.csp, 1)
+    """)
+assert con.sql("SELECT count(*) FROM maires WHERE groupe IS NULL").fetchone()[0] == 0
+```
+
+### Associer chaque commune à son maire
+
+Toutes les communes n'ont pas de maire dans le répertoire : il manque quelques communes dont la
+saisie n'est pas faite ou l'élection n'a pas abouti. À l'inverse, Saint-Pierre-et-Miquelon et les
+collectivités du Pacifique ont des maires, mais pas de contours dans cartiflette.
+
+```{python}
+con.sql("""
+CREATE TABLE communes AS
+SELECT c.code, c.nom, c.code_departement, c.departement, c.geom,
+       m.libelle_sexe AS sexe, m.age, m.classe_age, m.groupe, m.profession
+FROM contours c LEFT JOIN maires m USING (code)
+""")
+con.sql("""
+SELECT count(*) FILTER (sexe IS NULL) AS communes_sans_maire,
+       (SELECT count(*) FROM maires ANTI JOIN contours USING (code)) AS maires_sans_contour
+FROM communes
+""").df().style.hide(axis="index")
+```
+
+La suite porte sur les communes qui ont à la fois un contour et un maire. Pour les conseillers
+municipaux, on garde les mêmes communes.
+
+```{python}
+con.sql("CREATE TABLE conseil AS SELECT * FROM conseillers SEMI JOIN communes USING (code)")
+
+totaux = con.sql("""
+SELECT (SELECT count(*) FROM communes WHERE sexe IS NOT NULL) AS maires,
+       (SELECT avg((sexe = 'Femme')::INTEGER) FROM communes) AS part_femmes,
+       (SELECT avg(age) FROM communes) AS age_moyen,
+       (SELECT avg((groupe = 'Retraités')::INTEGER) FROM communes) AS part_retraites,
+       (SELECT avg((libelle_sexe = 'Femme')::INTEGER) FROM conseil) AS part_femmes_conseil,
+       (SELECT avg((libelle_sexe = 'Femme')::INTEGER) FROM conseil WHERE fonction IS NULL) AS part_femmes_sans_fonction,
+       (SELECT avg(age) FROM conseil) AS age_moyen_conseil
+""").df().to_dict("records")[0]
+totaux
+```
+
+### Par département
+
+```{python}
+departements_chiffres = con.sql("""
+SELECT code_departement AS code, departement, count(sexe) AS maires,
+       avg((sexe = 'Femme')::INTEGER) AS part_femmes,
+       avg(age) AS age_moyen,
+       avg((groupe = 'Retraités')::INTEGER) AS part_retraites,
+       avg((groupe = 'Agriculteurs exploitants')::INTEGER) AS part_agriculteurs
+FROM communes GROUP BY ALL ORDER BY code
+""").df()
+departements_chiffres.head()
+```
+
+### Maires et conseillers par profession
+
+```{python}
+professions = con.sql("""
+SELECT g.groupe,
+       (SELECT count(*) FROM communes c WHERE c.groupe = g.groupe)
+         / (SELECT count(groupe) FROM communes) AS part_maires,
+       (SELECT count(*) FROM conseil c WHERE c.groupe = g.groupe)
+         / (SELECT count(*) FROM conseil) AS part_conseillers
+FROM groupes g ORDER BY g.chiffre
+""").df()
+professions
+```
+
+### Le rang des adjoints
+
+La fonction est un libellé : `Maire`, `1er adjoint au Maire`, `2ème adjoint au Maire`… Le rang
+est le nombre en tête du libellé, 0 pour le maire. Les maires délégués des communes nouvelles sont
+laissés de côté. Au-delà du huitième rang, les adjoints sont trop peu nombreux.
+
+```{python}
+con.sql("""
+CREATE TABLE fonctions AS
+SELECT code, libelle_sexe AS sexe,
+       CASE WHEN fonction = 'Maire' THEN 0
+            ELSE regexp_extract(fonction, '^(\\d+)', 1)::INTEGER END AS rang
+FROM conseil
+WHERE fonction = 'Maire' OR fonction LIKE '%adjoint%'
+""")
+rangs = con.sql("""
+SELECT rang, count(*) AS elus, avg((sexe = 'Femme')::INTEGER) AS part_femmes
+FROM fonctions WHERE rang <= 8 GROUP BY rang ORDER BY rang
+""").df()
+
+# Part des paires d'adjoints consécutifs (1er et 2e, 2e et 3e…) de sexes différents.
+totaux["alternance"] = con.sql("""
+SELECT avg((a.sexe <> b.sexe)::INTEGER)
+FROM fonctions a JOIN fonctions b ON a.code = b.code AND b.rang = a.rang + 1
+WHERE a.rang >= 1
+""").fetchone()[0]
+rangs
+```
+
+### Les contours de la carte
+
+La carte interactive dessine les 35 000 communes, chacune avec les caractéristiques de son maire.
+Pour alléger le fichier, les communes sont simplifiées ensemble, à 500 m environ
+(`ST_CoverageSimplify`), ce qui garde les limites communes jointives, et les coordonnées sont
+arrondies à 100 m environ. Les caractéristiques sont codées par le rang de leur classe : `s` pour
+le sexe (0 : femme, 1 : homme), `a` pour la classe d'âge, `g` pour la grande catégorie de
+profession ; elles sont vides quand le maire n'est pas renseigné. Le fichier, écrit dans
+`donnees/j12/`, ne contient pas le nom des élus.
+
+```{python}
+con.sql("""
+CREATE TABLE simplifiees AS
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.005) AS geom
+    FROM communes
+),
+-- Le résultat est une collection, dans l'ordre des communes : chaque morceau garde le rang
+-- de sa commune (path[1]).
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, ST_Collect(list(geom)) AS geom FROM morceaux GROUP BY 1
+""")
+
+
+def en_geojson(requete, proprietes):
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": dict(zip(proprietes, ligne[:-1])),
+                "geometry": json.loads(ligne[-1]),
+            }
+            for ligne in con.sql(requete).fetchall()
+        ],
+    }
+
+
+SORTIE = pathlib.Path("donnees/j12")
+SORTIE.mkdir(parents=True, exist_ok=True)
+carte = en_geojson("""
+SELECT c.code, c.nom,
+       CASE c.sexe WHEN 'Femme' THEN 0 WHEN 'Homme' THEN 1 END AS s,
+       CASE c.classe_age WHEN 'Moins de 50 ans' THEN 0 WHEN '50 à 59 ans' THEN 1
+                         WHEN '60 à 69 ans' THEN 2 WHEN '70 ans ou plus' THEN 3 END AS a,
+       g.chiffre::INTEGER - 1 AS g, c.age, c.profession AS p,
+       ST_AsGeoJSON(ST_ReducePrecision(s.geom, 0.001))
+FROM simplifiees s JOIN communes c USING (code) LEFT JOIN groupes g USING (groupe)
+ORDER BY c.code
+""", ["code", "nom", "s", "a", "g", "age", "p"])
+(SORTIE / "communes.geojson").write_text(json.dumps(carte, separators=(",", ":"), ensure_ascii=False))
+
+# Les départements des petites cartes, simplifiés à 1 km environ.
+departements = en_geojson("""
+SELECT code, ST_AsGeoJSON(ST_ReducePrecision(ST_SimplifyPreserveTopology(geom, 0.01), 0.002))
+FROM contours_departements
+""", ["code"])
+f"{(SORTIE / 'communes.geojson').stat().st_size / 1e6:.1f} Mo", len(departements["features"])
+```
+
+La table des communes, pour le tableau et le téléchargement, est écrite à part, en CSV.
+
+```{python}
+#| output: false
+con.sql(f"""
+COPY (
+    SELECT code, nom, departement, sexe, age, groupe, profession
+    FROM communes ORDER BY code
+) TO '{SORTIE / "communes.csv"}' (HEADER)
+""")
+```
+
+### Ce qui passe à la carte
+
+```{python}
+ojs_define(
+    departements=departements,
+    libelles={
+        "sexe": ["Femme", "Homme"],
+        "age": ["Moins de 50 ans", "50 à 59 ans", "60 à 69 ans", "70 ans ou plus"],
+        "groupe": [g for (g,) in con.sql("SELECT groupe FROM groupes ORDER BY chiffre").fetchall()],
+    },
+    totaux=totaux,
+    extraction=extraction,
+    departementsChiffres=departements_chiffres.to_dict("records"),
+    professions=professions.to_dict("records"),
+    rangs=rangs.to_dict("records"),
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(communes, {
+  placeholder: "Rechercher une commune…",
+  format: (n) => `${entier(n)} communes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["code", "nom", "departement", "sexe", "age", "groupe", "profession"],
+  header: {
+    code: "Code", nom: "Commune", departement: "Département", sexe: "Sexe du maire",
+    age: "Âge à l'entrée en fonction", groupe: "Catégorie", profession: "Profession déclarée"
+  },
+  sort: "code",
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "sexe", "age", "groupe", "profession"])], {type: "text/csv"}),
+  "maires_2026_communes.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- La profession est celle que l'élu déclare, dans une nomenclature proche de celle de l'Insee.
+  Un retraité est classé comme tel, quelle que soit son ancienne profession : les « anciens
+  agriculteurs » ou « anciens cadres » sont dans les retraités.
+- L'âge est celui de l'entrée en fonction, en mars 2026 pour la plupart des maires, plus tard
+  pour ceux élus lors d'une élection partielle.
+- Le répertoire est une photographie : il change au fil des démissions, des décès et des
+  élections partielles. Quelques communes n'y ont pas de maire à la date de la version utilisée.
+- Paris, Lyon et Marseille ont aussi des maires d'arrondissement ou de secteur, dans un autre
+  fichier du répertoire : seul le maire de la commune est compté ici.
+- Saint-Pierre-et-Miquelon, la Polynésie française et la Nouvelle-Calédonie ne sont pas sur la
+  carte, faute de contours.
+
+## Pour aller plus loin
+
+- Ministère de l'Intérieur, [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/),
+  qui couvre aussi les conseillers communautaires, départementaux et régionaux, les députés et
+  les sénateurs.
+- Insee, [Nomenclature des professions et catégories socioprofessionnelles](https://www.insee.fr/fr/metadonnees/pcs2003/categorieSocioprofessionnelleAgregee/1),
+  pour comparer les élus à la population, à partir du recensement.
+- Code général des collectivités territoriales, article L2122-7-2 : l'élection des adjoints au
+  scrutin de liste alternant les sexes.

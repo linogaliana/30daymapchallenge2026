@@ -1,0 +1,1696 @@
+---
+title: "J10 · Prompting only. Seize services, seize cartes"
+description: "La statistique publique, ce n'est pas que l'Insee : une carte pour chacun des seize services statistiques ministériels, de la Drees aux Douanes en passant par le SSMSI et la Dares."
+image: vignettes/10-prompting-only.webp
+resources:
+  - donnees/j10/*.json
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+html`<p class="lead">
+  La statistique publique, ce n'est pas que l'Insee. Chaque grand ministère a son service
+  statistique, qui produit les chiffres de son domaine : délinquance, santé, école, impôts,
+  commerce extérieur, culture, prisons… Ils sont <strong>seize</strong>, et voici
+  <strong>une carte pour chacun</strong>.
+</p>`
+```
+
+Pour ce dixième jour, « Prompting only », la page a été faite par consignes : on a demandé à un
+assistant de code de chercher, sur le site de chaque service et sur
+[data.gouv.fr](https://www.data.gouv.fr), des données qui se cartographient, puis d'écrire le
+code, du fichier source à la carte. Choisissez un service dans la mosaïque (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+gris = sombre ? "#4a4a4a" : "#d9d9d9"
+terre = sombre ? "#333" : "#eceae4"
+trait = sombre ? "#777" : "#999"
+
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+nombre = (x) => (Number.isInteger(x) ? entier(x) : virgule(x))
+
+// Les fonds et les données de chaque carte sont dans des fichiers à part, chargés après la
+// page. La mosaïque n'a besoin que des vignettes (fonds simplifiés, grilles pour les cartes
+// communales) ; les formes détaillées d'une carte communale, et les EPCI, ne sont chargés que
+// quand on la choisit.
+lire = (nom) => d3.json(`donnees/j10/${nom}.json`)
+fonds = lire("fonds")
+monde = lire("monde")
+vignettes = lire("vignettes")
+donnees = Promise.all(cartes.map((c) => lire(c.id)))
+  .then((liste) => Object.fromEntries(cartes.map((c, i) => [c.id, liste[i]])))
+vignette = (id) => ({...donnees[id], fonds: vignettes.fonds, grille: vignettes.grilles[id]})
+
+// Libellés de classes à partir des seuils : « moins de 2 », « 2 à 4 »… « 12 ou plus ».
+libellesSeuils = (seuils, unite = "") => [
+  `moins de ${nombre(seuils[0])}${unite}`,
+  ...seuils.slice(1).map((s, i) => `${nombre(seuils[i])} à ${nombre(s)}${unite}`),
+  `${nombre(seuils.at(-1))}${unite} ou plus`
+]
+// Une palette séquentielle de n couleurs, plus foncée vers le haut ; inversée en sombre
+// pour que les fortes valeurs restent les plus visibles.
+sequence = (schema, n) => {
+  const c = d3.quantize(d3[`interpolate${schema}`], n + 2).slice(1, -1)
+  return sombre ? c.map((x) => d3.interpolateLab(x, "#222")(0.15)) : c
+}
+categories = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1",
+              "#ff9da7", "#9c755f"]
+
+// Cadre commun : vignette (mini) ou grande carte.
+cadre = (mini, projection, hauteur = 760) => ({
+  width: mini ? 150 : 820,
+  height: mini ? 150 : hauteur,
+  margin: mini ? 2 : undefined,
+  style: stylePlot,
+  projection
+})
+france = (d, mini) => ({type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0],
+                        domain: d.fonds.departements, inset: mini ? 2 : 6})
+legende = (mini, options) => ({legend: !mini, style: {background: "transparent", color: "inherit"}, ...options})
+contour = (d, mini) => Plot.geo(d.fonds.departements, {stroke: fond, strokeWidth: mini ? 0.2 : 0.5})
+
+// Vignette d'une carte communale : une case colorée par classe, sur une grille de 20 km.
+pixels = (d, couleur) => Plot.plot({
+  ...cadre(true, france(d, true)),
+  marks: [
+    Plot.dot(d.grille, {x: (p) => p[0], y: (p) => p[1], symbol: "square", r: 1.5,
+                        fill: (p) => (p[2] == null || p[2] < 0 ? gris : couleur(p[2]))}),
+    contour(d, true)
+  ]
+})
+
+// Carte des communes regroupées par classe (choroplèthe).
+communesParClasse = (d, mini, {couleurs, libelles, label}) => mini ? pixels(d, (k) => couleurs[k]) : Plot.plot({
+  ...cadre(mini, france(d, mini)),
+  color: legende(mini, {type: "ordinal", domain: [...libelles, "Non renseigné"],
+                        range: [...couleurs, gris], label}),
+  marks: [
+    Plot.geo(d.formes, {fill: (f) => (f.properties.classe < 0 ? "Non renseigné" : libelles[f.properties.classe])}),
+    contour(d, mini)
+  ]
+})
+
+// Carte d'un fond (départements, régions, EPCI) coloré d'après des lignes jointes par code.
+parCode = (d, niveau, mini, {remplir, color, bulle}) => {
+  const index = new Map(d.lignes.map((l) => [l.code, l]))
+  const avec = d.fonds[niveau].features.map((f) => ({...f, ligne: index.get(f.properties.code)}))
+  return Plot.plot({
+    ...cadre(mini, france(d, mini)),
+    color: legende(mini, color),
+    marks: [
+      Plot.geo(avec, {fill: gris, stroke: fond, strokeWidth: mini ? 0.2 : 0.5}),
+      Plot.geo(avec.filter((f) => f.ligne), {fill: (f) => remplir(f.ligne), stroke: fond,
+                                             strokeWidth: mini ? 0.2 : 0.5}),
+      mini || !bulle ? null : Plot.tip(avec.filter((f) => f.ligne), Plot.pointer(Plot.geoCentroid({
+        title: (f) => bulle(f.ligne)
+      })))
+    ]
+  })
+}
+
+// Carte de points (ou de cercles) sur le fond des départements.
+points = (d, mini, {r, rMax, color, fill, bulle, sous = []}) => Plot.plot({
+  ...cadre(mini, france(d, mini)),
+  r: {range: [0, mini ? rMax / 3 : rMax]},
+  color: legende(mini, color),
+  marks: [
+    Plot.geo(d.fonds.departements, {fill: terre, stroke: fond, strokeWidth: mini ? 0.2 : 0.5}),
+    ...(mini ? [] : sous),
+    Plot.dot(d.lignes, {x: "lon", y: "lat", r, fill, fillOpacity: 0.8, stroke: fond,
+                      strokeWidth: mini ? 0 : 0.4, sort: r ? {channel: "-r"} : null}),
+    mini || !bulle ? null : Plot.tip(d.lignes, Plot.pointer({x: "lon", y: "lat", maxRadius: 15, title: bulle}))
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+// Les seize cartes. Pour chacune : le service, le sujet, un texte, le dessin (grande carte
+// ou vignette) et le tableau des données.
+cartes = [
+  {
+    id: "ssmsi", sigle: "SSMSI", ministere: "Intérieur",
+    service: "Service statistique ministériel de la sécurité intérieure",
+    titre: "Les cambriolages de logement en 2025",
+    texte: (d) => html`En 2025, police et gendarmerie ont enregistré
+      <strong>${entier(d.meta.cambriolages)} cambriolages de logement</strong>, soit
+      ${virgule(d.meta.taux)} pour 1 000 logements. Le taux est plus élevé autour des grandes villes
+      (Bordeaux, Toulouse, Lyon, Marseille) et dans le sud du Bassin parisien ; il est plus faible en
+      montagne et en Corse. Seules ${entier(d.meta.diffusees)} communes
+      ont des chiffres publiés ; pour les autres (trop peu de faits), la carte reprend le taux moyen
+      des communes non publiées de leur département.`,
+    source: "SSMSI, base communale de la délinquance enregistrée 2025",
+    dessiner: (d, mini) => communesParClasse(d, mini, {
+      couleurs: sequence("OrRd", d.meta.seuils.length + 1),
+      libelles: libellesSeuils(d.meta.seuils), label: "Cambriolages pour 1 000 logements"
+    }),
+    table: true, fichier: "cambriolages_logement_communes_2025.csv",
+    colonnes: {code: "Code", nom: "Commune", departement: "Département", logements: "Logements",
+               cambriolages: "Cambriolages", taux: "Pour 1 000 logements", publie: "Chiffre publié"},
+    formats: {logements: entier, cambriolages: (x) => (x == null ? "non publié" : entier(x)),
+              taux: (x) => (x == null ? "" : virgule(x)), publie: (b) => (b ? "oui" : "non (moyenne)")}
+  },
+  {
+    id: "drees", sigle: "Drees", ministere: "Santé, Solidarités",
+    service: "Direction de la recherche, des études, de l'évaluation et des statistiques",
+    titre: "L'accès aux médecins généralistes en 2024",
+    texte: (d) => html`L'accessibilité potentielle localisée (APL) compte les consultations de
+      médecine générale accessibles à chaque habitant dans l'année, en tenant compte des médecins
+      des communes voisines et de l'âge de la population. En 2024, elle est en moyenne de
+      ${virgule(d.meta.moyenne)} consultations par habitant. <strong>${pourcent(d.meta.sous_seuil)}
+      de la population</strong> vit dans une commune où elle est inférieure à 2,5, le seuil
+      habituel des zones sous-dotées.`,
+    source: "Drees, indicateur d'APL aux médecins généralistes 2024",
+    dessiner: (d, mini) => communesParClasse(d, mini, {
+      couleurs: sequence("YlGnBu", d.meta.seuils.length + 1),
+      libelles: libellesSeuils(d.meta.seuils), label: "Consultations accessibles par habitant et par an"
+    }),
+    table: true, fichier: "apl_medecins_generalistes_communes_2024.csv",
+    colonnes: {code: "Code", nom: "Commune", departement: "Département", population: "Population",
+               apl: "APL", apl65: "APL (médecins de 65 ans ou moins)"},
+    formats: {population: entier, apl: (x) => virgule(x, 2), apl65: (x) => virgule(x, 2)}
+  },
+  {
+    id: "depp", sigle: "Depp", ministere: "Éducation nationale",
+    service: "Direction de l'évaluation, de la prospective et de la performance",
+    titre: "L'éloignement des collèges, rentrée 2025",
+    texte: (d) => html`Pour répartir ses moyens, l'Éducation nationale mesure l'éloignement de chaque
+      collège : distance aux domiciles des élèves, aux lycées, aux équipements culturels et sportifs…
+      L'indice vaut 100 en moyenne. Les ${entier(d.meta.colleges)} collèges se répartissent
+      entre les villes (en bleu) et les zones de montagne et les campagnes peu denses (en rouge) : <strong>${entier(d.meta.eloignes)} collèges</strong> ont un indice de 120 ou plus.`,
+    source: "Depp, indice d'éloignement des collèges 2025 ; annuaire de l'éducation",
+    dessiner: (d, mini) => points(d, mini, {
+      rMax: 3.2, r: () => 1, fill: "indice",
+      color: {type: "threshold", domain: [90, 95, 105, 110, 120], range: [...d3.schemeRdBu[6]].reverse(),
+              label: "Indice d'éloignement (100 = moyenne)"},
+      bulle: (c) => `${c.nom}\n${c.commune}\nIndice : ${virgule(c.indice)}`
+    }),
+    fichier: "eloignement_colleges_2025.csv",
+    colonnes: {uai: "UAI", nom: "Collège", commune: "Commune", departement: "Département",
+               indice: "Indice d'éloignement"},
+    formats: {indice: (x) => virgule(x)}
+  },
+  {
+    id: "sies", sigle: "Sies", ministere: "Enseignement supérieur",
+    service: "Sous-direction des systèmes d'information et des études statistiques",
+    titre: "Les étudiants, de 2015 à 2025",
+    texte: (d) => html`À la rentrée 2025, ${(d.meta.etudiants / 1e6).toLocaleString("fr-FR", {maximumFractionDigits: 2})}
+      millions d'étudiants sont inscrits dans l'enseignement supérieur, ${pourcent(d.meta.evolution)}
+      de plus qu'en 2015. Paris en accueille plus d'un sur quatre. La hausse touche presque toutes
+      les villes universitaires, mais elle est plus forte dans les grandes métropoles
+      et dans les villes moyennes qui ont ouvert de nouvelles formations.`,
+    source: "Sies, atlas régional des effectifs étudiants 2015 et 2025",
+    dessiner: (d, mini) => points(d, mini, {
+      rMax: 30, r: "etudiants", fill: (u) => (u.etudiants_2015 > 0 ? u.etudiants / u.etudiants_2015 - 1 : null),
+      color: {type: "diverging", pivot: 0, scheme: "PuOr", reverse: true, domain: [-0.5, 0.5], clamp: true,
+              tickFormat: (x) => `${x > 0 ? "+" : ""}${Math.round(100 * x)} %`,
+              label: "Évolution 2015-2025"},
+      bulle: (u) => `${u.nom}\n${entier(u.etudiants)} étudiants en 2025\n` +
+        (u.etudiants_2015 > 0 ? `${entier(u.etudiants_2015)} en 2015` : "aucun en 2015")
+    }),
+    fichier: "etudiants_unites_urbaines_2015_2025.csv",
+    colonnes: {code: "Unité urbaine", nom: "Nom", etudiants_2015: "Étudiants 2015", etudiants: "Étudiants 2025"},
+    formats: {etudiants_2015: entier, etudiants: entier}
+  },
+  {
+    id: "sdes", sigle: "Sdes", ministere: "Transition écologique",
+    service: "Service des données et études statistiques",
+    titre: "Les maisons exposées au retrait-gonflement des argiles",
+    texte: (d) => html`Les sols argileux gonflent quand il pleut et se rétractent quand il fait sec :
+      les maisons construites dessus se fissurent. Les sécheresses répétées multiplient les
+      sinistres. <strong>${(d.meta.maisons / 1e6).toLocaleString("fr-FR", {maximumFractionDigits: 1})}
+      millions de maisons individuelles</strong> sont sur un sol où l'exposition est moyenne ou forte,
+      surtout dans le Bassin parisien, le Sud-Ouest et le couloir rhodanien.`,
+    source: "Sdes, exposition des maisons individuelles au retrait-gonflement des argiles (Fidéli 2021)",
+    dessiner: (d, mini) => points(d, mini, {
+      rMax: 18, r: "maisons", fill: mini ? "#b5651d" : (sombre ? "#d9894a" : "#b5651d"),
+      sous: [Plot.geo(d.fonds.epci, {stroke: sombre ? "#3a3a3a" : "#d8d4cb", strokeWidth: 0.3})],
+      bulle: (e) => `${e.nom}\n${entier(e.maisons)} maisons en exposition moyenne ou forte\n` +
+        `dont ${e.forte == null ? "secret" : entier(e.forte)} en exposition forte`
+    }),
+    fichier: "maisons_exposees_argiles_epci.csv",
+    colonnes: {code: "EPCI", nom: "Nom", moyenne: "Exposition moyenne", forte: "Exposition forte", maisons: "Moyenne ou forte"},
+    formats: {moyenne: (x) => (x == null ? "secret" : entier(x)), forte: (x) => (x == null ? "secret" : entier(x)), maisons: entier}
+  },
+  {
+    id: "agreste", sigle: "SSP · Agreste", ministere: "Agriculture",
+    service: "Service de la statistique et de la prospective",
+    titre: "Céréales, prairies ou vignes : les terres agricoles en 2020",
+    texte: (d) => html`Le recensement agricole de 2020 dit, pour chaque commune, comment se partage la
+      surface agricole des exploitations qui y ont leur siège. Les céréales et oléagineux dominent
+      dans <strong>${entier(d.meta.communes[0])} communes</strong>, du Bassin parisien au Poitou ;
+      les prairies dans ${entier(d.meta.communes[1])}, de la Normandie au Massif central et aux Alpes ;
+      les vignes et vergers dans ${entier(d.meta.communes[2])}, en Champagne, en Bourgogne, en Gironde
+      et en Languedoc.`,
+    source: "SSP, recensement agricole 2020, surfaces par commune",
+    dessiner: (d, mini) => {
+      const c = sombre
+        ? ["#e0b94a", "#8c7a3c", "#6fbf62", "#3f6f3a", "#c45a9a", "#7a3c62"]
+        : ["#d4a72c", "#f0dc96", "#3f8f3a", "#a9d49c", "#a3307a", "#e6a6cc"]
+      return communesParClasse(d, mini, {couleurs: c, libelles: d.meta.libelles,
+                                         label: "Usage dominant de la surface agricole"})
+    },
+    table: true, fichier: "surfaces_agricoles_communes_2020.csv",
+    colonnes: {code: "Code", nom: "Commune", departement: "Département", sau: "SAU (ha)",
+               cereales: "Céréales, oléoprot. (ha)", prairies: "Prairies (ha)", permanentes: "Cultures permanentes (ha)"},
+    formats: {sau: entier, cereales: entier, prairies: entier, permanentes: entier}
+  },
+  {
+    id: "dgfip", sigle: "DGFiP", ministere: "Comptes publics",
+    service: "Pôle statistique publique de la Direction générale des finances publiques",
+    titre: "Le taux de taxe foncière en 2025",
+    texte: (d) => html`Le taux de la taxe foncière sur les propriétés bâties additionne la part de la
+      commune, celle de l'intercommunalité et quelques taxes annexes. La moitié des communes ont un taux supérieur à
+      <strong>${virgule(d.meta.mediane)} %</strong>. Les taux sont plus bas en Alsace, en Lorraine, dans
+      les Alpes du Nord, en Île-de-France et en Corse ; plus hauts dans le Nord, le Sud-Ouest et le
+      Languedoc. Un taux élevé ne fait pas forcément une taxe élevée : elle dépend
+      aussi de la valeur locative des logements.`,
+    source: "DGFiP, fiscalité locale des particuliers 2025",
+    dessiner: (d, mini) => communesParClasse(d, mini, {
+      couleurs: sequence("PuRd", d.meta.seuils.length + 1),
+      libelles: libellesSeuils(d.meta.seuils, " %"), label: "Taux global de taxe foncière (bâti)"
+    }),
+    table: true, fichier: "taux_taxe_fonciere_communes_2025.csv",
+    colonnes: {code: "Code", nom: "Commune", departement: "Département", taux: "Taux global (%)"},
+    formats: {taux: (x) => virgule(x, 2)}
+  },
+  {
+    id: "douanes", sigle: "Douanes · DSECE", ministere: "Comptes publics",
+    service: "Département des statistiques et des études du commerce extérieur",
+    titre: "Le premier client de chaque département en 2023",
+    texte: (d) => html`À qui chaque département vend-il le plus ? L'Allemagne est le premier client de
+      <strong>${d.meta.allemagne} départements</strong>, surtout dans l'Est et le Nord. L'Espagne domine
+      dans le Sud-Ouest, l'Italie dans le Sud-Est et l'Auvergne, la Belgique dans le Nord. Le premier client ne pèse
+      souvent qu'un cinquième des exportations du département.`,
+    source: "Douanes (DSECE), statistiques départementales du commerce extérieur 2023",
+    dessiner: (d, mini) => parCode(d, "departements", mini, {
+      remplir: (l) => l.categorie,
+      color: {type: "ordinal", domain: d.meta.categories, range: [...categories.slice(0, d.meta.categories.length - 1), gris],
+              label: "Premier pays client"},
+      bulle: (l) => `${l.departement}\n1er client : ${l.pays} (${pourcent(l.part)} des exportations)\n` +
+        `Exportations : ${virgule(l.exportations / 1e9)} Md€`
+    }),
+    fichier: "premier_client_departements_2023.csv",
+    colonnes: {code: "Code", departement: "Département", pays: "Premier client", part: "Part des exportations",
+               exportations: "Exportations (Md€)"},
+    formats: {part: (x) => pourcent(x, 1), exportations: (x) => virgule(x / 1e9, 2)}
+  },
+  {
+    id: "deps", sigle: "Deps", ministere: "Culture",
+    service: "Département des études, de la prospective, des statistiques et de la documentation",
+    titre: "Les cinémas",
+    texte: (d) => html`La France compte ${entier(d.meta.cinemas)} cinémas, dont
+      <strong>${entier(d.meta.art_essai)} classés Art et essai</strong> (en couleur). Beaucoup sont de
+      petites salles de bourg : la moitié n'ont qu'un écran. Les multiplexes, eux, se
+      concentrent aux abords des grandes villes.`,
+    source: "Deps, base des lieux et équipements culturels (Basilic) 2026",
+    dessiner: (d, mini) => points(d, mini, {
+      rMax: 9, r: "fauteuils", fill: (c) => (c.art_essai ? "Art et essai" : "Autre cinéma"),
+      color: {type: "ordinal", domain: ["Art et essai", "Autre cinéma"],
+              range: [sombre ? "#e8749a" : "#c2185b", sombre ? "#8aa7c7" : "#6b8db5"], label: "Cinémas"},
+      bulle: (c) => `${c.nom}\n${c.commune}\n${entier(c.ecrans)} écran${c.ecrans > 1 ? "s" : ""}, ` +
+        `${entier(c.fauteuils)} fauteuils${c.art_essai ? "\nArt et essai" : ""}`
+    }),
+    fichier: "cinemas_2026.csv",
+    colonnes: {nom: "Cinéma", commune: "Commune", departement: "Département", ecrans: "Écrans",
+               fauteuils: "Fauteuils", art_essai: "Art et essai"},
+    formats: {ecrans: entier, fauteuils: entier, art_essai: (b) => (b ? "oui" : "")}
+  },
+  {
+    id: "injep", sigle: "INJEP · Medes", ministere: "Sports, Jeunesse",
+    service: "Mission enquêtes, données et études statistiques",
+    titre: "Après le football, quel sport ?",
+    texte: (d) => html`Le football a le plus de clubs presque partout. Mais derrière lui ? Dans chaque
+      intercommunalité, la fédération qui en compte le plus, football mis à part. Le
+      <strong>tennis</strong> l'emporte dans ${d.meta.tennis} intercommunalités, surtout dans l'Ouest
+      et la moitié nord ; la <strong>pétanque</strong> dans ${d.meta.petanque}, du Massif central à
+      la Méditerranée ; le sport boules, la « lyonnaise », dans ${d.meta.boules}, entre le Lyonnais,
+      le Forez et la Savoie.`,
+    source: "INJEP (Medes), recensement des clubs auprès des fédérations sportives 2023",
+    dessiner: (d, mini) => mini ? pixels(d, (k) => [...categories.slice(0, d.meta.categories.length - 1), gris][k]) : parCode(d, "epci", mini, {
+      remplir: (l) => l.categorie,
+      color: {type: "ordinal", domain: d.meta.categories, range: [...categories.slice(0, d.meta.categories.length - 1), gris],
+              label: "Fédération qui a le plus de clubs, football mis à part"},
+      bulle: (l) => `${l.nom}\n${l.sport} : ${entier(l.clubs)} clubs\nFootball : ${entier(l.football)} clubs`
+    }),
+    fichier: "sport_apres_football_epci_2023.csv",
+    colonnes: {code: "EPCI", nom: "Nom", sport: "Fédération", clubs: "Clubs", football: "Clubs de football"},
+    formats: {clubs: entier, football: entier}
+  },
+  {
+    id: "dares", sigle: "Dares", ministere: "Travail",
+    service: "Direction de l'animation de la recherche, des études et des statistiques",
+    titre: "Le métier signature de chaque département",
+    texte: (d) => html`Pour chaque département, le métier le plus surreprésenté par rapport à la
+      France entière (parmi ceux qui y emploient au moins 1 000 personnes). Les éleveurs dominent le
+      Massif central, les viticulteurs la Champagne, la Bourgogne et le Languedoc, les marins et
+      pêcheurs le littoral atlantique. Ailleurs ressortent les industries locales : métallurgie des
+      Ardennes, cuir de l'Allier… et le clergé dans le Calvados, autour de Lisieux.`,
+    source: "Dares, portraits statistiques des métiers, répartition départementale 2022",
+    dessiner: (d, mini) => parCode(d, "departements", mini, {
+      remplir: (l) => l.domaine,
+      color: {type: "ordinal", domain: d.meta.domaines, range: [...categories.slice(0, d.meta.domaines.length - 1), gris],
+              label: "Domaine professionnel du métier"},
+      bulle: (l) => `${l.departement}\n${l.metier}\n${virgule(l.indice)} fois plus présent qu'en France\n` +
+        `${entier(l.effectif)} emplois (${pourcent(l.part, 1)} de l'emploi)`
+    }),
+    fichier: "metier_signature_departements_2022.csv",
+    colonnes: {code: "Code", departement: "Département", metier: "Métier", indice: "Indice de spécialisation",
+               effectif: "Emplois", part: "Part de l'emploi"},
+    formats: {indice: (x) => virgule(x), effectif: entier, part: (x) => pourcent(x, 1)}
+  },
+  {
+    id: "justice", sigle: "SSER", ministere: "Justice",
+    service: "Service de la statistique, des études et de la recherche",
+    titre: "La surpopulation carcérale",
+    texte: (d) => html`Au ${d.meta.date}, ${entier(d.meta.detenus)} personnes sont détenues pour
+      ${entier(d.meta.places)} places opérationnelles. La surpopulation se concentre dans les maisons
+      d'arrêt, où attendent les prévenus et où purgent les condamnés à de courtes peines :
+      <strong>${d.meta.double} établissements</strong> comptent au moins deux détenus pour une place.
+      Les centres de détention, pour les longues peines, sont rarement au-delà de 100 %.`,
+    source: "SSER, statistique mensuelle de la population détenue ; annuaire de service-public.fr",
+    dessiner: (d, mini) => points(d, mini, {
+      rMax: 16, r: "detenus", fill: "densite",
+      color: {type: "threshold", domain: [1, 1.2, 1.5, 2], range: sequence("YlOrRd", 5),
+              tickFormat: (x) => `${Math.round(100 * x)} %`, label: "Densité carcérale (détenus pour 100 places)"},
+      bulle: (p) => `${p.nom}\n${entier(p.detenus)} détenus pour ${entier(p.places)} places\nDensité : ${pourcent(p.densite)}`
+    }),
+    fichier: "densite_carcerale_etablissements.csv",
+    colonnes: {nom: "Établissement", places: "Places opérationnelles", detenus: "Détenus", densite: "Densité"},
+    formats: {places: entier, detenus: entier, densite: (x) => pourcent(x, 1)}
+  },
+  {
+    id: "desl", sigle: "DESL", ministere: "Collectivités locales",
+    service: "Département des études et des statistiques locales (DGCL)",
+    titre: "La dotation de l'État aux communes en 2026",
+    texte: (d) => html`La dotation globale de fonctionnement (DGF) est la principale aide de l'État aux
+      communes : ${virgule(d.meta.total / 1e9)} milliards d'euros en 2026, soit
+      ${entier(d.meta.par_habitant)} € par habitant en moyenne. Elle compense en partie les écarts de
+      richesse fiscale : les communes rurales et de montagne, peu peuplées mais étendues, reçoivent
+      souvent <strong>plus par habitant</strong> que les communes périurbaines.`,
+    source: "DGCL (DESL), critères de répartition de la DGF 2026",
+    dessiner: (d, mini) => communesParClasse(d, mini, {
+      couleurs: sequence("YlGn", d.meta.seuils.length + 1),
+      libelles: libellesSeuils(d.meta.seuils, " €"), label: "DGF par habitant (population DGF)"
+    }),
+    table: true, fichier: "dgf_communes_2026.csv",
+    colonnes: {code: "Code", nom: "Commune", departement: "Département", population: "Population DGF",
+               dgf: "DGF (€)", par_habitant: "DGF par habitant (€)"},
+    formats: {population: entier, dgf: entier, par_habitant: entier}
+  },
+  {
+    id: "dgafp", sigle: "DGAFP", ministere: "Fonction publique",
+    service: "Sous-direction des études, des statistiques et des systèmes d'information",
+    titre: "Combien d'agents publics pour 1 000 habitants ?",
+    texte: (d) => html`Fin 2023, la fonction publique civile compte ${d.meta.france} agents (en
+      équivalent temps plein) pour 1 000 habitants. Le taux est le plus élevé à Paris, qui concentre
+      les administrations centrales, outre-mer et dans les départements qui ont un grand CHU ou une
+      préfecture de région (Haute-Vienne, Vienne, Puy-de-Dôme…). Il est plus faible dans les
+      départements résidentiels voisins d'une grande ville (Ain, Haute-Savoie, Oise…), dont
+      beaucoup d'habitants travaillent dans le département d'à côté.`,
+    source: "DGAFP, rapport annuel sur l'état de la fonction publique 2025 (Siasp, Insee)",
+    dessiner: (d, mini) => parCode(d, "departements", mini, {
+      remplir: (l) => l.taux,
+      color: {type: "quantize", n: 6, scheme: "Blues", domain: [40, 100], clamp: true,
+              label: "Agents civils (ETP) pour 1 000 habitants, 2023"},
+      bulle: (l) => `${l.departement}\n${entier(l.taux)} agents pour 1 000 habitants\n` +
+        `État ${pourcent(l.part_etat)}, territoriale ${pourcent(l.part_territoriale)}, hospitalière ${pourcent(l.part_hospitaliere)}`
+    }),
+    fichier: "taux_administration_departements_2023.csv",
+    colonnes: {code: "Code", departement: "Département", taux: "Agents pour 1 000 habitants",
+               part_etat: "Part État", part_territoriale: "Part territoriale", part_hospitaliere: "Part hospitalière"},
+    formats: {taux: entier, part_etat: (x) => pourcent(x), part_territoriale: (x) => pourcent(x),
+              part_hospitaliere: (x) => pourcent(x)}
+  },
+  {
+    id: "dsed", sigle: "DSED", ministere: "Intérieur (immigration)",
+    service: "Département des statistiques, des études et de la documentation",
+    titre: "D'où viennent les premiers titres de séjour ?",
+    texte: (d) => html`En 2024, ${entier(d.meta.total)} premiers titres de séjour ont été délivrés à des
+      étrangers majeurs. Les ressortissants du Maghreb en reçoivent le plus (Maroc, Algérie,
+      Tunisie), suivis de ceux d'Afrique de l'Ouest, d'Asie du Sud et de Chine. Le service ne publie
+      pas de répartition par département : la carte est celle des pays de nationalité.`,
+    source: "DSED, stock et flux des titres de séjour 2024 ; Natural Earth",
+    dessiner: (d, mini) => {
+      const index = new Map(d.lignes.map((l) => [l.iso3, l]))
+      const pays = monde.features.map((f) => ({...f, ligne: index.get(f.properties.iso3)}))
+      return Plot.plot({
+        ...cadre(mini, {type: "equal-earth"}, 430),
+        color: legende(mini, {type: "threshold", domain: [500, 2000, 5000, 15000],
+                              range: sequence("BuPu", 5), tickFormat: entier,
+                              label: "Premiers titres de séjour délivrés en 2024"}),
+        marks: [
+          Plot.sphere({stroke: trait, strokeWidth: 0.5}),
+          Plot.geo(pays, {fill: (f) => (f.properties.iso3 === "FRA" ? (sombre ? "#ddd" : "#333")
+                                        : f.ligne?.titres ?? gris), stroke: fond, strokeWidth: mini ? 0.1 : 0.3}),
+          mini ? null : Plot.tip(pays.filter((f) => f.ligne), Plot.pointer(Plot.geoCentroid({
+            title: (f) => `${f.properties.nom}\n${f.ligne.titres == null ? "moins de 50 (non communiqué)"
+                                                 : entier(f.ligne.titres) + " premiers titres"}`
+          })))
+        ]
+      })
+    },
+    fichier: "premiers_titres_sejour_nationalites_2024.csv",
+    colonnes: {pays: "Nationalité", region: "Région du monde", titres: "Premiers titres"},
+    formats: {titres: (x) => (x == null ? "nc" : entier(x))}
+  },
+  {
+    id: "armees", sigle: "S2E · Armées", ministere: "Armées",
+    service: "Sous-direction Statistiques et études économiques",
+    titre: "La fréquentation des lieux de mémoire en 2023",
+    texte: (d) => html`Plages du Débarquement, champs de bataille de la Grande Guerre, musées et
+      mémoriaux : les lieux de mémoire des conflits contemporains ont reçu
+      ${virgule(d.meta.total / 1e6)} millions de visites en 2023. <strong>La Normandie en accueille
+      ${pourcent(d.meta.normandie)}</strong> ; viennent ensuite l'Île-de-France et le Grand Est, avec
+      Verdun. En Normandie et dans les Hauts-de-France, une grande part des visiteurs vient de
+      l'étranger.`,
+    source: "Ministère des Armées (S2E), EcoDef Statistiques n° 255",
+    dessiner: (d, mini) => parCode(d, "regions", mini, {
+      remplir: (l) => l.visites,
+      color: {type: "threshold", domain: [250e3, 500e3, 1e6, 2e6], range: sequence("Oranges", 5),
+              tickFormat: (x) => (x >= 1e6 ? `${x / 1e6} M` : `${x / 1e3} k`), label: "Visites en 2023"},
+      bulle: (l) => `${l.region}\n${entier(l.visites)} visites en 2023` +
+        (l.part_etrangers == null ? "" : `\n${pourcent(l.part_etrangers)} de visiteurs étrangers`)
+    }),
+    fichier: "lieux_memoire_regions_2023.csv",
+    colonnes: {region: "Région", visites: "Visites 2023", part_etrangers: "Part de visiteurs étrangers"},
+    formats: {visites: entier, part_etrangers: (x) => (x == null ? "" : pourcent(x))}
+  }
+]
+```
+
+```{ojs}
+//| echo: false
+// La mosaïque : une vignette par service ; un clic choisit la carte.
+viewof choix = {
+  const precedent = this?.value ?? "ssmsi"
+  const mosaique = html`<div class="mosaique" role="listbox" aria-label="Choisir un service">${cartes.map((c) => {
+    const b = html`<button type="button" role="option" data-id=${c.id}>
+      ${c.dessiner(vignette(c.id), true)}
+      <span class="mosaique-sigle">${c.sigle}</span>
+      <span class="mosaique-ministere">${c.ministere}</span>
+    </button>`
+    b.onclick = () => {
+      mosaique.value = c.id
+      marquer()
+      mosaique.dispatchEvent(new Event("input", {bubbles: true}))
+    }
+    return b
+  })}</div>`
+  const marquer = () => mosaique.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("actif", b.dataset.id === mosaique.value)
+    b.setAttribute("aria-selected", b.dataset.id === mosaique.value)
+  })
+  mosaique.value = precedent
+  marquer()
+  return mosaique
+}
+```
+
+```{ojs}
+//| echo: false
+carte = cartes.find((c) => c.id === choix)
+// Les formes détaillées (cartes communales) et les EPCI, chargés à la demande.
+formes = carte.table ? lire(`${carte.id}-formes`) : null
+epci = ["sdes", "injep"].includes(carte.id) ? lire("epci") : null
+html`<h2 class="anchored">${carte.titre}</h2>
+<p class="service-ssm"><strong>${carte.sigle}</strong> · ${carte.service} (${carte.ministere})</p>
+<p>${carte.texte(donnees[carte.id])}</p>`
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+carte.dessiner({...donnees[carte.id], fonds: {...fonds, epci}, formes}, false)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>${carte.table ? "Les communes sont colorées par classe ; leurs valeurs sont dans le tableau en bas de page. " : "Survolez la carte pour le détail. "}${carte.id === "dsed" ? "" : "Les départements d'outre-mer sont rapprochés ; Paris et sa petite couronne sont agrandis en haut à gauche. "}Source : ${carte.source}${carte.id === "dsed" ? "" : " ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette"}.</small></p>`
+```
+
+--------
+
+On va maintenant décrire comment obtenir les données de ces cartes. Le code est long : seize
+services, seize sources, chacune avec son format.
+
+## Les données
+
+| Service | Source | Ce qu'on en tire | Format |
+|---|---|---|---|
+| SSMSI | [Base communale de la délinquance enregistrée](https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales) | les cambriolages de logement par commune, 2025 | Parquet |
+| Drees | [Accessibilité potentielle localisée (APL)](https://www.data.gouv.fr/datasets/accessibilite-potentielle-localisee-apl-aux-professionnels-de-sante) | l'APL aux médecins généralistes par commune, 2024 | Excel |
+| Depp | [Indice d'éloignement des collèges](https://data.education.gouv.fr/explore/dataset/fr-en-indice_eloignement_college_ap2022/) et [annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | l'indice de chaque collège, rentrée 2025, et sa position | CSV (Opendatasoft) |
+| Sies | [Atlas régional des effectifs étudiants](https://data.enseignementsup-recherche.gouv.fr/explore/dataset/fr-esr-atlas_regional-effectifs-d-etudiants-inscrits/) | les étudiants par unité urbaine, 2015 et 2025 | CSV (Opendatasoft) |
+| Sdes | [Exposition des maisons au retrait-gonflement des argiles](https://www.data.gouv.fr/datasets/exposition-des-maisons-individuelles-au-phenomene-de-retrait-gonflement-des-argiles-rga) | les maisons exposées par EPCI | CSV (DiDo) |
+| SSP (Agreste) | [Recensement agricole 2020, cultures](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/) | les surfaces par grand usage et par commune | ODS |
+| DGFiP | [Fiscalité locale des particuliers](https://www.data.gouv.fr/datasets/fiscalite-locale-des-particuliers) | le taux global de taxe foncière par commune, 2025 | CSV (Opendatasoft) |
+| Douanes (DSECE) | [Statistiques départementales du commerce extérieur](https://www.douane.gouv.fr/la-douane/opendata/auteurs/direction-nationale-des-statistiques-et-des-etudes-du-commerce-exterieur) | les exportations par département et pays, 2023 | Texte zippé |
+| Deps | [Base des lieux et équipements culturels (Basilic)](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) | les cinémas, leur position et leurs fauteuils | CSV |
+| INJEP (Medes) | [Clubs des fédérations sportives](https://www.data.gouv.fr/datasets/donnees-geocodees-issues-du-recensement-des-licences-et-clubs-aupres-des-federations-sportives-agreees-par-le-ministere-charge-des-sports) | les clubs par commune et fédération, 2023 | CSV |
+| Dares | [Portraits statistiques des métiers](https://dares.travail-emploi.gouv.fr/donnees/portraits-statistiques-des-metiers) | l'emploi par métier et département, 2022 | Excel |
+| SSER (Justice) | [Statistique mensuelle de la population détenue](https://www.data.gouv.fr/datasets/statistique-mensuelle-de-la-population-ecrouee-et-detenue-en-france), [annuaire de service-public.fr](https://www.data.gouv.fr/datasets/service-public-gouv-fr-annuaire-de-l-administration-base-de-donnees-locales) | les places et détenus par établissement, et sa position | Excel, JSON (Opendatasoft) |
+| DESL (DGCL) | [Critères de répartition des dotations](http://www.dotations-dgcl.interieur.gouv.fr/consultation/criteres_repartition.php) | la DGF par commune, 2026 | Excel |
+| DGAFP | [Rapport annuel sur l'état de la fonction publique 2025](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023) | le taux d'administration par département, 2023 | Excel zippé |
+| DSED | [Stock et flux des titres de séjour 2024](https://www.data.gouv.fr/datasets/stock-et-flux-des-titres-de-sejour-en-france-sur-lannee-2024) | les premiers titres par nationalité | CSV |
+| S2E (Armées) | [EcoDef Statistiques n° 255](https://www.data.gouv.fr/datasets/ecodef-statistiques-ndeg-255) | les visites des lieux de mémoire par région, 2023 | Excel |
+| | [Communes 2026](https://github.com/InseeFrLab/cartiflette) (IGN, via cartiflette) | les contours, d'où l'on tire départements, régions, EPCI et unités urbaines | GeoParquet |
+| | [Natural Earth](https://www.naturalearthdata.com/) | les contours des pays | GeoJSON |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) ; les
+classeurs Excel et ODS sont lus avec `pandas` et le moteur
+[calamine](https://github.com/dimastbk/python-calamine), rapide et tolérant aux mises en forme.
+
+```{python}
+#| output: false
+import json
+import pathlib
+import re
+import shutil
+import tempfile
+import unicodedata
+import urllib.parse
+import urllib.request
+import zipfile
+
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+INSTALL httpfs; LOAD httpfs;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+
+TELECHARGEMENTS = pathlib.Path(tempfile.mkdtemp())  # effacé à la fin de la page
+SORTIE = pathlib.Path("donnees/j10")
+SORTIE.mkdir(parents=True, exist_ok=True)
+```
+
+Quelques fonctions servent à toutes les sources : télécharger un fichier (en vérifiant qu'un
+classeur ou une archive est bien complet), construire l'URL d'export CSV d'un portail
+[Opendatasoft](https://help.opendatasoft.com/apis/ods-explore-v2/) avec un filtre, rapprocher
+des noms écrits différemment (accents, tirets, « St » pour « Saint »), et découper une valeur en
+classes.
+
+```{python}
+def telecharger(url, nom, archive=True, essais=3):
+    chemin = TELECHARGEMENTS / nom
+    requete = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (30daymapchallenge)"})
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(requete, timeout=900) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+        except OSError:
+            if essai == essais - 1:
+                raise
+            continue
+        if not archive or zipfile.is_zipfile(chemin):  # .xlsx, .ods et .zip sont des archives zip
+            return chemin
+    raise RuntimeError(f"téléchargement incomplet : {url}")
+
+
+def export_ods(domaine, jeu, **parametres):
+    requete = urllib.parse.urlencode({"delimiter": ";", **parametres})
+    return f"https://{domaine}/api/explore/v2.1/catalog/datasets/{jeu}/exports/csv?{requete}"
+
+
+def cle(texte):
+    """Une clé de rapprochement : sans accents, en majuscules, sans espaces ni ponctuation."""
+    texte = unicodedata.normalize("NFKD", str(texte)).encode("ascii", "ignore").decode().upper()
+    texte = re.sub(r"\bSTE\b", "SAINTE", re.sub(r"\bST\b", "SAINT", re.sub(r"[^A-Z]", " ", texte)))
+    return re.sub(r"\s", "", texte)
+
+
+def classe_sql(expression, seuils):
+    cas = " ".join(f"WHEN {expression} < {s} THEN {i}" for i, s in enumerate(seuils))
+    return f"CASE WHEN {expression} IS NULL THEN NULL {cas} ELSE {len(seuils)} END"
+
+
+def enregistrements(df):
+    return json.loads(df.to_json(orient="records", force_ascii=False, double_precision=5))
+
+
+def ecrire(nom, objet):
+    with open(SORTIE / f"{nom}.json", "w", encoding="utf-8") as f:
+        json.dump(objet, f, ensure_ascii=False, separators=(",", ":"))
+```
+
+### Les communes et les fonds de carte (cartiflette)
+
+Toutes les cartes de France partent des communes de 2026, dans la version où les départements
+d'outre-mer sont rapprochés de la métropole. Chaque commune porte son département, sa région,
+son EPCI et son unité urbaine : on en tire tous les autres contours.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level=COMMUNE/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS dep, LIBELLE_DEPARTEMENT AS departement,
+       INSEE_REG AS reg, LIBELLE_REGION AS region, EPCI AS epci, UU2020 AS uu,
+       POPULATION AS population, geometry AS geom
+FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+""")
+con.sql("SELECT count(*) AS communes, count(DISTINCT dep) AS departements, count(DISTINCT epci) AS epci FROM communes").df()
+```
+
+Les communes sont simplifiées ensemble, à 1 km environ (`ST_CoverageSimplify`), pour que les
+contours fusionnés restent jointifs. La fonction `contours` fusionne ensuite les communes selon
+une clé (`ST_CoverageUnion_Agg`) : le département, la région, l'EPCI, ou la classe d'une
+carte. Dessiner 35 000 communes alourdirait la page ; une carte en sept classes n'a que sept
+formes.
+
+```{python}
+con.sql("""
+CREATE TABLE simplifiees AS
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.01) AS geom
+    FROM communes
+),
+-- Le résultat est une collection, dans l'ordre des communes : chaque morceau garde le rang
+-- de sa commune (path[1]).
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, geom FROM morceaux
+""")
+
+
+def contours(cles, jointure="", simplification="simplifiees", precision=0.001):
+    colonnes = ", ".join(f"{sql} AS {nom}" for nom, sql in cles.items())
+    lignes = con.sql(f"""
+    SELECT {colonnes}, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), {precision}))
+    FROM {simplification} s JOIN communes c USING (code) {jointure}
+    GROUP BY ALL ORDER BY 1
+    """).fetchall()
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": dict(zip(cles, l[:-1])), "geometry": json.loads(l[-1])}
+            for l in lignes
+        ],
+    }
+
+
+def par_classe(table):
+    """Les communes fusionnées par classe ; -1 pour celles qui n'ont pas de valeur."""
+    return contours({"classe": "coalesce(t.classe, -1)"}, f"LEFT JOIN {table} t USING (code)")
+
+
+fonds = {"departements": contours({"code": "c.dep"}), "regions": contours({"code": "c.reg"})}
+epci = contours({"code": "c.epci"}, "WHERE c.epci <> 'ZZZZZZZZZ'")
+ecrire("fonds", fonds)
+ecrire("epci", epci)
+{"departements": len(fonds["departements"]["features"]), "regions": len(fonds["regions"]["features"]),
+ "epci": len(epci["features"])}
+```
+
+Même fusionnées par classe, les cartes communales pèsent plusieurs mégaoctets : la frontière
+entre deux classes suit les limites des communes. La mosaïque n'en montre donc qu'un résumé :
+une grille de cases d'environ 20 km, chacune de la classe la plus fréquente parmi les communes
+dont elle contient le point intérieur. Les départements et régions des vignettes sont simplifiés
+à 5 km.
+
+```{python}
+con.sql("""
+CREATE TABLE centres_communes AS  -- le plus grand morceau : l'encart pour la petite couronne
+SELECT code, arg_max(geom, ST_Area(geom)) AS geom
+FROM (SELECT code, unnest(ST_Dump(geom), recursive := true) FROM communes)
+GROUP BY code
+""")
+con.sql("""
+CREATE TABLE points_communes AS
+SELECT code, ST_X(p) AS lon, ST_Y(p) AS lat FROM (SELECT code, ST_PointOnSurface(geom) AS p FROM communes)
+""")
+con.sql("""
+CREATE TABLE simplifiees_vignettes AS
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.05) AS geom
+    FROM communes
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, geom FROM morceaux
+""")
+vignettes = {
+    "fonds": {niveau: contours({"code": f"c.{cle}"}, simplification="simplifiees_vignettes", precision=0.01)
+              for niveau, cle in [("departements", "dep"), ("regions", "reg")]},
+    "grilles": {},
+}
+
+
+def grille(table):
+    return [list(l) for l in con.sql(f"""
+    SELECT round(round(lon / 0.2) * 0.2, 1) AS x, round(round(lat / 0.15) * 0.15, 2) AS y, mode(classe) AS classe
+    FROM points_communes LEFT JOIN {table} USING (code)
+    GROUP BY ALL
+    """).fetchall()]
+```
+
+Sur ce fond, l'outre-mer est déplacé près de la métropole, et Paris et sa petite couronne
+(Hauts-de-Seine, Seine-Saint-Denis, Val-de-Marne) sont dessinés deux fois : à leur place et,
+agrandis, dans un encart. Les points des sources (collèges, cinémas, prisons) ont, eux, leurs
+coordonnées réelles. On calcule donc, pour chaque zone, la transformation qui fait passer de
+son emprise réelle (contours de cartiflette sans rapprochement) à son emprise sur le fond :
+les points d'outre-mer sont déplacés, ceux de la petite couronne recopiés dans l'encart
+(`copie`).
+
+```{python}
+DEPARTEMENTS_REELS_URL = CARTIFLETTE_URL.replace("administrative_level=COMMUNE", "administrative_level=DEPARTEMENT").replace(
+    "layout=FRANCE_ENTIERE_DROM_RAPPROCHES", "layout=FRANCE_ENTIERE")
+ZONE = "CASE WHEN {dep} IN ('75', '92', '93', '94') THEN 'petite couronne' ELSE {dep} END"
+
+con.sql(f"""
+CREATE TABLE zones AS
+WITH reel AS (
+    SELECT {ZONE.format(dep="INSEE_DEP")} AS zone, ST_Union_Agg(geometry) AS reel
+    FROM read_parquet('{DEPARTEMENTS_REELS_URL}', hive_partitioning = false)
+    WHERE INSEE_DEP IN ('75', '92', '93', '94') OR INSEE_DEP LIKE '97%'
+    GROUP BY 1
+),
+morceaux AS (
+    SELECT {ZONE.format(dep="dep")} AS zone, unnest(ST_Dump(geom), recursive := true)
+    FROM communes WHERE dep IN ('75', '92', '93', '94') OR dep LIKE '97%'
+),
+fond AS (  -- pour la petite couronne, le seul encart (à l'ouest de la métropole)
+    SELECT zone, ST_Extent_Agg(geom) AS boite FROM morceaux
+    WHERE zone <> 'petite couronne' OR ST_XMax(geom) < 0
+    GROUP BY 1
+)
+SELECT zone, reel, ST_XMin(ST_Extent(reel)) AS rx0, ST_XMax(ST_Extent(reel)) AS rx1,
+       ST_YMin(ST_Extent(reel)) AS ry0, ST_YMax(ST_Extent(reel)) AS ry1,
+       ST_XMin(boite) AS fx0, ST_XMax(boite) AS fx1, ST_YMin(boite) AS fy0, ST_YMax(boite) AS fy1
+FROM reel JOIN fond USING (zone)
+""")
+
+
+def rapprocher(table):
+    """Place sur le fond les points (lon, lat) d'une table ; ajoute la colonne copie."""
+    con.sql(f"""
+    CREATE OR REPLACE TABLE {table} AS
+    WITH avec_zone AS (
+        SELECT t.*, z.* EXCLUDE (reel)
+        FROM {table} t LEFT JOIN zones z ON ST_Within(ST_Point(t.lon, t.lat), z.reel)
+    ),
+    deplaces AS (
+        SELECT * REPLACE (round(fx0 + (lon - rx0) * (fx1 - fx0) / (rx1 - rx0), 4) AS lon,
+                          round(fy0 + (lat - ry0) * (fy1 - fy0) / (ry1 - ry0), 4) AS lat),
+               zone = 'petite couronne' AS copie
+        FROM avec_zone WHERE zone IS NOT NULL
+    )
+    SELECT * EXCLUDE (zone, rx0, rx1, ry0, ry1, fx0, fx1, fy0, fy1) FROM (
+        SELECT *, false AS copie FROM avec_zone WHERE zone IS NULL OR zone = 'petite couronne'
+        UNION ALL BY NAME
+        FROM deplaces
+    )
+    """)
+
+
+con.sql("SELECT * EXCLUDE (reel) FROM zones").df()
+```
+
+Les contours n'ont pas le nom des EPCI : on le prend dans la [liste des
+intercommunalités](https://www.insee.fr/fr/information/2510634) de l'Insee au 1^er^ janvier 2026,
+dont l'en-tête est en ligne 6.
+
+```{python}
+EPCI_URL = "https://www.insee.fr/fr/statistiques/fichier/2510634/epci_au_01-01-2026.zip"
+
+with zipfile.ZipFile(telecharger(EPCI_URL, "epci.zip")) as archive:
+    archive.extract("EPCI_au_01-01-2026.xlsx", TELECHARGEMENTS)
+noms_epci = pd.read_excel(TELECHARGEMENTS / "EPCI_au_01-01-2026.xlsx", sheet_name="EPCI", header=5,
+                          engine="calamine", dtype=str)[["EPCI", "LIBEPCI"]].set_axis(["code", "nom"], axis=1)
+len(noms_epci)
+```
+
+## Les traitements
+
+### SSMSI : les cambriolages
+
+La [base communale](https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales)
+du service statistique de la sécurité intérieure donne, pour quinze indicateurs, les faits
+enregistrés par la police et la gendarmerie dans chaque commune. Les cambriolages se rapportent
+aux logements. Le nombre n'est publié que si la commune a enregistré plus de cinq faits trois
+années de suite (`est_diffuse = 'diff'`) ; sinon, la base donne le taux moyen des communes non
+publiées du département (`complement_info_taux`).
+
+```{python}
+SSMSI_URL = (
+    "https://static.data.gouv.fr/resources/bases-statistiques-communale-departementale-et-regionale-"
+    "de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales/20260709-120017/"
+    "donnee-comm-data.gouv-parquet-2025-geographie2026-produit-le2026-06-25.parquet"
+)
+SSMSI_SEUILS = [2, 4, 6, 9, 12]
+
+con.sql(f"""
+CREATE TABLE cambriolages AS
+SELECT CODGEO_2026 AS code, est_diffuse = 'diff' AS publie, nombre AS cambriolages,
+       complement_info_nombre AS moyenne_non_publiees, insee_log AS logements,
+       CASE WHEN est_diffuse = 'diff' THEN taux_pour_mille ELSE complement_info_taux END AS taux
+FROM read_parquet('{SSMSI_URL}')
+WHERE annee = 2025 AND indicateur = 'Cambriolages de logement'
+""")
+con.sql(f"CREATE TABLE classes_ssmsi AS SELECT code, {classe_sql('taux', SSMSI_SEUILS)} AS classe FROM cambriolages")
+
+ssmsi = con.sql("""
+SELECT sum(coalesce(cambriolages, moyenne_non_publiees)) AS cambriolages,
+       1000 * sum(coalesce(cambriolages, moyenne_non_publiees)) / sum(logements) AS taux,
+       count(*) FILTER (publie) AS diffusees,
+       sum(logements) FILTER (publie) / sum(logements) AS part_logements_diffusees
+FROM cambriolages
+""").df().to_dict("records")[0]
+ssmsi
+```
+
+```{python}
+#| output: false
+ecrire("ssmsi", {"meta": {**ssmsi, "seuils": SSMSI_SEUILS}})
+ecrire("ssmsi-formes", par_classe("classes_ssmsi"))
+vignettes["grilles"]["ssmsi"] = grille("classes_ssmsi")
+ecrire("ssmsi-table", enregistrements(con.sql("""
+SELECT code, c.nom, c.departement, k.logements, k.cambriolages, round(k.taux, 2) AS taux, k.publie
+FROM communes c JOIN cambriolages k USING (code) ORDER BY code
+""").df()))
+```
+
+### Drees : l'accès aux médecins généralistes
+
+L'[accessibilité potentielle localisée](https://drees.solidarites-sante.gouv.fr/sources-outils-et-enquetes/lindicateur-daccessibilite-potentielle-localisee-apl)
+(APL) rapporte l'offre de soins des médecins de la commune et des communes voisines (jusqu'à
+20 minutes, avec un poids qui décroît avec la distance) à la demande, estimée d'après l'âge
+des habitants. Elle s'exprime en consultations accessibles par habitant et par an. La Drees la
+publie dans un classeur par profession, une feuille par année ; les en-têtes occupent les dix
+premières lignes.
+
+```{python}
+APL_URL = (
+    "https://data.drees.solidarites-sante.gouv.fr/api/v2/catalog/datasets/"
+    "530_l-accessibilite-potentielle-localisee-apl/attachments/indicateur_d_apl_aux_medecins_generalistes_xlsx"
+)
+APL_SEUILS = [1.5, 2.5, 3.5, 4.5]
+
+feuille = pd.read_excel(telecharger(APL_URL, "apl.xlsx"), sheet_name="APL 2024", header=None, engine="calamine")
+apl = feuille.iloc[:, [0, 2, 3, 7]].set_axis(["code", "apl", "apl65", "population"], axis=1)
+apl = apl[apl["code"].astype(str).str.fullmatch(r"\w{5}")]
+apl = apl.astype({"code": str, "apl": float, "apl65": float, "population": float})
+# Paris, Lyon et Marseille sont par arrondissement : on les regroupe, en pondérant par la population.
+apl = con.sql("""
+SELECT CASE WHEN code LIKE '751%' THEN '75056' WHEN code LIKE '6938%' THEN '69123'
+            WHEN code BETWEEN '13201' AND '13216' THEN '13055' ELSE code END AS code,
+       sum(apl * population) / sum(population) AS apl, sum(apl65 * population) / sum(population) AS apl65,
+       sum(population) AS population
+FROM apl GROUP BY 1
+""").df()
+con.sql(f"CREATE TABLE classes_drees AS SELECT code, {classe_sql('apl', APL_SEUILS)} AS classe FROM apl")
+
+drees = con.sql("""
+SELECT sum(apl * population) / sum(population) AS moyenne,
+       sum(population) FILTER (apl < 2.5) / sum(population) AS sous_seuil,
+       count(*) AS communes, count(*) FILTER (code NOT IN (SELECT code FROM communes)) AS hors_cog_2026
+FROM apl
+""").df().to_dict("records")[0]
+drees
+```
+
+```{python}
+#| output: false
+ecrire("drees", {"meta": {**drees, "seuils": APL_SEUILS}})
+ecrire("drees-formes", par_classe("classes_drees"))
+vignettes["grilles"]["drees"] = grille("classes_drees")
+ecrire("drees-table", enregistrements(con.sql("""
+SELECT code, c.nom, c.departement, a.population, a.apl, a.apl65
+FROM communes c JOIN apl a USING (code) ORDER BY code
+""").df()))
+```
+
+### Depp : l'éloignement des collèges
+
+Depuis 2022, l'[indice d'éloignement](https://data.education.gouv.fr/explore/dataset/fr-en-indice_eloignement_college_ap2022/)
+résume (par une analyse en composantes principales) les distances, par la route, entre le
+collège et le domicile de ses élèves, les lycées, les équipements… Il vaut 100 en moyenne.
+Le fichier n'a pas de coordonnées : on les prend dans l'annuaire de l'éducation, par le
+numéro d'établissement (UAI).
+
+```{python}
+con.sql(f"""
+CREATE TABLE colleges AS
+SELECT e.uai, e.patronyme AS nom, a.nom_commune AS commune, e.departement,
+       TRY_CAST(e.indice_eloignement AS DOUBLE) AS indice,
+       round(a.longitude, 4) AS lon, round(a.latitude, 4) AS lat
+FROM read_csv('{export_ods("data.education.gouv.fr", "fr-en-indice_eloignement_college_ap2022",
+                           where='rentree_scolaire="2025"')}', all_varchar = true) e
+JOIN read_csv('{export_ods("data.education.gouv.fr", "fr-en-annuaire-education",
+                           select="identifiant_de_l_etablissement,nom_commune,latitude,longitude")}') a
+  ON a.identifiant_de_l_etablissement = e.uai
+WHERE indice IS NOT NULL AND a.latitude IS NOT NULL
+""")
+depp = con.sql("SELECT count(*) AS colleges, count(*) FILTER (indice >= 120) AS eloignes FROM colleges").df().to_dict("records")[0]
+rapprocher("colleges")
+ecrire("depp", {"meta": depp, "lignes": enregistrements(con.sql("FROM colleges ORDER BY indice").df())})
+depp
+```
+
+### Sies : les étudiants par unité urbaine
+
+L'[atlas régional](https://data.enseignementsup-recherche.gouv.fr/explore/dataset/fr-esr-atlas_regional-effectifs-d-etudiants-inscrits/)
+du Sies compte les étudiants inscrits dans toutes les formations du supérieur (universités,
+BTS, classes préparatoires, écoles…), par commune et par unité urbaine. On prend le total
+(`regroupement = 'TOTAL'`), en additionnant secteurs public et privé et sexes. Chaque unité
+urbaine est placée sur sa commune la plus peuplée.
+
+```{python}
+con.sql(f"""
+CREATE TABLE etudiants AS
+SELECT substr(geo_id, 3) AS code, any_value(geo_nom) AS nom,
+       sum(effectif) FILTER (rentree = 2025) AS etudiants,
+       coalesce(sum(effectif) FILTER (rentree = 2015), 0) AS etudiants_2015
+FROM read_csv('{export_ods("data.enseignementsup-recherche.gouv.fr", "fr-esr-atlas_regional-effectifs-d-etudiants-inscrits",
+                           where="niveau_geographique='Unité urbaine' AND regroupement='TOTAL' AND rentree IN ('2015', '2025')")}')
+GROUP BY 1 HAVING etudiants > 0
+""")
+con.sql("""
+CREATE TABLE unites_urbaines AS
+SELECT e.*, round(ST_X(p), 4) AS lon, round(ST_Y(p), 4) AS lat
+FROM etudiants e
+JOIN (
+    SELECT c.uu AS code, ST_PointOnSurface(arg_max(k.geom, c.population)) AS p
+    FROM communes c JOIN centres_communes k USING (code) GROUP BY 1
+) USING (code)
+ORDER BY etudiants DESC
+""")
+sies = con.sql("""
+SELECT (SELECT sum(etudiants) FROM etudiants) AS etudiants,
+       (SELECT sum(etudiants) / sum(etudiants_2015) - 1 FROM etudiants) AS evolution,
+       (SELECT count(*) FROM etudiants WHERE code NOT IN (SELECT uu FROM communes)) AS sans_contour
+""").df().to_dict("records")[0]
+ecrire("sies", {"meta": sies, "lignes": enregistrements(con.sql("FROM unites_urbaines").df())})
+sies
+```
+
+### Sdes : les maisons sur sol argileux
+
+Le Sdes croise la carte de l'aléa retrait-gonflement des argiles du BRGM avec les logements de
+[Fidéli](https://www.insee.fr/fr/metadonnees/source/serie/s1019) (les fichiers fiscaux, en
+2021). Pour chaque EPCI, il donne le nombre de maisons individuelles exposées à un aléa faible
+(`RGA1`), moyen (`RGA2`) ou fort (`RGA3`), ou `secret` s'il y en a trop peu. On additionne
+l'exposition moyenne et forte, en comptant les secrets pour zéro. Chaque EPCI est placé sur sa
+commune la plus peuplée.
+
+```{python}
+RGA_URL = "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/1a9ad5c2-0929-4687-8455-78aac6530a76/csv"
+
+con.sql(f"""
+CREATE TABLE argiles AS
+PIVOT (
+    SELECT EPCI_CODE AS code, EPCI_LIBELLE AS nom, INDICATEUR_EXPOSITION AS indicateur,
+           TRY_CAST(VALEUR_EXPOSITION AS DOUBLE) AS valeur
+    FROM read_csv('{RGA_URL}', delim = ';', all_varchar = true)
+    WHERE INDICATEUR_EXPOSITION IN ('Maisons_indiv_exposees_RGA2', 'Maisons_indiv_exposees_RGA3')
+) ON indicateur IN ('Maisons_indiv_exposees_RGA2' AS moyenne, 'Maisons_indiv_exposees_RGA3' AS forte)
+USING any_value(valeur)
+""")
+con.sql("""
+CREATE TABLE argiles_epci AS
+SELECT a.code, a.nom, a.moyenne, a.forte, coalesce(a.moyenne, 0) + coalesce(a.forte, 0) AS maisons,
+       round(ST_X(p), 4) AS lon, round(ST_Y(p), 4) AS lat
+FROM argiles a
+JOIN (
+    SELECT c.epci AS code, ST_PointOnSurface(arg_max(k.geom, c.population)) AS p
+    FROM communes c JOIN centres_communes k USING (code) GROUP BY 1
+) USING (code)
+WHERE maisons > 0
+ORDER BY maisons DESC
+""")
+sdes = con.sql("""
+SELECT (SELECT sum(coalesce(moyenne, 0) + coalesce(forte, 0)) FROM argiles) AS maisons,
+       (SELECT count(*) FROM argiles) AS epci,
+       (SELECT count(*) FROM argiles WHERE code NOT IN (SELECT epci FROM communes)) AS epci_disparus
+""").df().to_dict("records")[0]
+ecrire("sdes", {"meta": sdes, "lignes": enregistrements(con.sql("FROM argiles_epci").df())})
+sdes
+```
+
+### SSP (Agreste) : les terres agricoles
+
+Le [recensement agricole 2020](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/)
+publie, par commune du siège des exploitations, la surface agricole utilisée (SAU) et trois
+grands usages : céréales et oléoprotéagineux, prairies, cultures permanentes (vignes et
+vergers). Le fichier est un classeur ODS dans une archive zip. Chaque commune prend la classe
+de l'usage le plus étendu, foncée si celui-ci couvre au moins la moitié de la SAU.
+
+```{python}
+AGRESTE_URL = (
+    "https://agreste.agriculture.gouv.fr/agreste-web/download/publication/publie/"
+    "RA2020_1013/RA2020_1013_SAU_Communes.zip"
+)
+USAGES = ["Céréales et oléoprotéagineux", "Prairies", "Vignes et vergers"]
+
+with zipfile.ZipFile(telecharger(AGRESTE_URL, "agreste.zip")) as archive:
+    archive.extract("RA2020_1013_SAU_Communes.ods", TELECHARGEMENTS)
+surfaces = pd.read_excel(TELECHARGEMENTS / "RA2020_1013_SAU_Communes.ods",
+                         sheet_name="RA2020_1013_SAU_Communes", engine="calamine", dtype={"CODE_COM": str})
+surfaces = surfaces.iloc[:, [0, 6, 7, 8, 9]].set_axis(["code", "sau", "cereales", "prairies", "permanentes"], axis=1)
+
+con.sql("""
+CREATE TABLE classes_agreste AS
+WITH dominant AS (
+    SELECT code, sau,
+           list_position([cereales, prairies, permanentes],
+                         greatest(cereales, prairies, permanentes)) - 1 AS usage,
+           greatest(cereales, prairies, permanentes) / sau AS part
+    FROM surfaces WHERE sau > 0
+)
+SELECT code, 2 * usage + (part < 0.5)::INTEGER AS classe FROM dominant
+""")
+agreste = {
+    "libelles": [f"{u}, {p}" for u in USAGES for p in ["plus de la moitié", "moins de la moitié"]],
+    "communes": [con.sql(f"SELECT count(*) FROM classes_agreste WHERE classe // 2 = {i}").fetchone()[0]
+                 for i in range(3)],
+    "hors_cog_2026": con.sql("SELECT count(*) FROM surfaces WHERE code NOT IN (SELECT code FROM communes)").fetchone()[0],
+}
+agreste
+```
+
+```{python}
+#| output: false
+ecrire("agreste", {"meta": agreste})
+ecrire("agreste-formes", par_classe("classes_agreste"))
+vignettes["grilles"]["agreste"] = grille("classes_agreste")
+ecrire("agreste-table", enregistrements(con.sql("""
+SELECT code, c.nom, c.departement, s.sau, s.cereales, s.prairies, s.permanentes
+FROM communes c JOIN surfaces s USING (code) ORDER BY code
+""").df()))
+```
+
+### DGFiP : la taxe foncière
+
+La DGFiP publie chaque année les taux de fiscalité locale votés dans chaque commune. Le taux
+global de taxe foncière sur les propriétés bâties (`taux_global_tfb`) additionne les taux de
+la commune, de l'intercommunalité, et des taxes spéciales et pour la gestion des milieux
+aquatiques (Gemapi). On ne télécharge que l'année 2025.
+
+```{python}
+TFPB_SEUILS = [30, 40, 50, 60]
+
+con.sql(f"""
+CREATE TABLE foncier AS
+SELECT insee_com AS code, taux_global_tfb AS taux
+FROM read_csv('{export_ods("data.economie.gouv.fr", "fiscalite-locale-des-particuliers",
+                           select="insee_com,taux_global_tfb", where='exercice="2025"')}', types = {{'insee_com': 'VARCHAR'}})
+""")
+con.sql(f"CREATE TABLE classes_dgfip AS SELECT code, {classe_sql('taux', TFPB_SEUILS)} AS classe FROM foncier")
+dgfip = con.sql("""
+SELECT median(taux) AS mediane, count(*) AS communes,
+       count(*) FILTER (code NOT IN (SELECT code FROM communes)) AS hors_cog_2026
+FROM foncier
+""").df().to_dict("records")[0]
+dgfip
+```
+
+```{python}
+#| output: false
+ecrire("dgfip", {"meta": {**dgfip, "seuils": TFPB_SEUILS}})
+ecrire("dgfip-formes", par_classe("classes_dgfip"))
+vignettes["grilles"]["dgfip"] = grille("classes_dgfip")
+ecrire("dgfip-table", enregistrements(con.sql("""
+SELECT code, c.nom, c.departement, f.taux FROM communes c JOIN foncier f USING (code) ORDER BY code
+""").df()))
+```
+
+### Douanes : les clients de chaque département
+
+Le département des statistiques du commerce extérieur (DSECE) publie chaque année les échanges
+par département, produit (CPF4) et pays partenaire. Le fichier des exportations n'a pas
+d'en-tête : flux, trimestre, année, département, région, produits en deux nomenclatures, pays,
+valeur (en euros) et masse. Les départements suivent une codification propre : la Corse est
+`20`, l'outre-mer `9A` à `9E` ; les codes pays en `Q` ne sont pas des pays (avitaillement,
+pays non déterminés…).
+
+```{python}
+DOUANE_URL = "https://www.douane.gouv.fr/sites/default/files/2026-10/07/202608-Regional-2023-export.zip"
+DEPARTEMENTS_DOUANE = {"20": ["2A", "2B"], "9A": ["971"], "9B": ["972"], "9C": ["973"], "9D": ["974"], "9E": ["976"]}
+
+with zipfile.ZipFile(telecharger(DOUANE_URL, "douane.zip")) as archive:
+    archive.extractall(TELECHARGEMENTS)
+dossier_douane = TELECHARGEMENTS / "Regional-2023-export"
+con.sql(f"""
+CREATE TABLE exportations AS
+SELECT departement, pays, sum(valeur) AS valeur
+FROM read_csv('{dossier_douane / "Region_2023_Export.txt"}', delim = ';', header = false,
+              names = ['flux', 'trimestre', 'annee', 'departement', 'region', 'a129', 'cpf4', 'pays', 'valeur', 'masse'],
+              types = {{'departement': 'VARCHAR', 'region': 'VARCHAR'}})
+WHERE pays NOT LIKE 'Q%'
+GROUP BY ALL
+""")
+con.sql(f"""
+CREATE TABLE libelles_pays AS
+SELECT column0 AS pays, column1 AS libelle
+FROM read_csv('{dossier_douane / "Libelle_PAYS.txt"}', delim = ';', header = false)
+WHERE column3 = '999912'
+""")
+correspondance = pd.DataFrame(
+    [(d, c) for d, codes in DEPARTEMENTS_DOUANE.items() for c in codes], columns=["departement", "code"]
+)
+con.sql("""
+CREATE TABLE premier_client AS
+WITH par_departement AS (
+    SELECT coalesce(k.code, e.departement) AS code, e.pays, e.valeur,
+           e.valeur / sum(e.valeur) OVER (PARTITION BY e.departement) AS part,
+           sum(e.valeur) OVER (PARTITION BY e.departement) AS exportations
+    FROM exportations e LEFT JOIN correspondance k USING (departement)
+)
+SELECT p.code, any_value(c.departement) AS departement, arg_max(l.libelle, p.valeur) AS pays,
+       max(p.part) AS part, any_value(p.exportations) AS exportations
+FROM par_departement p
+JOIN communes c ON c.dep = p.code
+JOIN libelles_pays l USING (pays)
+GROUP BY p.code ORDER BY p.code
+""")
+douanes = con.sql("SELECT pays, count(*) AS departements FROM premier_client GROUP BY 1 ORDER BY 2 DESC").df()
+douanes
+```
+
+Les pays qui sont premier client d'au moins trois départements ont chacun leur couleur ; les
+autres sont regroupés.
+
+```{python}
+#| output: false
+principaux = douanes.loc[douanes["departements"] >= 3, "pays"].tolist()
+clients = con.sql("FROM premier_client").df()
+clients["categorie"] = clients["pays"].where(clients["pays"].isin(principaux), "Autre pays")
+ecrire("douanes", {
+    "meta": {"categories": principaux + ["Autre pays"],
+             "allemagne": int(douanes.set_index("pays")["departements"].get("Allemagne", 0))},
+    "lignes": enregistrements(clients),
+})
+```
+
+### Deps : les cinémas
+
+La [base Basilic](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic)
+du Deps recense 86 000 lieux culturels géolocalisés : monuments, bibliothèques, librairies,
+musées, théâtres… On garde les cinémas, avec leur nombre d'écrans et de fauteuils, et leur
+label Art et essai.
+
+```{python}
+BASILIC_URL = (
+    "https://static.data.gouv.fr/resources/base-des-lieux-et-equipements-culturels-basilic/"
+    "20260218-084338/base-des-lieux-et-des-equipements-culturels.csv"
+)
+
+con.sql(f"""
+CREATE TABLE cinemas AS
+SELECT Nom AS nom, libelle_geographique AS commune, "Département" AS departement,
+       TRY_CAST(Nombre_ecrans AS INTEGER) AS ecrans,
+       TRY_CAST(Nombre_fauteuils_de_cinema AS INTEGER) AS fauteuils,
+       coalesce("Label et appellation" = 'Art et essai', false) AS art_essai,
+       round(TRY_CAST(Longitude AS DOUBLE), 4) AS lon, round(TRY_CAST(Latitude AS DOUBLE), 4) AS lat
+FROM read_csv('{BASILIC_URL}', delim = ';', all_varchar = true)
+WHERE "Type équipement ou lieu" = 'Cinéma' AND lat IS NOT NULL
+""")
+deps = con.sql("""
+SELECT count(*) AS cinemas, count(*) FILTER (art_essai) AS art_essai, median(ecrans) AS ecrans_median
+FROM cinemas
+""").df().to_dict("records")[0]
+rapprocher("cinemas")
+ecrire("deps", {"meta": deps, "lignes": enregistrements(con.sql("FROM cinemas ORDER BY fauteuils DESC NULLS LAST").df())})
+deps
+```
+
+### INJEP : le sport, après le football
+
+La mission statistique de l'INJEP recense chaque année les clubs affiliés aux fédérations
+sportives agréées, géolocalisés à la commune. On garde les fédérations d'un seul sport,
+olympiques ou non (codes inférieurs à 300), et pas les fédérations multisports ou scolaires
+(UFOLEP, UNSS…). Dans chaque EPCI, on retient la fédération qui a le plus de clubs, le football
+mis à part.
+
+```{python}
+CLUBS_URL = (
+    "https://static.data.gouv.fr/resources/donnees-geocodees-issues-du-recensement-des-licences-et-"
+    "clubs-aupres-des-federations-sportives-agreees-par-le-ministere-charge-des-sports/"
+    "20251229-163249/clubs-data-2023.csv"
+)
+
+con.sql(f"""
+CREATE TABLE clubs AS
+SELECT c.epci AS code, regexp_replace(k."Fédération", '^(FF|F) (de la |de l''|d''|du |des |de )?', '') AS sport,
+       sum(TRY_CAST(k.Clubs AS INTEGER)) AS clubs
+FROM read_csv('{CLUBS_URL}', delim = ';', all_varchar = true) k
+JOIN communes c ON c.code = k."Code Commune"
+WHERE k."Statut géo" = '1.Champ geoc' AND TRY_CAST(k.Code AS INTEGER) < 300 AND c.epci <> 'ZZZZZZZZZ'
+GROUP BY ALL
+""")
+con.sql("""
+CREATE TABLE sports_epci AS
+WITH rangs AS (  -- en cas d'égalité, l'ordre alphabétique départage
+    SELECT *, row_number() OVER (PARTITION BY code ORDER BY clubs DESC, sport) AS rang
+    FROM clubs WHERE sport <> 'Football'
+)
+SELECT r.code, r.sport, r.clubs, coalesce(f.clubs, 0) AS football
+FROM rangs r LEFT JOIN (FROM clubs WHERE sport = 'Football') f USING (code)
+WHERE r.rang = 1
+""")
+injep = con.sql("SELECT sport, count(*) AS epci FROM sports_epci GROUP BY 1 ORDER BY 2 DESC").df()
+injep.head(10)
+```
+
+```{python}
+#| output: false
+principaux = injep["sport"].head(7).tolist()
+sports = con.sql("SELECT s.*, n.nom FROM sports_epci s LEFT JOIN noms_epci n USING (code) ORDER BY code").df()
+sports["categorie"] = sports["sport"].where(sports["sport"].isin(principaux), "Autre fédération")
+categories_injep = pd.DataFrame({"categorie": principaux + ["Autre fédération"]}).reset_index(names="classe")
+con.sql("""
+CREATE TABLE classes_injep AS
+SELECT c.code, k.classe FROM communes c JOIN sports s ON s.code = c.epci JOIN categories_injep k USING (categorie)
+""")
+vignettes["grilles"]["injep"] = grille("classes_injep")
+ecrire("injep", {
+    "meta": {"categories": principaux + ["Autre fédération"],
+             "tennis": int((sports["sport"] == "Tennis").sum()),
+             "petanque": int((sports["sport"] == "Pétanque et Jeu Provençal").sum()),
+             "boules": int((sports["sport"] == "Sport Boules").sum())},
+    "lignes": enregistrements(sports),
+})
+```
+
+### Dares : le métier signature
+
+Les [portraits statistiques des métiers](https://dares.travail-emploi.gouv.fr/donnees/portraits-statistiques-des-metiers)
+de la Dares décrivent 225 métiers (la nomenclature des familles professionnelles, FAP 2021),
+d'après le recensement et l'enquête Emploi de l'Insee. Le fichier de la répartition
+territoriale donne, pour chaque métier et département, l'emploi et sa part dans l'emploi du
+département.
+
+Le site de la Dares refuse les requêtes automatiques (un pare-feu y demande un captcha) : le
+rendu de cette page ne peut pas télécharger le fichier. Une copie du fichier officiel est donc
+versionnée avec le site, dans `jours/sources/` ; le code essaie d'abord l'URL officielle.
+
+```{python}
+DARES_URL = (
+    "https://dares.travail-emploi.gouv.fr/sites/default/files/a4ef7ed6cced6fba8b492fec3933678c/"
+    "R%C3%A9partition%20territoriale%20-%20part%20du%20m%C3%A9tier%20dans%20l%27emploi%20d%C3%A9partemental"
+    "%20et%20r%C3%A9partition%20par%20d%C3%A9partement%20de%20l%27emploi%20du%20m%C3%A9tier.xlsx"
+)
+DARES_COPIE = pathlib.Path("sources/dares-portraits-metiers-repartition-departementale-2022.xlsx")
+
+try:
+    chemin_dares = telecharger(DARES_URL, "dares.xlsx", essais=1)
+except (OSError, RuntimeError):
+    chemin_dares = DARES_COPIE
+    print(f"Site de la Dares inaccessible : lecture de la copie {DARES_COPIE}")
+metiers = pd.read_excel(chemin_dares, engine="calamine", dtype=str)
+metiers.columns = ["dep", "departement", "fap", "libelle", "annee", "part_metier", "part", "effectif"]
+metiers = metiers.astype({"part": float, "effectif": float})
+```
+
+Le niveau le plus fin a cinq ou six caractères (`A0X41a`) ; on garde les 225 métiers à cinq
+caractères. L'indice de spécialisation rapporte la part du métier dans l'emploi du département
+à sa part en France : 2 veut dire deux fois plus présent. Les effectifs sont arrondis à la
+centaine : on ne retient que les métiers qui emploient au moins 1 000 personnes dans le
+département. La lettre du code donne le domaine professionnel (A : agriculture, B : bâtiment…).
+
+```{python}
+con.sql("""
+CREATE TABLE signatures AS
+WITH fap AS (
+    SELECT *, sum(effectif) OVER (PARTITION BY fap) / sum(effectif) OVER () AS part_france
+    FROM metiers WHERE length(fap) = 5
+),
+indices AS (SELECT *, part / part_france AS indice FROM fap WHERE effectif >= 1000)
+SELECT dep AS code, any_value(departement) AS departement, arg_max(libelle, indice) AS metier,
+       arg_max(fap, indice) AS fap, max(indice) AS indice, arg_max(effectif, indice) AS effectif,
+       arg_max(part, indice) AS part
+FROM indices GROUP BY dep ORDER BY dep
+""")
+domaines = dict(metiers.loc[metiers["fap"].str.len() == 1, ["fap", "libelle"]].drop_duplicates().values)
+signatures = con.sql("FROM signatures").df()
+signatures["domaine"] = signatures["fap"].str[0].map(domaines)
+signatures["domaine"].value_counts()
+```
+
+```{python}
+#| output: false
+principaux = signatures["domaine"].value_counts().loc[lambda n: n >= 3].index.tolist()
+signatures["domaine"] = signatures["domaine"].where(signatures["domaine"].isin(principaux), "Autres domaines")
+ecrire("dares", {"meta": {"domaines": principaux + ["Autres domaines"]}, "lignes": enregistrements(signatures)})
+```
+
+### SSER (Justice) : la densité carcérale
+
+Le service statistique de la Justice publie chaque mois un classeur sur la population détenue.
+Les tableaux 14 à 23, un par direction interrégionale, donnent pour chaque établissement et
+chaque quartier (maison d'arrêt, centre de détention…) la capacité opérationnelle et le nombre
+de détenus. La densité carcérale rapporte les détenus aux places. On additionne les quartiers
+de chaque établissement.
+
+```{python}
+DETENUS_URL = (
+    "https://static.data.gouv.fr/resources/statistique-mensuelle-de-la-population-ecrouee-et-detenue-en-france/"
+    "20261013-162028/statistique-etablissements-01092026.xlsx"
+)
+
+classeur = telecharger(DETENUS_URL, "detenus.xlsx")
+quartiers = []
+for numero in range(14, 24):
+    tableau = pd.read_excel(classeur, sheet_name=f"Tab{numero}", header=None, engine="calamine")
+    debut = tableau.index[tableau[0].astype(str).str.strip() == "Etablissement"][0]
+    lignes = tableau.iloc[debut + 1:, [0, 1, 3, 4]].set_axis(["etablissement", "quartier", "places", "detenus"], axis=1)
+    etablissement = lignes["etablissement"].astype(str)
+    quartiers.append(lignes[lignes["quartier"].notna() & (etablissement != "Total")
+                            & ~etablissement.str.startswith("Direction")])
+quartiers = pd.concat(quartiers)
+for colonne in ["places", "detenus"]:
+    quartiers[colonne] = pd.to_numeric(quartiers[colonne].astype(str).str.replace(r"\s", "", regex=True),
+                                       errors="coerce")  # « NC » : non communiqué
+etablissements = quartiers.groupby("etablissement", as_index=False)[["places", "detenus"]].sum()
+date_detenus = re.search(r"(\d{2})(\d{2})(\d{4})\.xlsx$", DETENUS_URL).groups()
+len(etablissements), int(etablissements["detenus"].sum())
+```
+
+Le classeur n'a pas d'adresses. Les positions viennent de l'[annuaire de
+service-public.fr](https://api-lannuaire.service-public.fr/explore/dataset/api-lannuaire-administration/),
+qui recense les maisons d'arrêt, centres pénitentiaires, centres de détention et maisons
+centrales. Les noms s'écrivent différemment (« MA ST MALO », « Maison d'arrêt de
+Saint-Malo ») : on les rapproche par le lieu, sans accents ni articles, et en cas de doute par
+le type d'établissement. Les petits établissements que l'annuaire ne liste pas (centres de
+semi-liberté, établissements pour mineurs) restent hors de la carte.
+
+```{python}
+TYPES = {"CP": "centre_penitentiaire", "MA": "maison_arret", "CD": "centre_detention", "MC": "maison_centrale"}
+filtre = " OR ".join(f'search("{t}")' for t in TYPES.values())
+annuaire = con.sql(f"""
+SELECT nom, json_extract_string("pivot", '$[0].type_service_local') AS type,
+       json_extract_string(adresse, '$[0].latitude')::DOUBLE AS lat,
+       json_extract_string(adresse, '$[0].longitude')::DOUBLE AS lon
+FROM read_json('https://api-lannuaire.service-public.fr/api/explore/v2.1/catalog/datasets/api-lannuaire-administration/exports/json?{urllib.parse.urlencode({"select": "nom,pivot,adresse", "where": filtre})}')
+""").df()
+annuaire = annuaire[annuaire["type"].isin(TYPES.values())]
+annuaire["lieu"] = annuaire["nom"].str.replace(
+    r"^(Centre pénitentiaire|Maison d'arrêt|Centre de détention|Maison centrale)\s+(de la |de l'|du |des |de |d')?",
+    "", regex=True).map(cle).str.replace(r"^(LE|LA|LES)", "", regex=True)
+
+
+def position(nom):
+    sigle, _, lieu = nom.partition(" ")
+    if sigle not in TYPES:
+        return None
+    lieu = re.sub(r"^(LE|LA|LES)", "", cle(lieu))
+    candidats = annuaire[annuaire["lieu"] == lieu]
+    if candidats.empty:  # « RENNES VEZIN » pour « Rennes-Vezin-le-Coquet »
+        candidats = annuaire[annuaire["lieu"].str.startswith(lieu)]
+    if candidats.empty:
+        candidats = annuaire[annuaire["lieu"].map(lambda l: lieu.startswith(l))]
+    if len(candidats) > 1:
+        candidats = candidats[candidats["type"] == TYPES[sigle]]
+    return candidats.iloc[0][["nom", "lat", "lon"]].to_dict() if len(candidats) == 1 else None
+
+
+etablissements["position"] = etablissements["etablissement"].map(position)
+non_places = etablissements.loc[etablissements["position"].isna(), "etablissement"].tolist()
+prisons = etablissements.dropna(subset=["position"])
+prisons = prisons.join(pd.DataFrame(prisons["position"].tolist(), index=prisons.index))
+prisons = prisons.query("places > 0").copy()
+prisons["densite"] = prisons["detenus"] / prisons["places"]
+prisons = prisons[["nom", "places", "detenus", "densite", "lon", "lat"]]
+con.sql("CREATE TABLE prisons AS FROM prisons")
+rapprocher("prisons")
+len(prisons), non_places
+```
+
+```{python}
+#| output: false
+justice = {
+    "date": f"1ᵉʳ {['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'][int(date_detenus[1]) - 1]} {date_detenus[2]}",
+    "detenus": int(etablissements["detenus"].sum()), "places": int(etablissements["places"].sum()),
+    "double": int((prisons["densite"] >= 2).sum()),
+}
+ecrire("justice", {"meta": justice, "lignes": enregistrements(con.sql("FROM prisons ORDER BY detenus DESC").df())})
+```
+
+### DESL (DGCL) : la dotation globale de fonctionnement
+
+Le département des études et des statistiques locales de la DGCL publie, pour chaque commune,
+les critères de calcul des dotations de l'État et leurs montants. Le lien « CSV » du site
+renvoie en fait un classeur Excel de 190 colonnes environ, dont l'ordre change d'une année à
+l'autre : on repère les colonnes par leur intitulé (ligne 4) et leur rubrique (ligne 3). La DGF
+des communes additionne la dotation forfaitaire, les trois dotations de péréquation (solidarité
+urbaine, solidarité rurale, nationale de péréquation), la dotation d'aménagement de l'outre-mer
+et la dotation des communes nouvelles.
+
+```{python}
+DGF_URL = "http://www.dotations-dgcl.interieur.gouv.fr/consultation/criteres_repartition_csv.php?annee=2026&ct=com"
+DGF_SEUILS = [100, 150, 200, 300, 450]
+COLONNES_DGF = {
+    "code": ("Informations générales", "Code INSEE de la commune"),
+    "population": ("Informations générales", "Population DGF de l'année N"),
+    "forfaitaire": ("Dotation forfaitaire", "Dotation forfaitaire notifiée N"),
+    "dsu": ("Dotation de solidarité urbaine et de cohésion sociale", "Montant total réparti"),
+    "dnp": ("Dotation nationale de péréquation", "DNP totale"),
+    "dsr": ("Dotation de solidarité rurale", "Montant total réparti"),
+    "dacom": ("Dotation d’aménagement des communes", "Montant total de DACOM réparti"),
+    "nouvelles": ("Dotation en faveur des communes nouvelles", "Montant total réparti"),
+}
+
+criteres = pd.read_excel(telecharger(DGF_URL, "dgf.xlsx"), sheet_name="Critères de répartition",
+                         header=None, engine="calamine")
+rubriques = criteres.iloc[2].ffill().fillna("").astype(str).str.strip()
+intitules = criteres.iloc[3].fillna("").astype(str).str.strip()
+
+
+def colonne(rubrique, intitule):
+    trouvees = [j for j, (r, i) in enumerate(zip(rubriques, intitules)) if r.startswith(rubrique) and i == intitule]
+    assert len(trouvees) == 1, (rubrique, intitule, trouvees)
+    return trouvees[0]
+
+
+dgf = criteres.iloc[4:, [colonne(*c) for c in COLONNES_DGF.values()]].set_axis(list(COLONNES_DGF), axis=1)
+dgf = dgf.assign(**{c: pd.to_numeric(dgf[c], errors="coerce").fillna(0) for c in list(COLONNES_DGF)[1:]})
+dgf["code"] = dgf["code"].astype(str)
+dgf["dgf"] = dgf[["forfaitaire", "dsu", "dnp", "dsr", "dacom", "nouvelles"]].sum(axis=1)
+dgf = dgf[dgf["population"] > 0]
+dgf["par_habitant"] = dgf["dgf"] / dgf["population"]
+con.sql(f"CREATE TABLE classes_desl AS SELECT code, {classe_sql('par_habitant', DGF_SEUILS)} AS classe FROM dgf")
+desl = {"total": float(dgf["dgf"].sum()), "par_habitant": float(dgf["dgf"].sum() / dgf["population"].sum()),
+        "communes": len(dgf), "hors_cog_2026": int((~dgf["code"].isin(con.sql("SELECT code FROM communes").df()["code"])).sum())}
+desl
+```
+
+```{python}
+#| output: false
+ecrire("desl", {"meta": {**desl, "seuils": DGF_SEUILS}})
+ecrire("desl-formes", par_classe("classes_desl"))
+vignettes["grilles"]["desl"] = grille("classes_desl")
+ecrire("desl-table", enregistrements(con.sql("""
+SELECT code, c.nom, c.departement, d.population, d.dgf, round(d.par_habitant) AS par_habitant
+FROM communes c JOIN dgf d USING (code) ORDER BY code
+""").df()))
+```
+
+### DGAFP : le taux d'administration
+
+Le [rapport annuel sur l'état de la fonction publique](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023)
+est accompagné de classeurs. Celui des données complémentaires sur l'ensemble de la fonction
+publique donne, par département, le taux d'administration (agents civils en équivalent temps
+plein pour 1 000 habitants, figure 4) et les effectifs des trois versants (figure 2). Les
+départements n'y sont désignés que par leur nom, mêlés aux régions : on les rapproche des
+noms de cartiflette.
+
+```{python}
+DGAFP_URL = "https://www.fonction-publique.gouv.fr/files/files/publications/vue-rapport-annuel/ra_2025-caracteristiques_postes.zip"
+
+with zipfile.ZipFile(telecharger(DGAFP_URL, "dgafp.zip")) as archive:
+    archive.extract("ra2025_caracteristiques_postes_donnees_comp_FP.xlsx", TELECHARGEMENTS)
+classeur = TELECHARGEMENTS / "ra2025_caracteristiques_postes_donnees_comp_FP.xlsx"
+taux = pd.read_excel(classeur, sheet_name="Figure 4 loc", header=None, engine="calamine").iloc[3:, [0, 15]]
+versants = pd.read_excel(classeur, sheet_name="Figure 2 loc", header=None, engine="calamine").iloc[3:, :5]
+taux.columns = ["nom", "taux"]
+versants.columns = ["nom", "etat", "territoriale", "hospitaliere", "total"]
+administration = taux.merge(versants, on="nom").assign(cle=lambda t: t["nom"].map(cle))
+for versant in ["etat", "territoriale", "hospitaliere"]:
+    administration[f"part_{versant}"] = administration[versant].astype(float) / administration["total"].astype(float)
+departements_cartiflette = con.sql("SELECT DISTINCT dep AS code, departement FROM communes").df()
+departements_cartiflette["cle"] = departements_cartiflette["departement"].map(cle)
+administration = departements_cartiflette.merge(administration, on="cle")
+administration = administration[["code", "departement", "taux", "part_etat", "part_territoriale", "part_hospitaliere"]]
+france = taux.loc[taux["nom"].astype(str).str.startswith("Total France"), "taux"].iloc[0]
+len(administration), france
+```
+
+```{python}
+#| output: false
+ecrire("dgafp", {"meta": {"france": int(france)}, "lignes": enregistrements(administration.sort_values("code"))})
+```
+
+### DSED : les premiers titres de séjour
+
+Le département des statistiques du ministère de l'Intérieur chargé de l'immigration publie
+chaque année les titres de séjour délivrés, par nationalité. Les nombres inférieurs à 50 ne
+sont pas communiqués (`nc`). Les contours des pays viennent de
+[Natural Earth](https://www.naturalearthdata.com/) (au 1/110 000 000), dont le code ISO à trois
+lettres sert à la jointure.
+
+```{python}
+DSED_URL = (
+    "https://static.data.gouv.fr/resources/stock-et-flux-des-titres-de-sejour-en-france-sur-lannee-2024/"
+    "20260821-131354/2024-sejour-flux-region-monde-nationalites.csv"
+)
+MONDE_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_110m_admin_0_countries.geojson"
+
+titres = con.sql(f"""
+SELECT code_iso3 AS iso3, pays_nationalite AS pays, region_monde_origine AS region,
+       TRY_CAST(nb_titres AS INTEGER) AS titres
+FROM read_csv('{DSED_URL}', all_varchar = true)
+ORDER BY titres DESC NULLS LAST
+""").df()
+total_titres = int(titres.loc[titres["region"] == "TOTAL", "titres"].iloc[0])
+titres = titres[titres["iso3"] != "TOTAL"]
+monde = json.loads(con.sql(f"""
+SELECT ST_AsGeoJSON(ST_ReducePrecision(geom, 0.01)) AS geometrie,
+       CASE WHEN ADM0_A3 = 'KOS' THEN 'XKX' WHEN ISO_A3_EH <> '-99' THEN ISO_A3_EH ELSE ADM0_A3 END AS iso3,
+       NAME_FR AS nom
+FROM ST_Read('{telecharger(MONDE_URL, "monde.geojson", archive=False)}')
+WHERE ADM0_A3 <> 'ATA'
+""").df().pipe(lambda m: json.dumps({
+    "type": "FeatureCollection",
+    "features": [{"type": "Feature", "properties": {"iso3": l.iso3, "nom": l.nom}, "geometry": json.loads(l.geometrie)}
+                 for l in m.itertuples()],
+})))
+ecrire("monde", monde)
+ecrire("dsed", {"meta": {"total": total_titres}, "lignes": enregistrements(titres)})
+sans_contour = set(titres["iso3"]) - {f["properties"]["iso3"] for f in monde["features"]}
+total_titres, sorted(sans_contour)
+```
+
+### S2E (Armées) : les lieux de mémoire
+
+Le service statistique du ministère des Armées publie avec chaque numéro d'*EcoDef* les données
+de ses figures. Le n° 255 porte sur la fréquentation des lieux de mémoire des conflits
+contemporains : la figure 2 donne les visites par région en 2022 et 2023 (en milliers), et le
+total de la France métropolitaine, seule couverte par l'enquête ; la figure 3 donne la part des
+visiteurs résidant à l'étranger.
+
+```{python}
+ECODEF_URL = "https://static.data.gouv.fr/resources/ecodef-statistiques-ndeg-255/20241212-133351/donnes-ecodef-255.xlsx"
+
+classeur = telecharger(ECODEF_URL, "ecodef.xlsx")
+visites = pd.read_excel(classeur, sheet_name="Figure 2", header=None, engine="calamine").iloc[:, [0, 2]]
+etrangers = pd.read_excel(classeur, sheet_name="Figure 3", header=None, engine="calamine").iloc[:, [0, 2]]
+visites.columns, etrangers.columns = ["nom", "visites"], ["nom", "part_etrangers"]
+visites = visites[pd.to_numeric(visites["visites"], errors="coerce").notna()].astype({"visites": float})
+total_visites = 1000 * visites.loc[visites["nom"] == "France métropolitaine", "visites"].iloc[0]
+etrangers = etrangers[pd.to_numeric(etrangers["part_etrangers"], errors="coerce").notna()].astype({"part_etrangers": float})
+memoire = visites.merge(etrangers, on="nom", how="left").assign(
+    cle=lambda t: t["nom"].map(cle), visites=lambda t: 1000 * t["visites"], part_etrangers=lambda t: t["part_etrangers"] / 100)
+regions_cartiflette = con.sql("SELECT DISTINCT reg AS code, region FROM communes").df().assign(cle=lambda t: t["region"].map(cle))
+lieux = regions_cartiflette.merge(memoire, on="cle")[["code", "region", "visites", "part_etrangers"]]
+armees = {"total": float(total_visites),
+          "normandie": float(memoire.loc[memoire["cle"] == "NORMANDIE", "visites"].iloc[0] / total_visites)}
+ecrire("armees", {"meta": armees, "lignes": enregistrements(lieux)})
+lieux
+```
+
+### Ce qui passe aux cartes
+
+Chaque carte a son fichier JSON dans `donnees/j10/`, chargé par la page : les formes fusionnées
+par classe pour les cartes communales, les lignes (points, départements, EPCI, régions, pays)
+pour les autres. Les tableaux communaux, plus lourds, sont dans des fichiers à part, chargés
+quand on choisit la carte.
+
+```{python}
+ecrire("vignettes", vignettes)
+shutil.rmtree(TELECHARGEMENTS)
+{f.name: f"{f.stat().st_size / 1e6:.2f} Mo" for f in sorted(SORTIE.glob("*.json"))}
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+// Sans les copies des points de la petite couronne dans l'encart.
+lignesTableau = carte.table ? lire(`${carte.id}-table`) : donnees[carte.id].lignes.filter((l) => !l.copie)
+viewof recherche = Inputs.search(lignesTableau, {
+  placeholder: "Rechercher…",
+  format: (n) => `${entier(n)} lignes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: Object.keys(carte.colonnes),
+  header: carte.colonnes,
+  format: carte.formats,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(lignesTableau, Object.keys(carte.colonnes))], {type: "text/csv"}),
+  carte.fichier,
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Les seize cartes n'ont ni le même millésime (de 2020 pour le recensement agricole à 2026
+  pour la DGF) ni le même découpage : commune, EPCI, unité urbaine, département, région, pays.
+  Les codes des communes suivent la géographie de leur source ; les communes qui ont fusionné
+  depuis n'ont pas de valeur (en gris).
+- SSMSI : les taux des communes non publiées sont des moyennes départementales, pas des valeurs
+  communales. La délinquance enregistrée dépend aussi des plaintes : elle ne mesure pas toute la
+  délinquance subie.
+- Agreste : les surfaces sont rattachées à la commune du siège de l'exploitation, pas à celle
+  des parcelles (le J3 montre l'écart). Les communes sous secret statistique n'ont pas de valeur.
+- Sdes : les maisons sous secret statistique sont comptées pour zéro ; les EPCI sont ceux de
+  2021, ceux qui ont changé depuis manquent.
+- Douanes : le département est celui de l'entreprise qui déclare l'exportation, souvent son
+  siège, pas forcément celui où le produit est fabriqué.
+- Dares : les effectifs viennent du recensement et sont arrondis à la centaine ; l'indice d'un
+  métier rare est fragile, d'où le seuil de 1 000 emplois.
+- SSER : la densité est celle de l'établissement entier ; dans un centre pénitentiaire, le
+  quartier maison d'arrêt peut être bien plus surpeuplé que la moyenne. Les établissements que
+  l'annuaire ne permet pas de placer manquent.
+- DGAFP : les militaires ne sont pas comptés, faute de localisation.
+
+## Pour aller plus loin
+
+- Insee, [Les services statistiques ministériels](https://www.insee.fr/fr/information/2013075).
+- Autorité de la statistique publique, [Le service statistique public](https://www.autorite-statistique-publique.fr/le-service-statistique-public/).
+- Chaque service publie sa propre collection d'études : *Interstats* (SSMSI), *Études et
+  résultats* (Drees), *Note d'information* (Depp), *Dares Analyses*, *Datalab* (Sdes),
+  *Agreste Primeur* (SSP), *EcoDef* (Armées), *Infostat Justice* (SSER)…

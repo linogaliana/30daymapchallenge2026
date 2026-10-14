@@ -379,3 +379,117 @@ a[download] button:hover {
 .nombres th:not(:first-child) {
   text-align: right;
 }
+
+/* Boutons pour écouter un nom de commune (J11) */
+button.ecouter {
+  margin: 0.15em 0.3em 0.15em 0;
+  padding: 0.1em 0.6em;
+  border: 1px solid var(--bs-link-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--bs-link-color);
+  font-size: 0.85em;
+}
+
+button.ecouter:hover {
+  background: var(--bs-link-color);
+  color: var(--bs-body-bg);
+}
+
+/* J10 : mosaïque des seize services, une vignette par carte */
+.mosaique {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 0.5rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.mosaique button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.35rem 0.25rem 0.45rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  color: var(--bs-body-color);
+  line-height: 1.15;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.mosaique button:hover {
+  transform: translateY(-2px);
+  border-color: var(--bs-link-color);
+}
+
+.mosaique button.actif {
+  border: 2px solid var(--bs-link-color);
+  background: color-mix(in srgb, var(--bs-link-color) 10%, transparent);
+}
+
+.mosaique svg {
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+
+.mosaique-sigle {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.mosaique-ministere {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.service-ssm {
+  margin-top: -0.5rem;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+/* J12 : légende de la carte MapLibre, en ligne au-dessus de la carte */
+.legende-carte {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 1.2em;
+  font-size: 0.9em;
+}
+
+.legende-carte span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+/* J13 : la carte des musées et le graphique du musée choisi, côte à côte sur grand écran */
+@media (min-width: 992px) {
+  .duo-musees {
+    grid-template-columns: 3fr 2fr;
+  }
+}
+
+.duo-musees {
+  align-items: start;
+}
+
+.fiche-musee h4 {
+  margin: 0.75em 0 0;
+}
+
+.fiche-musee .sous-titre {
+  margin: 0 0 0.5em;
+  opacity: 0.75;
+}
+
+@media (max-width: 575.98px) {
+  .mosaique {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+
+  .mosaique-ministere {
+    display: none;
+  }
+}
