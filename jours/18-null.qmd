@@ -1,0 +1,728 @@
+---
+title: "J18 · NULL. Le prix du mètre carré, et ses trous"
+description: "Combien coûte un mètre carré dans votre commune ? Dans 1 780 communes, les données des notaires répondent NULL : pas zéro, une absence, qui a quatre causes différentes et qu'on peut dessiner de quatre façons."
+resources:
+  - donnees/j18/*.csv
+  - donnees/j18/*.geojson
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+euros = (x) => `${entier(x)} €`
+pourcent = (x, n = 0) => `${(100 * x).toLocaleString("fr-FR", {maximumFractionDigits: n})} %`
+html`<p class="lead">
+  Combien coûte un mètre carré de maison ou d'appartement dans votre commune ? Pour
+  <strong>${entier(resume.null)} communes sur ${entier(resume.communes)}</strong>, les ventes
+  enregistrées depuis cinq ans répondent <code>NULL</code>. Pas zéro : une absence. Dans
+  ${entier(resume.hors_champ)} d'entre elles, en Alsace, en Moselle et à Mayotte, aucune vente
+  n'est publiée ; dans ${entier(resume.retablies)}, la commune n'existait pas encore sous son
+  code actuel ; dans les ${entier(resume.aucune_vente)} autres, aucune vente de logement n'est retenue.
+</p>`
+```
+
+`NULL`, en SQL, c'est l'absence de valeur : ni zéro, ni chaîne vide, une case qu'on ne sait pas
+remplir. Une carte doit pourtant lui donner une couleur, et ce choix n'est jamais neutre. Pour ce
+dix-huitième jour, la carte des prix de l'immobilier, tirée des
+[demandes de valeurs foncières](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres)
+(DVF) de la DGFiP, montre ses trous, et le menu au-dessus de la carte change la façon de les
+dessiner (making of 👇).
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+
+// Les 35 000 communes (tableau, décomptes) sont dans un fichier à part.
+communes = d3.csv("donnees/j18/communes.csv", (d) => ({
+  ...d,
+  habitants: +d.habitants,
+  ventes: d.ventes === "" ? null : +d.ventes,
+  prix: d.prix === "" ? null : +d.prix
+}))
+
+// Prix médian au m² : huit classes, du jaune pâle au violet (inversé sur fond sombre, pour que
+// les prix les plus élevés restent les plus visibles).
+seuilsPrix = [1000, 1500, 2000, 2500, 3000, 4000, 6000]
+couleursPrix = sombre
+  ? ["#40204a", "#6a2550", "#93304f", "#bc4a4a", "#dc6f45", "#f19a50", "#fbc56a", "#fde9a0"]
+  : ["#fff5c2", "#fde29a", "#fdc173", "#f89a55", "#ea6f45", "#cf4a45", "#a12d4c", "#651a46"]
+
+// Les causes de NULL, dans l'ordre de la propriété « k » des contours (1, 2, 3), puis la
+// nôtre : trop peu de ventes pour une médiane.
+causes = [
+  {k: 1, nom: "Hors champ : DVF ne couvre pas l'Alsace, la Moselle ni Mayotte", court: "Hors champ",
+   couleur: sombre ? "#2c2c2c" : "#f1f1f1"},
+  {k: 2, nom: "Commune rétablie : ses ventes sont comptées sous un autre code", court: "Commune rétablie",
+   couleur: sombre ? "#5a7aa8" : "#7f9cc7"},
+  {k: 3, nom: "Aucune vente de maison ou d'appartement retenue en cinq ans", court: "Aucune vente",
+   couleur: sombre ? "#7a7a7a" : "#8f8f8f"},
+  {k: 4, nom: "Trop peu de ventes : médiane masquée", court: "Trop peu de ventes",
+   couleur: sombre ? "#4a4a4a" : "#cdcdcd"}
+]
+couleurHachures = sombre ? "#9a9a9a" : "#7a7a7a"
+grisUnique = sombre ? "#5c5c5c" : "#b8b8b8"
+```
+
+```{ojs}
+//| echo: false
+maplibregl = {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
+}
+
+territoires = [
+  ["Métropole", [[-5.3, 41.3], [9.7, 51.1]]],
+  ["Guadeloupe", [[-61.85, 15.8], [-61.0, 16.55]]],
+  ["Martinique", [[-61.25, 14.38], [-60.8, 14.9]]],
+  ["Guyane", [[-54.6, 2.1], [-51.6, 5.8]]],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]]],
+  ["Mayotte", [[44.95, -13.05], [45.35, -12.6]]]
+]
+
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris.
+styleClair = fetch(
+  "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+).then((r) => r.json())
+
+styleSombre = {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
+```
+
+```{ojs}
+//| echo: false
+modes = [
+  ["Distinguer leurs causes", "causes"],
+  ["Tous en gris", "gris"],
+  ["Remplacer par 0", "zero"],
+  ["Les effacer", "effacer"]
+]
+viewof mode = Inputs.radio(new Map(modes), {value: "causes", label: "Les NULL :"})
+```
+
+```{ojs}
+//| echo: false
+viewof seuil = Inputs.range([1, 30], {
+  value: 5, step: 1, label: "Ventes minimales"
+})
+```
+
+```{ojs}
+//| echo: false
+// Couleur de chaque commune (expression MapLibre) et légende du mode choisi.
+coloriage = {
+  const classes = ["step", ["get", "m"], couleursPrix[0],
+                   ...seuilsPrix.flatMap((s, i) => [s, couleursPrix[i + 1]])]
+  const libellesPrix = couleursPrix.map((couleur, i) => [
+    i === 0 ? `moins de ${entier(seuilsPrix[0])} €`
+      : i === seuilsPrix.length ? `${entier(seuilsPrix[i - 1])} € ou plus`
+      : `${entier(seuilsPrix[i - 1])} à ${entier(seuilsPrix[i])} €`,
+    couleur
+  ])
+  // Une commune est NULL si elle a une cause (k > 0) ou trop peu de ventes.
+  const estNull = ["any", [">", ["get", "k"], 0], ["<", ["get", "n"], seuil]]
+  if (mode === "causes") {
+    return {
+      couleur: ["case",
+        ["==", ["get", "k"], 1], causes[0].couleur,
+        ["==", ["get", "k"], 2], causes[1].couleur,
+        ["==", ["get", "k"], 3], causes[2].couleur,
+        ["<", ["get", "n"], seuil], causes[3].couleur,
+        classes],
+      opacite: 0.85,
+      hachures: true,
+      legende: [...libellesPrix, ...causes.map((c) => [c.nom, c.couleur, c.k === 1])]
+    }
+  }
+  if (mode === "gris") {
+    return {
+      couleur: ["case", estNull, grisUnique, classes],
+      opacite: 0.85,
+      hachures: false,
+      legende: [...libellesPrix, ["NULL, quelle qu'en soit la cause", grisUnique]]
+    }
+  }
+  if (mode === "zero") {
+    // L'erreur classique : un NULL devient 0 €, et tombe dans la classe la moins chère.
+    return {
+      couleur: ["case", estNull, couleursPrix[0], classes],
+      opacite: 0.85,
+      hachures: false,
+      legende: [[`${libellesPrix[0][0]} (dont les NULL, devenus 0 €)`, couleursPrix[0]],
+                ...libellesPrix.slice(1)]
+    }
+  }
+  return {
+    couleur: classes,
+    opacite: ["case", estNull, 0, 0.85],
+    hachures: false,
+    legende: [...libellesPrix, ["NULL : rien n'est dessiné", "transparent"]]
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p class="legende-carte">${coloriage.legende.map(([texte, couleur, hachures]) => html`<span>
+  <svg width="14" height="14"><rect width="14" height="14" rx="2" fill="${couleur}"
+    stroke="${couleur === "transparent" ? "currentColor" : "none"}" stroke-dasharray="2 2"/>
+    ${hachures ? svg`<path d="M-1,5 l6,-6 M-1,11 l12,-12 M-1,17 l18,-18 M5,17 l12,-12 M11,17 l6,-6"
+      stroke="${couleurHachures}" stroke-width="1.2"/>` : ""}</svg>
+  ${texte}</span>`)}</p>`
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+```
+
+```{ojs}
+//| echo: false
+conteneur = html`<div style="height: min(75vh, 680px); border-radius: 4px"></div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+// Motif de hachures des communes hors champ, dessiné dans un canevas.
+function hachures(couleur) {
+  const taille = 16
+  const canevas = document.createElement("canvas")
+  canevas.width = canevas.height = taille
+  const ctx = canevas.getContext("2d")
+  ctx.strokeStyle = couleur
+  ctx.lineWidth = 2
+  for (const decalage of [-taille, 0, taille]) {
+    ctx.beginPath()
+    ctx.moveTo(decalage, taille)
+    ctx.lineTo(decalage + taille, 0)
+    ctx.stroke()
+  }
+  return ctx.getImageData(0, 0, taille, taille)
+}
+
+// La carte n'est créée qu'une fois ; le mode et le seuil changent sa couleur.
+carte = {
+  const map = new maplibregl.Map({
+    container: conteneur,
+    style: document.body.classList.contains("quarto-dark") ? styleSombre : styleClair,
+    bounds: territoires[0][1],
+    attributionControl: {customAttribution: "DGFiP, Etalab, IGN"}
+  })
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+  const donnees = new URL("donnees/j18/communes.geojson", document.baseURI).href
+  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre), sous les
+  // noms de lieux du fond de carte.
+  const ajouterCouches = () => {
+    const sombreIci = document.body.classList.contains("quarto-dark")
+    const dessous = map.getStyle().layers.find((c) => c.type === "symbol")?.id
+    map.addImage("hachures", hachures(sombreIci ? "#9a9a9a" : "#7a7a7a"), {pixelRatio: 2})
+    map.addSource("communes", {type: "geojson", data: donnees})
+    map.addLayer({
+      id: "communes", type: "fill", source: "communes",
+      paint: {
+        "fill-color": map.coloriage?.couleur ?? "#ccc",
+        "fill-opacity": map.coloriage?.opacite ?? 0.85
+      }
+    }, dessous)
+    map.addLayer({
+      id: "hachures", type: "fill", source: "communes",
+      filter: ["==", ["get", "k"], 1],
+      layout: {visibility: map.coloriage?.hachures === false ? "none" : "visible"},
+      paint: {"fill-pattern": "hachures"}
+    }, dessous)
+    map.addLayer({
+      id: "limites", type: "line", source: "communes",
+      paint: {
+        "line-color": sombreIci ? "#222" : "#fff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0, 7, 0.3, 11, 1.2]
+      }
+    }, dessous)
+  }
+  map.on("style.load", ajouterCouches)
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "280px"})
+  map.on("mousemove", "communes", (e) => {
+    const p = e.features[0].properties
+    const ventes = p.n === undefined || p.n === null ? 0 : p.n
+    const texte = p.k === 1 ? "Hors champ de DVF : <code>NULL</code>"
+      : p.k === 2 ? "Commune rétablie, sans ventes à son code : <code>NULL</code>"
+      : p.k === 3 ? "Aucune vente en cinq ans : <code>NULL</code>"
+      : ventes < map.seuil ? `${entier(ventes)} vente${ventes > 1 ? "s" : ""}, trop peu : <code>NULL</code>`
+      : `${euros(p.m)} le m² (médiane de ${entier(ventes)} ventes)`
+    bulle.setLngLat(e.lngLat).setHTML(`<strong>${p.nom}</strong> (${p.code})<br>${texte}`).addTo(map)
+  })
+  map.on("mouseleave", "communes", () => bulle.remove())
+  return map
+}
+```
+
+```{ojs}
+//| echo: false
+// Cellules nommées : Quarto n'affiche pas leur valeur.
+miseAJour = {
+  carte.coloriage = coloriage
+  carte.seuil = seuil
+  if (carte.getLayer("communes")) {
+    carte.setPaintProperty("communes", "fill-color", coloriage.couleur)
+    carte.setPaintProperty("communes", "fill-opacity", coloriage.opacite)
+    carte.setLayoutProperty("hachures", "visibility", coloriage.hachures ? "visible" : "none")
+  }
+  return mode
+}
+theme = {
+  const style = sombre ? styleSombre : styleClair
+  if (carte.styleCourant !== undefined && carte.styleCourant !== style) {
+    carte.setStyle(style, {diff: false})
+  }
+  carte.styleCourant = style
+  return sombre
+}
+cadrage = carte.fitBounds(territoire, {padding: 20})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Prix médian au m² des maisons et appartements vendus de ${periode}, par commune
+(arrondissement à Paris, Lyon et Marseille). Zoomez et déplacez-vous dans la carte ; survolez une
+commune pour le détail ; les boutons au-dessus de la carte mènent en outre-mer. Sources : DGFiP,
+demandes de valeurs foncières, statistiques DVF d'Etalab ; Insee, code officiel géographique
+2026 ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette ; fond Plan IGN.</small></p>`
+```
+
+## Quatre façons de dessiner un NULL
+
+```{ojs}
+//| echo: false
+// Décomptes selon le seuil choisi : les communes sous le seuil deviennent NULL.
+cause = (d) => d.cause !== "valeur" ? d.cause : d.ventes < seuil ? "trop peu de ventes" : "valeur"
+connues = communes.filter((d) => cause(d) === "valeur")
+inconnues = communes.filter((d) => cause(d) !== "valeur")
+medianeVraie = d3.median(connues, (d) => d.prix)
+medianeZero = d3.median(communes, (d) => cause(d) === "valeur" ? d.prix : 0)
+nbSousSeuil = communes.filter((d) => cause(d) === "trop peu de ventes").length
+```
+
+```{ojs}
+//| echo: false
+md`Avec un seuil de ${seuil} vente${seuil > 1 ? "s" : ""}, la carte compte
+**${entier(inconnues.length)} communes \`NULL\`**, où vivent
+${entier(d3.sum(inconnues, (d) => d.habitants))} habitants.
+
+- **Distinguer leurs causes** : le plus honnête. Les hachures disent « on ne sait pas, et ce
+  n'est pas le hasard » : la DGFiP ne publie pas les ventes d'Alsace-Moselle et de Mayotte, qui
+  sont inscrites au livre foncier, tenu par les tribunaux, et non au fichier de la publicité
+  foncière.
+- **Tous en gris** : l'usage. Une seule couleur pour toutes les absences, qui mélange des causes
+  différentes : une commune du Bas-Rhin et un village sans vente se ressemblent.
+- **Remplacer par 0** : l'erreur. C'est ce qui arrive quand un \`NULL\` est converti en nombre
+  (\`coalesce(prix, 0)\`, \`fillna(0)\`) : l'Alsace devient la région la moins chère de France.
+  La médiane des prix communaux, de ${euros(medianeVraie)} le m² sans les \`NULL\`, tombe à
+  ${euros(medianeZero)} quand ils valent 0.
+- **Les effacer** : l'habitude des fonds de carte troués. Le trou se voit, mais la carte ne dit
+  plus pourquoi : on ne distingue plus une commune sans vente d'une commune absente du fond de
+  carte.
+
+Le seuil, lui, est notre choix : une médiane calculée sur une ou deux ventes dit le prix d'une
+maison, pas celui d'une commune. Le relever fabrique des \`NULL\` (${entier(nbSousSeuil)} au seuil
+choisi) ; le baisser publie des chiffres fragiles.`
+```
+
+## Les NULL, cause par cause
+
+```{ojs}
+//| echo: false
+{
+  const ordre = ["hors champ", "commune rétablie", "aucune vente", "trop peu de ventes"]
+  const lignes = ordre.map((c, i) => {
+    const groupe = inconnues.filter((d) => cause(d) === c)
+    return {cause: causes[i].court, couleur: causes[i].couleur, communes: groupe.length,
+            habitants: d3.sum(groupe, (d) => d.habitants)}
+  })
+  const graphique = (variable, titre, format) => Plot.plot({
+    width: 360, height: 170, marginLeft: 130, marginRight: 60,
+    style: {background: "transparent"},
+    x: {label: titre, grid: true, tickFormat: format, ticks: 4},
+    y: {label: null, domain: lignes.map((d) => d.cause)},
+    marks: [
+      Plot.barX(lignes, {x: variable, y: "cause", fill: "couleur", stroke: "currentColor",
+                         strokeOpacity: 0.3}),
+      Plot.text(lignes, {x: variable, y: "cause", text: (d) => entier(d[variable]), dx: 4,
+                         textAnchor: "start", fill: "currentColor"})
+    ]
+  })
+  return html`<div style="display: flex; flex-wrap: wrap; gap: 1em 2em">
+    ${graphique("communes", "Communes", (x) => entier(x))}
+    ${graphique("habitants", "Habitants (milliers)", (x) => entier(x / 1000))}
+  </div>`
+}
+```
+
+Les communes hors champ sont de loin les plus peuplées : plus de trois millions d'habitants, dont Strasbourg, Mulhouse et Metz. Les communes sans aucune vente retenue sont de tout
+petits villages, avec quelques cas à part :
+
+- les **villages morts pour la France** de la Meuse (Fleury-devant-Douaumont, Bezonvaux,
+  Beaumont-en-Verdunois…), détruits en 1916 et jamais reconstruits, qui gardent un maire mais
+  n'ont pas d'habitants, ni de maisons à vendre ;
+- **Chambord**, presque entièrement occupée par le domaine national, et **le Mont-Saint-Michel** ;
+- les îles de **Sein** et de **Molène**, où il se vend très peu de maisons ;
+- des communes de **Guyane** (Papaïchton, Camopi, Awala-Yalimapo, Saül), où presque toutes les
+  terres sont au domaine de l'État et où le cadastre est lacunaire.
+
+Les communes rétablies, enfin, sont un `NULL` de nomenclature : Celles, Chalinargues, Chavagnac
+et Sainte-Anastasie (Cantal) ont quitté Neussargues en Pinatelle en 2025, L'Oie et
+Sainte-Florence (Vendée) ont quitté Essarts-en-Bocage en 2024, Sannerville (Calvados) a quitté
+Saline à la fin de 2019. Leurs maisons se sont vendues, mais sous le code de la commune dont
+elles faisaient partie.
+
+## Les données
+
+Trois sources, lues avec [DuckDB](https://duckdb.org/) : les statistiques DVF publiées par Etalab,
+le code officiel géographique de l'Insee, et
+[cartiflette](https://github.com/InseeFrLab/cartiflette) pour les contours des communes.
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Statistiques DVF](https://www.data.gouv.fr/datasets/statistiques-dvf), tirées des [demandes de valeurs foncières](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres) | DGFiP, statistiques d'Etalab | pour chaque commune, le nombre de ventes de maisons et d'appartements en cinq ans et leur prix médian au m² | CSV |
+| [Code officiel géographique 2026](https://www.insee.fr/fr/information/8740222), mouvements des communes | Insee | les communes rétablies depuis la fin de 2019 | CSV |
+| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | contours des communes et des arrondissements, population municipale | GeoParquet |
+
+```{python}
+#| output: false
+import json
+import pathlib
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les ventes (DGFiP, statistiques d'Etalab)
+
+Le fichier DVF de la DGFiP recense chaque vente immobilière enregistrée par les services de la
+publicité foncière depuis cinq ans, avec sa date, son prix, la surface et le type des biens. Etalab
+en tire des statistiques, pour la France, chaque département, chaque commune et chaque section
+cadastrale : nombre de ventes et prix au m² (moyen et médian), par type de bien, sur dix semestres
+(`stats_whole_period.csv`). Seules les ventes d'un seul bien (avec ses dépendances) y sont
+gardées : une vente groupée de plusieurs appartements, ou d'une maison et d'un commerce, ne donne
+pas de prix au m².
+
+On garde l'échelle communale et les ventes de maisons et d'appartements réunies
+(`apt_maison`). Le fichier a ses propres pièges : un libellé d'EPCI contient une virgule entre
+guillemets, et la détection automatique de DuckDB ne voit pas les guillemets ; les codes,
+`01001` ou `2A004`, doivent rester du texte.
+
+```{python}
+DVF_URL = "https://www.data.gouv.fr/fr/datasets/r/851d342f-9c96-41c1-924a-11a7a7aae8a6"
+
+con.sql(f"""
+CREATE TABLE dvf AS
+SELECT code_geo AS code,
+       nb_ventes_whole_apt_maison AS ventes,
+       med_prix_m2_whole_apt_maison AS prix
+FROM read_csv('{DVF_URL}', quote = '"', types = {{'code_geo': 'VARCHAR', 'code_parent': 'VARCHAR'}})
+WHERE echelle_geo = 'commune'
+""")
+
+con.sql("""
+SELECT count(*) AS lignes, count(ventes) AS avec_ventes, count(prix) AS avec_prix,
+       count(*) - count(prix) AS prix_null
+FROM dvf
+""").df().style.hide(axis="index").format("{:,.0f}")
+```
+
+Le fichier a plus de lignes que la France n'a de communes : il garde aussi d'anciens codes,
+toujours `NULL`. La jointure avec les communes de 2026 les écarte.
+
+La période couverte n'est pas dans le fichier des statistiques totales. Etalab les calcule sur
+les fichiers DVF géolocalisés qu'il diffuse sur
+[files.data.gouv.fr/geo-dvf](https://files.data.gouv.fr/geo-dvf/latest/csv/), un dossier par
+année : on lit la liste des dossiers.
+
+```{python}
+import re
+import urllib.request
+
+with urllib.request.urlopen("https://files.data.gouv.fr/geo-dvf/latest/csv/") as r:
+    annees = sorted(set(re.findall(r'href="[^"]*/(\d{4})/"', r.read().decode())))
+periode = f"{annees[0]} à {annees[-1]}"
+periode
+```
+
+### Les communes rétablies (Insee, code officiel géographique)
+
+Le [code officiel géographique](https://www.insee.fr/fr/information/8740222) (COG) liste les
+événements qui ont touché les communes. Un rétablissement (code `21`) recrée une commune qui
+avait fusionné : elle reprend son ancien code, mais ses ventes passées sont rangées sous celui de
+la commune nouvelle. On garde les rétablissements depuis la fin de 2019, l'âge des plus anciennes
+ventes du fichier.
+
+```{python}
+COG_URL = "https://www.insee.fr/fr/statistiques/fichier/8740222/"
+
+con.sql(f"""
+CREATE TABLE retablies AS
+SELECT DISTINCT COM_AP AS code, LIBELLE_AP AS nom, DATE_EFF AS date
+FROM read_csv('{COG_URL}v_mvt_commune_2026.csv', all_varchar = true)
+WHERE MOD = '21' AND TYPECOM_AP = 'COM' AND DATE_EFF >= '2019-12-01'
+""")
+con.sql("SELECT * FROM retablies ORDER BY date, code").df().style.hide(axis="index")
+```
+
+### Les communes (cartiflette)
+
+Les contours de 2026 au niveau `COMMUNE_ARRONDISSEMENT`, avec les arrondissements de Paris, Lyon
+et Marseille à la place de leur commune, comme dans les statistiques DVF. La colonne `POPULATION`
+est la population municipale légale.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level=COMMUNE_ARRONDISSEMENT/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COG AS code, NOM AS nom, INSEE_DEP AS dep, LIBELLE_DEPARTEMENT AS departement,
+       POPULATION AS habitants, geometry AS geom
+FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+""")
+```
+
+## Les traitements
+
+### Donner une cause à chaque NULL
+
+Chaque commune reçoit une cause, dans cet ordre : hors champ si elle est en Moselle, dans le
+Bas-Rhin, le Haut-Rhin ou à Mayotte ; rétablie si elle est dans la liste du COG et sans prix ;
+sans vente retenue si elle n'a pas de prix ; sinon, elle a une valeur. Le seuil de ventes sous lequel une
+médiane est masquée n'est pas appliqué ici : il se règle sur la carte.
+
+```{python}
+con.sql("""
+CREATE TABLE bilan AS
+SELECT c.code, c.nom, c.dep, c.departement, c.habitants, d.ventes, d.prix,
+       CASE
+           WHEN c.dep IN ('57', '67', '68', '976') THEN 'hors champ'
+           WHEN d.prix IS NULL AND c.code IN (SELECT code FROM retablies) THEN 'commune rétablie'
+           WHEN d.prix IS NULL THEN 'aucune vente'
+           ELSE 'valeur'
+       END AS cause
+FROM communes c LEFT JOIN dvf d USING (code)
+""")
+
+con.sql("""
+SELECT cause, count(*) AS communes, sum(habitants) AS habitants,
+       count(prix) AS avec_prix
+FROM bilan GROUP BY cause ORDER BY communes DESC
+""").df().style.hide(axis="index").format("{:,.0f}", subset=["communes", "habitants", "avec_prix"])
+```
+
+La colonne `avec_prix` vérifie que la cause est bien la seule raison des `NULL` : aucune commune
+hors champ, rétablie ou sans vente n'a de prix, et toutes les autres en ont un.
+
+```{python}
+resume = con.sql("""
+SELECT count(*) AS communes,
+       count(*) FILTER (WHERE cause <> 'valeur') AS null,
+       count(*) FILTER (WHERE cause = 'hors champ') AS hors_champ,
+       count(*) FILTER (WHERE cause = 'commune rétablie') AS retablies,
+       count(*) FILTER (WHERE cause = 'aucune vente') AS aucune_vente
+FROM bilan
+""").df().iloc[0]
+resume
+```
+
+Les communes sans vente les plus peuplées :
+
+```{python}
+con.sql("""
+SELECT code, nom, departement, habitants FROM bilan
+WHERE cause = 'aucune vente' ORDER BY habitants DESC LIMIT 10
+""").df().style.hide(axis="index")
+```
+
+### Les contours de la carte
+
+Comme pour [J12](12-power.qmd), les 35 000 communes sont simplifiées ensemble, à 500 m environ
+(`ST_CoverageSimplify`), ce qui garde leurs limites jointives, et les coordonnées sont arrondies à
+100 m environ. Chaque contour porte le nombre de ventes (`n`), le prix médian (`m`) et la cause
+(`k` : 0 pour une valeur, 1 hors champ, 2 rétablie, 3 sans vente). Le fichier est écrit dans
+`donnees/j18/`.
+
+```{python}
+con.sql("""
+CREATE TABLE simplifiees AS
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.005) AS geom
+    FROM communes
+),
+-- Le résultat est une collection, dans l'ordre des communes : chaque morceau garde le rang
+-- de sa commune (path[1]).
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, ST_Collect(list(geom)) AS geom FROM morceaux GROUP BY 1
+""")
+
+proprietes = ["code", "nom", "n", "m", "k"]
+lignes = con.sql("""
+SELECT b.code, b.nom, b.ventes, b.prix,
+       CASE b.cause WHEN 'valeur' THEN 0 WHEN 'hors champ' THEN 1
+                    WHEN 'commune rétablie' THEN 2 ELSE 3 END,
+       ST_AsGeoJSON(ST_ReducePrecision(s.geom, 0.001))
+FROM simplifiees s JOIN bilan b USING (code)
+ORDER BY b.code
+""").fetchall()
+carte = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            # Les NULL de DuckDB deviennent des null en JSON, que MapLibre lit comme absents.
+            "properties": dict(zip(proprietes, ligne[:-1])),
+            "geometry": json.loads(ligne[-1]),
+        }
+        for ligne in lignes
+    ],
+}
+
+SORTIE = pathlib.Path("donnees/j18")
+SORTIE.mkdir(parents=True, exist_ok=True)
+(SORTIE / "communes.geojson").write_text(json.dumps(carte, separators=(",", ":"), ensure_ascii=False))
+f"{(SORTIE / 'communes.geojson').stat().st_size / 1e6:.1f} Mo"
+```
+
+Une subtilité : dans les expressions de style de MapLibre, comparer une propriété `null` à un
+nombre (`["<", ["get", "n"], seuil]`) est une erreur, et la commune prend alors la couleur par
+défaut de la couche, sans prévenir. C'est pour cela que la cause est codée à part, dans `k`, et
+testée avant le nombre de ventes.
+
+La table des communes, pour le tableau et le téléchargement, est écrite à part, en CSV : un `NULL`
+y devient une case vide.
+
+```{python}
+#| output: false
+con.sql(f"""
+COPY (
+    SELECT code, nom, departement, habitants, ventes, prix, cause
+    FROM bilan ORDER BY code
+) TO '{SORTIE / "communes.csv"}' (HEADER)
+""")
+```
+
+### Ce qui passe à la carte
+
+```{python}
+ojs_define(
+    resume={k: int(resume[k]) for k in resume.index},
+    periode=periode,
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(communes, {
+  placeholder: "Rechercher une commune…",
+  columns: ["nom", "departement", "code"],
+  format: (n) => `${entier(n)} communes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["code", "nom", "departement", "habitants", "ventes", "prix", "cause"],
+  header: {
+    code: "Code", nom: "Commune", departement: "Département", habitants: "Habitants",
+    ventes: "Ventes (5 ans)", prix: "Prix médian au m²", cause: "Cause du NULL"
+  },
+  format: {
+    habitants: entier,
+    ventes: (v) => v === null ? "NULL" : entier(v),
+    prix: (v) => v === null ? "NULL" : euros(v),
+    cause: (c) => c === "valeur" ? "" : c
+  },
+  sort: "code",
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "habitants", "ventes", "prix", "cause"])], {type: "text/csv"}),
+  "prix_m2_dvf_communes.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Les statistiques ne retiennent que les ventes d'un seul bien, sans les ventes groupées, et
+  écartent les prix au m² de plus de 100 000 € : le nombre de ventes est inférieur au nombre de
+  transactions de la commune.
+- Le prix au m² est la valeur foncière divisée par la surface bâtie : un terrain, une piscine,
+  une vue sur la mer ou des travaux à faire pèsent dans le prix sans changer la surface.
+- Maisons et appartements sont réunis : la médiane d'une commune dépend du mélange des deux,
+  souvent plus chers au m² en appartement.
+- Une commune issue d'une fusion récente réunit les ventes de ses anciennes communes ; une commune
+  rétablie perd les siennes, rangées sous le code de la commune nouvelle.
+- Hors d'Alsace-Moselle et de Mayotte, les données peuvent être incomplètes : DVF dépend des
+  actes saisis par les services de la publicité foncière, et chaque mise à jour peut ajouter des
+  ventes anciennes.
+
+## Pour aller plus loin
+
+- Etalab, [explore.data.gouv.fr/immobilier](https://explore.data.gouv.fr/immobilier), la carte
+  officielle des ventes DVF, jusqu'à la parcelle.
+- DGFiP, [notice descriptive du fichier DVF](https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20221017-153319/notice-descriptive-du-fichier-dvf-20221017.pdf),
+  et sa [foire aux questions](https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20221017-153257/faq-20221017.pdf).
+- [J8 · Utopia](08-utopia.qmd) : les carreaux où personne n'habite, une autre façon de cartographier
+  le vide.

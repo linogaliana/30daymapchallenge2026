@@ -1,0 +1,863 @@
+---
+title: "J23 · Taste. Le goût le plus local"
+description: "Comté, Pommard, piment d'Espelette, cassis de Dijon : pour chacune des 35 000 communes, l'appellation d'origine la plus locale, d'après les aires géographiques de l'INAO."
+image: vignettes/23-taste.webp
+resources:
+  - donnees/j23/*.csv
+  - donnees/j23/*.geojson
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${(100 * x).toLocaleString("fr-FR", {maximumFractionDigits: n})} %`
+html`<p class="lead">
+  <strong>${entier(chiffres.communes_avec)} communes sur ${entier(chiffres.communes)}</strong>
+  sont dans l'aire d'au moins une des ${entier(chiffres.appellations)} appellations d'origine
+  et indications géographiques françaises. Mais la plupart de ces aires sont immenses : dans la
+  moitié des communes, la plus locale couvre déjà ${entier(chiffres.mediane_plus_local)} communes
+  ou plus. Seules ${entier(chiffres.communes_uniques)} communes ont une appellation qui n'est qu'à
+  elles : Pommard, Fleurie, Cornas, ou Dijon et son cassis.
+</p>`
+```
+
+Pour le goût, la carte des spécialités qu'on ne peut produire qu'à un endroit. Une appellation
+d'origine protégée (AOP), comme une indication géographique protégée (IGP), est attachée à une aire
+géographique, une liste de communes que l'Institut national de l'origine et de la qualité (INAO)
+publie. Une commune est souvent dans plusieurs aires à la fois : celle d'un vin de pays qui couvre
+trois départements, celle d'une volaille qui en couvre dix, celle d'un fromage, celle d'un cru. La
+carte retient pour chacune la plus petite, celle qui dit le mieux le goût du lieu (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+grisNeutre = sombre ? "#3a3a3a" : "#ebe8e1"
+
+// Les appellations (nom, famille, taille de l'aire, emprise) et les communes (tableau).
+// Deux appellations peuvent porter le même nom (le calvados eau-de-vie et le calvados vin) :
+// on précise alors la famille.
+appellations = d3.csv("donnees/j23/appellations.csv", d3.autoType).then((liste) => {
+  const doublons = d3.rollup(liste, (v) => v.length, (a) => a.nom)
+  return liste.map((a) => ({...a, libelle: doublons.get(a.nom) > 1 ? `${a.nom} (${a.famille.toLowerCase()})` : a.nom}))
+})
+parId = new Map(appellations.map((a) => [a.id, a]))
+communes = d3.csv("donnees/j23/communes.csv", (d) => ({...d, appellations: +d.appellations, communes_aire: d.communes_aire === "" ? null : +d.communes_aire}))
+
+// Sept familles, dans l'ordre de la propriété « t » des contours. Trois nuances par famille :
+// aire de 1 à 50 communes, de 51 à 500, de plus de 500. Sur fond sombre, la plus locale est la
+// plus claire.
+familles = [
+  {cle: "v", nom: "Vins", clair: ["#6d1238", "#b8456a", "#e9b6c4"], sombre: ["#f592b0", "#b04a6e", "#5e2c3e"]},
+  {cle: "f", nom: "Fromages, beurres et crèmes", clair: ["#9a6f00", "#dcae2c", "#f5e1a0"], sombre: ["#ffd75a", "#b8952a", "#635524"]},
+  {cle: "c", nom: "Viandes et charcuteries", clair: ["#8f2f1d", "#d0674a", "#f2c0a8"], sombre: ["#ff9a78", "#b0573e", "#633a2e"]},
+  {cle: "l", nom: "Fruits, légumes et huiles", clair: ["#3a7319", "#7fb24a", "#d2e7b6"], sombre: ["#a8e070", "#6ea044", "#3c5530"]},
+  {cle: "s", nom: "Eaux-de-vie et cidres", clair: ["#5b3591", "#9a72c4", "#dccbea"], sombre: ["#c8a8ff", "#8a68b8", "#463a5c"]},
+  {cle: "m", nom: "Poissons, coquillages et sel", clair: ["#1f5a96", "#5a9ad0", "#c4dcf0"], sombre: ["#8cc4ff", "#4a88c0", "#2c4660"]},
+  {cle: "e", nom: "Miel, pain, épices…", clair: ["#1c6b60", "#4fa79a", "#bfe3dc"], sombre: ["#7fe0d0", "#3f9a8c", "#2c504b"]}
+]
+seuilsAire = [51, 501]
+nuances = (f) => sombre ? f.sombre : f.clair
+classeAire = (n) => n < seuilsAire[0] ? 0 : n < seuilsAire[1] ? 1 : 2
+libellesAire = ["1 à 50 communes", "51 à 500", "plus de 500"]
+```
+
+```{ojs}
+//| echo: false
+vues = [
+  {cle: "t", nom: "Toutes familles"},
+  ...familles.map((f) => ({cle: f.cle, nom: f.nom, famille: f}))
+]
+viewof vue = Inputs.select(new Map(vues.map((v) => [v.nom, v])), {value: vues[0], label: "Famille"})
+```
+
+```{ojs}
+//| echo: false
+viewof saisie = Inputs.text({
+  label: "Appellation",
+  placeholder: "Comté, Champagne, Piment d'Espelette…",
+  datalist: appellations.map((a) => a.libelle).sort((a, b) => a.localeCompare(b, "fr"))
+})
+choix = appellations.find((a) => a.libelle.toLowerCase() === saisie.trim().toLowerCase()) ?? null
+```
+
+```{ojs}
+//| echo: false
+// Couleur de chaque commune (expression MapLibre) et légende de la vue choisie.
+coloriage = {
+  const etape = (cle, couleurs) => ["step", ["get", cle], couleurs[0], seuilsAire[0], couleurs[1], seuilsAire[1], couleurs[2]]
+  // Une appellation choisie : son aire dans la couleur de sa famille, le reste en gris.
+  if (choix) {
+    const f = familles.find((f) => f.nom === choix.famille)
+    return {
+      couleur: ["case", ["in", `,${choix.id},`, ["get", "i"]], nuances(f)[1], grisNeutre],
+      legende: [html`<span><svg width="14" height="14"><rect width="14" height="14" rx="2" fill="${nuances(f)[1]}"/></svg>
+        ${choix.libelle} (${choix.signe}) : ${entier(choix.communes)} commune${choix.communes > 1 ? "s" : ""}</span>`]
+    }
+  }
+  // Une liste d'éléments, pas un fragment : htl envelopperait le fragment dans un seul <span>,
+  // et la légende ne passerait plus à la ligne.
+  const legendeFamille = (f) => html`<span style="gap: 1px">${nuances(f).map((c) =>
+    html`<svg width="14" height="14"><rect width="14" height="14" rx="2" fill="${c}"/></svg>`)}<span style="margin-left: 0.3em">${f.nom}</span></span>`
+  const legendeTailles = html`<span style="opacity: 0.85">Du plus foncé${sombre ? " (le plus clair sur fond sombre)" : ""} au plus pâle : une aire de ${libellesAire.join(", ")}.</span>`
+  const aucune = html`<span><svg width="14" height="14"><rect width="14" height="14" rx="2" fill="${grisNeutre}"/></svg> Aucune</span>`
+  if (vue.cle === "t") {
+    return {
+      // Une commune sans appellation a t = -1.
+      couleur: ["match", ["get", "t"], ...familles.flatMap((f, k) => [k, etape("n", nuances(f))]), grisNeutre],
+      legende: [...familles.map(legendeFamille), aucune, legendeTailles]
+    }
+  }
+  // Une famille : la taille de sa plus petite aire, 0 si la commune n'en a aucune.
+  return {
+    couleur: ["case", ["==", ["get", vue.cle], 0], grisNeutre, etape(vue.cle, nuances(vue.famille))],
+    legende: [...nuances(vue.famille).map((c, i) => html`<span><svg width="14" height="14"><rect width="14" height="14" rx="2" fill="${c}"/></svg>
+      aire de ${libellesAire[i]}</span>`), aucune]
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p class="legende-carte">${coloriage.legende}</p>`
+```
+
+```{ojs}
+//| echo: false
+maplibregl = {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
+}
+
+territoires = [
+  ["Métropole", [[-5.3, 41.3], [9.7, 51.1]]],
+  ["Guadeloupe", [[-61.85, 15.8], [-61.0, 16.55]]],
+  ["Martinique", [[-61.25, 14.38], [-60.8, 14.9]]],
+  ["Guyane", [[-54.6, 2.1], [-51.6, 5.8]]],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]]]
+]
+
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris.
+styleClair = fetch(
+  "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+).then((r) => r.json())
+
+styleSombre = {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+```
+
+```{ojs}
+//| echo: false
+conteneur = html`<div style="height: min(75vh, 680px); border-radius: 4px"></div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+// Texte de la bulle : les appellations de la commune, de la plus locale à la plus étendue.
+function bulle(p) {
+  const ids = p.i.split(",").filter((x) => x).map(Number)
+  if (ids.length === 0) return `<strong>${p.nom}</strong><br>Aucune appellation`
+  const liste = ids.map((id) => parId.get(id))
+  const plusLocale = liste[0]
+  // Les grands crus d'Alsace partagent tous la même aire : on les compte au lieu de les lister.
+  const exAequo = liste.filter((a) => a.communes === plusLocale.communes).length
+  const montrees = liste.slice(0, 6)
+  return `<strong>${p.nom}</strong> · ${entier(ids.length)} appellation${ids.length > 1 ? "s" : ""}<br>
+    La plus locale : <strong>${plusLocale.nom}</strong> (${plusLocale.signe}, ${plusLocale.famille.toLowerCase()}),
+    ${plusLocale.communes === 1 ? "une seule commune" : `aire de ${entier(plusLocale.communes)} communes`}
+    ${exAequo > 1 ? `, à égalité avec ${exAequo - 1} autre${exAequo > 2 ? "s" : ""}` : ""}
+    <br><small>${montrees.slice(1).map((a) => `${a.nom} (${entier(a.communes)})`).join(" ; ")}
+    ${ids.length > montrees.length ? ` ; et ${entier(ids.length - montrees.length)} autres` : ""}</small>`
+}
+
+// La carte n'est créée qu'une fois ; la vue et l'appellation choisie changent sa couleur.
+carte = {
+  const map = new maplibregl.Map({
+    container: conteneur,
+    style: document.body.classList.contains("quarto-dark") ? styleSombre : styleClair,
+    bounds: territoires[0][1],
+    attributionControl: {customAttribution: "INAO, Insee, IGN"}
+  })
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+  const donnees = new URL("donnees/j23/communes.geojson", document.baseURI).href
+  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre), sous les
+  // noms de lieux du fond de carte.
+  const ajouterCouches = () => {
+    const sombreIci = document.body.classList.contains("quarto-dark")
+    const dessous = map.getStyle().layers.find((c) => c.type === "symbol")?.id
+    map.addSource("communes", {type: "geojson", data: donnees})
+    map.addLayer({
+      id: "communes", type: "fill", source: "communes",
+      paint: {"fill-color": map.coloriage?.couleur ?? "#ccc", "fill-opacity": 0.9}
+    }, dessous)
+    map.addLayer({
+      id: "limites", type: "line", source: "communes",
+      paint: {
+        "line-color": sombreIci ? "#222" : "#fff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0, 7, 0.3, 11, 1.2]
+      }
+    }, dessous)
+  }
+  map.on("style.load", ajouterCouches)
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  const popup = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "320px"})
+  map.on("mousemove", "communes", (e) => {
+    popup.setLngLat(e.lngLat).setHTML(bulle(e.features[0].properties)).addTo(map)
+  })
+  map.on("mouseleave", "communes", () => popup.remove())
+  return map
+}
+```
+
+```{ojs}
+//| echo: false
+// Cellules nommées : Quarto n'affiche pas leur valeur.
+miseAJour = {
+  carte.coloriage = coloriage
+  if (carte.getLayer("communes")) carte.setPaintProperty("communes", "fill-color", coloriage.couleur)
+  return vue
+}
+theme = {
+  const style = sombre ? styleSombre : styleClair
+  if (carte.styleCourant !== undefined && carte.styleCourant !== style) {
+    carte.setStyle(style, {diff: false})
+  }
+  carte.styleCourant = style
+  return sombre
+}
+cadrage = carte.fitBounds(territoire, {padding: 20})
+cadrageAppellation = choix && carte.fitBounds([[choix.ouest, choix.sud], [choix.est, choix.nord]], {padding: 40, maxZoom: 10})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Pour chaque commune, l'appellation d'origine (AOP) ou l'indication géographique
+(IGP, IG) dont l'aire compte le moins de communes ; avec une famille choisie, la plus locale de
+cette famille. Tapez le nom d'une appellation pour voir son aire. Zoomez et déplacez-vous dans la
+carte ; survolez une commune pour la liste de ses appellations ; les boutons au-dessus de la
+carte mènent en outre-mer. Sources : INAO, aires géographiques des AOC/AOP et des IGP/IG,
+référentiel des produits sous signe de qualité ; Insee, code officiel géographique 2026 ; IGN,
+ADMIN EXPRESS COG CARTO 2026, via cartiflette ; fond Plan IGN.</small></p>`
+```
+
+```{ojs}
+//| echo: false
+html`<p>Le vin arrive en tête : dans ${pourcent(chiffres.part_vins)} des communes qui ont une
+appellation, la plus locale est un vin, et presque toutes les aires d'une seule commune sont des
+vins, de la Côte de Nuits au Beaujolais et au Bordelais. Ailleurs, le goût du lieu change d'une
+région à l'autre : le fromage dans le Doubs (le morbier), en Brie et autour de Langres ; la
+volaille en Champagne, dans l'Orléanais et en Bretagne, le jambon dans les Ardennes ; l'eau-de-vie
+en Normandie (le poiré, le calvados), en Lorraine (la mirabelle) et dans les Charentes (le
+cognac) ; la choucroute en Alsace, le miel de sapin dans les Vosges. Hors du vin, les aires les
+plus petites sont au bord de l'eau : l'anchois de Collioure, le sel de Camargue, la pomme de terre
+de Noirmoutier, le citron de Menton.</p>`
+```
+
+## Le plateau de fromages
+
+```{ojs}
+//| echo: false
+{
+  const couleur = nuances(familles[1])[0]
+  const parType = d3.groups(fromages.features, (f) => f.properties.type)
+    .sort((a, b) => d3.descending(a[1].length, b[1].length))
+  return html`${parType.map(([type, liste]) => html`<h4 style="margin-top: 1.2em">${type}</h4>
+    <div class="multiples multiples-serres">${liste
+      .sort((a, b) => d3.ascending(a.properties.nom, b.properties.nom))
+      .map((f) => html`<figure>${Plot.plot({
+        width: 140, height: 140, margin: 2,
+        style: stylePlot,
+        projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: contour, inset: 2},
+        marks: [
+          Plot.geo(contour, {fill: grisNeutre}),
+          Plot.geo([f], {fill: couleur}),
+          Plot.tip([f], Plot.pointer(Plot.geoCentroid({
+            title: (f) => `${f.properties.nom} (${f.properties.signe})\n${entier(f.properties.communes)} communes`
+          })))
+        ]
+      })}<figcaption style="font-size: 0.8em; line-height: 1.2">${f.properties.nom}<br>
+        <span style="opacity: 0.7">${f.properties.signe} · ${entier(f.properties.communes)} communes</span></figcaption></figure>`)}
+    </div>`)}`
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>L'aire géographique de chacun des ${fromages.features.length} fromages sous AOP
+ou IGP, regroupés par type de pâte. Source : INAO.</small></p>`
+```
+
+Les fromages à pâte pressée cuite (comté, beaufort, gruyère, abondance) viennent tous des
+montagnes de l'Est, où le lait d'été devait se garder jusqu'à l'hiver. Les fromages de chèvre
+dessinent un arc de la Touraine au Poitou et au Berry, et un autre dans le Midi. Quelques aires
+débordent largement la région qui a donné son nom au fromage : l'emmental français Est-Central,
+ou le brie de Meaux, dont l'aire va de la Seine-et-Marne à la Meuse.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Aires géographiques des AOC/AOP](https://www.data.gouv.fr/datasets/aires-geographiques-des-aoc-aop) | INAO | les communes de l'aire de chaque appellation d'origine | CSV |
+| [Aire géographique des IGP et des IG](https://www.data.gouv.fr/datasets/aire-geographique-des-igp-et-des-ig) | INAO | les communes de l'aire de chaque indication géographique | CSV |
+| [Aires et produits AOC/AOP et IGP](https://www.data.gouv.fr/datasets/aires-et-produits-aoc-aop-et-igp) | INAO | les produits de chaque aire, et leur signe | CSV |
+| [Référentiel des produits sous SIQO](https://www.data.gouv.fr/datasets/referentiel-des-produits-sous-signe-officiel-didentification-de-la-qualite-et-de-lorigine-siqo) | INAO | l'appellation et la catégorie de chaque produit | CSV |
+| [Code officiel géographique 2026](https://www.insee.fr/fr/information/8740222), mouvements des communes | Insee | la commune actuelle des anciennes communes | CSV |
+| ADMIN EXPRESS COG CARTO 2026, via [cartiflette](https://github.com/InseeFrLab/cartiflette) | IGN, Insee | contours des communes et des départements | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import io
+import json
+import pathlib
+import urllib.request
+
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les aires et leurs produits (INAO)
+
+L'INAO publie sur data.gouv.fr deux listes de communes : une pour les aires des appellations
+d'origine (AOC, AOP), une pour celles des indications géographiques (IGP pour les produits
+agricoles et les vins, IG pour les spiritueux). Une aire (`IDA`) peut porter plusieurs produits :
+l'aire « Anjou » porte l'anjou, le rosé d'Anjou et le cabernet d'Anjou ; le fichier des produits
+fait le lien. Ces trois fichiers sont encodés en Windows-1252 (l'apostrophe typographique, le
+`œ`), que DuckDB ne lit pas : ils passent par pandas.
+
+```{python}
+DATAGOUV = "https://static.data.gouv.fr/resources/"
+FICHIERS_INAO = {
+    "communes_ao": "aires-geographiques-des-aoc-aop/20251009-122320/2025-10-09-comagri-communes-aires-ao.csv",
+    "communes_ig": "aire-geographique-des-igp-et-des-ig/20251009-122625/2025-10-09-comagri-communes-aires-ig.csv",
+    "produits": "aires-et-produits-aoc-aop-et-igp/20251009-122906/2025-03-10-comagri-aires-produits.csv",
+}
+for table, chemin in FICHIERS_INAO.items():
+    with urllib.request.urlopen(DATAGOUV + chemin, timeout=600) as reponse:
+        brut = pd.read_csv(io.BytesIO(reponse.read()), sep=";", dtype=str, encoding="cp1252")
+    con.sql(f"CREATE TABLE {table} AS SELECT * FROM brut")
+
+con.sql("""
+SELECT 'communes_ao' AS fichier, count(*) AS lignes, count(DISTINCT IDA) AS aires, count(DISTINCT CI) AS communes FROM communes_ao
+UNION ALL
+SELECT 'communes_ig', count(*), count(DISTINCT IDA), count(DISTINCT CI) FROM communes_ig
+UNION ALL
+SELECT 'produits', count(*), count(DISTINCT IDA), NULL FROM produits
+""").df()
+```
+
+Les codes de commune (`CI`) des deux premiers fichiers sont plus nombreux que les communes de
+France : les aires sont définies aussi sur d'anciennes communes, fusionnées depuis. On les
+rattachera plus bas à leur commune actuelle.
+
+Le fichier des produits ne dit pas ce qu'est le produit, vin, fromage ou volaille. Le
+[référentiel des produits](https://www.data.gouv.fr/datasets/referentiel-des-produits-sous-signe-officiel-didentification-de-la-qualite-et-de-lorigine-siqo)
+de l'INAO, plus récent, le dit : pour chaque produit, son appellation (`id_appellation`, qui
+regroupe le rouge, le blanc et le rosé d'un même vin), sa catégorie (« Pâte persillée »,
+« Volaille ») et sa classe européenne (« Fromages », « Vins »).
+
+```{python}
+REFERENTIEL_URL = (
+    DATAGOUV + "referentiel-des-produits-sous-signe-officiel-didentification-de-la-qualite-et-de-lorigine-siqo/"
+    "20251231-153733/2025-12-31-inao-ref-produit-siqo.csv"
+)
+con.sql(f"""
+CREATE TABLE referentiel AS
+SELECT * FROM read_csv('{REFERENTIEL_URL}', all_varchar = true)
+WHERE appellation NOT LIKE '---%'   -- les labels rouges et STG sans appellation
+""")
+```
+
+## Les traitements
+
+### Une appellation et une famille pour chaque produit
+
+On garde les produits sous AOP (ou AOC, pour les quelques-uns sans équivalent européen), IGP ou
+IG : les labels rouges et les spécialités traditionnelles garanties (STG) ne sont pas liés à un
+lieu. Le lien avec le référentiel se fait par l'identifiant du produit. Entre les deux
+fichiers, une partie des identifiants a changé (les grands crus d'Alsace, le bordeaux, le
+muscadet, le saint-nectaire…) : à défaut, on cherche le nom du produit, puis celui de l'aire,
+parmi les noms du référentiel.
+
+```{python}
+con.sql("""
+CREATE TABLE produits_classes AS
+SELECT p.IDA AS aire, p.Produit AS produit,
+       trim(coalesce(p."Signe UE", p."Signe FR")) AS signe,
+       coalesce(r1.id_appellation, r2.id_appellation, r3.id_appellation, r4.id_appellation) AS id_appellation,
+       coalesce(r1.appellation, r2.appellation, r3.appellation, r4.appellation) AS appellation,
+       coalesce(r1.classe_ue, r2.classe_ue, r3.classe_ue, r4.classe_ue) AS classe,
+       coalesce(r1.categorie, r2.categorie, r3.categorie, r4.categorie) AS categorie
+FROM produits p
+LEFT JOIN referentiel r1 ON r1.idproduit = p.IdProduit
+LEFT JOIN (SELECT DISTINCT ON (lower(produit)) * FROM referentiel) r2
+       ON lower(r2.produit) = lower(trim(p.Produit))
+LEFT JOIN (SELECT DISTINCT ON (lower(denomination)) * FROM referentiel) r3
+       ON lower(r3.denomination) = lower(trim(p."Aire geographique"))
+LEFT JOIN (SELECT DISTINCT ON (lower(appellation)) * FROM referentiel) r4
+       ON lower(r4.appellation) = lower(trim(p."Aire geographique"))
+WHERE trim(coalesce(p."Signe UE", p."Signe FR")) IN ('AOP', 'AOC', 'IGP', 'IG')
+""")
+con.sql("""
+SELECT signe, count(*) AS produits, count(id_appellation) AS retrouves
+FROM produits_classes GROUP BY signe ORDER BY produits DESC
+""").df()
+```
+
+Les produits encore sans appellation :
+
+```{python}
+con.sql("SELECT aire, produit, signe FROM produits_classes WHERE id_appellation IS NULL").df()
+```
+
+Les deux vins mousseux des Côtes du Lot prennent l'appellation des autres produits de leur aire.
+Le blaye, appellation de Gironde que le référentiel ne connaît pas, est le seul qu'on ne peut pas
+rattacher : on le complète à la main.
+
+Les familles regroupent les classes européennes, et quelques catégories qui n'y sont pas à leur
+place pour le goût (le beurre et la crème vont avec les fromages, l'huile d'olive avec les
+olives, les œufs avec les volailles). Le foin de Crau, les bois du Jura et de Chartreuse et
+l'huile essentielle de lavande ne se mangent pas : ils sont écartés.
+
+```{python}
+con.sql("""
+CREATE TABLE appellations_produits AS
+WITH completes AS (
+    SELECT aire, signe, categorie,
+           coalesce(id_appellation, any_value(id_appellation) OVER (PARTITION BY aire),
+                    CASE produit WHEN 'Blaye' THEN 'blaye' END) AS id_appellation,
+           coalesce(appellation, any_value(appellation) OVER (PARTITION BY aire),
+                    CASE produit WHEN 'Blaye' THEN 'Blaye' END) AS appellation,
+           coalesce(classe, any_value(classe) OVER (PARTITION BY aire),
+                    CASE produit WHEN 'Blaye' THEN 'Vins' END) AS classe
+    FROM produits_classes
+)
+SELECT *,
+       CASE
+           WHEN classe = 'Vins' THEN 'Vins'
+           WHEN classe IN ('Autres boissons alcoolisées', 'Eaux-de-vie de vin et de marc')
+               THEN 'Eaux-de-vie et cidres'
+           WHEN classe = 'Fromages' OR categorie IN ('Beurre', 'Crème', 'Lait')
+               THEN 'Fromages, beurres et crèmes'
+           WHEN classe LIKE 'Viandes%' OR classe LIKE 'Produits à base de viande%' OR categorie = 'Oeuf'
+               THEN 'Viandes et charcuteries'
+           WHEN classe LIKE 'Fruits, légumes%' OR categorie = 'Huile'
+               THEN 'Fruits, légumes et huiles'
+           WHEN classe LIKE 'Poissons%' OR classe = 'Sel'
+               THEN 'Poissons, coquillages et sel'
+           WHEN classe IN ('Foin', 'Autres produits (hors annexe)', 'Huiles essentielles',
+                           'Fleurs et plantes ornementales')
+               THEN NULL
+           ELSE 'Miel, pain, épices…'
+       END AS famille
+FROM completes
+""")
+con.sql("""
+SELECT coalesce(famille, '(écartés)') AS famille, count(DISTINCT id_appellation) AS appellations,
+       string_agg(DISTINCT appellation, ', ' ORDER BY appellation)[:90] || '…' AS exemples
+FROM appellations_produits GROUP BY ALL ORDER BY appellations DESC
+""").df()
+```
+
+### Les communes d'aujourd'hui (Insee, cartiflette)
+
+Les contours de 2026, en France entière. Pour rattacher une ancienne commune à la commune
+actuelle, on suit les mouvements du code officiel géographique (fusions, créations de communes
+nouvelles) jusqu'à tomber sur une commune de 2026 : une commune fusionnée en 1973 dans une
+commune elle-même devenue déléguée en 2016 fait deux pas. Une commune nouvelle est ainsi dans
+l'aire d'une appellation dès que l'une de ses anciennes communes l'est.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+COG_URL = "https://www.insee.fr/fr/statistiques/fichier/8740222/"
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS dep, LIBELLE_DEPARTEMENT AS departement,
+       geometry AS geom
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false)
+""")
+con.sql(f"""
+CREATE TABLE mouvements AS
+SELECT DISTINCT COM_AV AS avant, COM_AP AS apres
+FROM read_csv('{COG_URL}v_mvt_commune_2026.csv', all_varchar = true)
+WHERE COM_AV <> COM_AP
+""")
+
+con.sql("""
+CREATE TABLE passage AS
+WITH RECURSIVE chemin(ancien, code, pas) AS (
+    SELECT DISTINCT CI, CI, 0 FROM (SELECT CI FROM communes_ao UNION SELECT CI FROM communes_ig)
+    UNION ALL
+    SELECT c.ancien, m.apres, c.pas + 1
+    FROM chemin c JOIN mouvements m ON m.avant = c.code
+    WHERE c.code NOT IN (SELECT code FROM communes) AND c.pas < 10
+)
+SELECT DISTINCT ancien, code FROM chemin WHERE code IN (SELECT code FROM communes)
+""")
+con.sql("""
+SELECT (SELECT count(DISTINCT CI) FROM (SELECT CI FROM communes_ao UNION SELECT CI FROM communes_ig)) AS codes_inao,
+       count(DISTINCT ancien) FILTER (WHERE ancien = code) AS communes_actuelles,
+       count(DISTINCT ancien) FILTER (WHERE ancien <> code) AS anciennes_communes_rattachees
+FROM passage
+""").df()
+```
+
+Une douzaine de codes (la moitié en Corse) n'existent dans aucune version du code
+officiel géographique : ils sont laissés de côté.
+
+### La plus locale des appellations
+
+Chaque commune reçoit la liste de ses appellations, et chaque appellation la taille de son aire,
+en nombre de communes. La plus locale d'une commune est celle dont l'aire est la plus petite (à
+égalité, la première par ordre alphabétique) ; on la cherche toutes familles confondues, puis
+dans chaque famille.
+
+```{python}
+con.sql("""
+CREATE TABLE commune_appellation AS
+SELECT p.code, a.id_appellation, any_value(a.appellation) AS appellation,
+       any_value(a.famille) AS famille, any_value(a.signe) AS signe
+FROM (SELECT CI, IDA FROM communes_ao UNION SELECT CI, IDA FROM communes_ig) c
+JOIN passage p ON p.ancien = c.CI
+JOIN appellations_produits a ON a.aire = c.IDA
+WHERE a.famille IS NOT NULL
+GROUP BY p.code, a.id_appellation
+""")
+
+con.sql("""
+CREATE TABLE appellations AS
+SELECT id_appellation, any_value(appellation) AS appellation, any_value(famille) AS famille,
+       -- AOP l'emporte sur AOC, qui n'est que son nom français
+       coalesce(min(signe) FILTER (WHERE signe <> 'AOC'), 'AOC') AS signe, count(*) AS communes
+FROM commune_appellation GROUP BY id_appellation
+""")
+con.sql("""
+SELECT famille, count(*) AS appellations, median(communes) AS communes_mediane,
+       min(communes) AS plus_petite, max(communes) AS plus_grande
+FROM appellations GROUP BY famille ORDER BY appellations DESC
+""").df()
+```
+
+Les aires d'une seule commune, hors vins, sont rares :
+
+```{python}
+con.sql("""
+SELECT a.appellation, a.famille, a.signe, a.communes,
+       string_agg(c.nom, ', ') AS commune
+FROM appellations a JOIN commune_appellation USING (id_appellation) JOIN communes c USING (code)
+WHERE a.communes <= 5 AND a.famille <> 'Vins'
+GROUP BY ALL ORDER BY a.communes, a.appellation
+""").df()
+```
+
+```{python}
+con.sql("""
+CREATE TABLE classement AS
+SELECT ca.code, a.*,
+       row_number() OVER (PARTITION BY ca.code ORDER BY a.communes, a.appellation) AS rang,
+       row_number() OVER (PARTITION BY ca.code, a.famille ORDER BY a.communes, a.appellation) AS rang_famille
+FROM commune_appellation ca JOIN appellations a USING (id_appellation)
+""")
+con.sql("""
+SELECT famille, count(*) AS communes, median(communes) AS taille_mediane_aire
+FROM classement WHERE rang = 1 GROUP BY famille ORDER BY communes DESC
+""").df()
+```
+
+### Les chiffres de l'accroche
+
+```{python}
+plus_locales = con.sql("SELECT * FROM classement WHERE rang = 1").df()
+chiffres = {
+    "communes": con.sql("SELECT count(*) FROM communes").fetchone()[0],
+    "communes_avec": len(plus_locales),
+    "appellations": con.sql("SELECT count(*) FROM appellations").fetchone()[0],
+    "mediane_plus_local": plus_locales["communes"].median(),
+    "communes_uniques": int((plus_locales["communes"] == 1).sum()),
+    "part_vins": (plus_locales["famille"] == "Vins").mean(),
+}
+chiffres = {cle: float(valeur) for cle, valeur in chiffres.items()}
+chiffres
+```
+
+### Ce qui passe à la carte
+
+Comme pour [J18](18-null.qmd), les 35 000 communes sont simplifiées ensemble, à 500 m environ
+(`ST_CoverageSimplify`), ce qui garde leurs limites jointives, et les coordonnées arrondies à
+100 m environ. Chaque contour porte :
+
+- `i`, la liste des identifiants de ses appellations, de la plus locale à la plus étendue, entre
+  virgules (`,185,1040,`) : la carte y cherche `,1040,` pour dessiner l'aire d'une appellation ;
+- `t` et `n`, la famille (de 0 à 6, -1 sans appellation) et la taille de l'aire de la plus
+  locale ;
+- une lettre par famille (`v` pour les vins, `f` pour les fromages…), la taille de l'aire de la
+  plus locale de cette famille, 0 si la commune n'en a aucune. Un 0 plutôt qu'un `NULL`, que les
+  expressions de MapLibre ne savent pas comparer (voir J18).
+
+Les identifiants de l'INAO sont renumérotés à partir de 1 pour que la liste reste courte.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j23")
+SORTIE.mkdir(parents=True, exist_ok=True)
+
+FAMILLES = {  # dans l'ordre des couleurs de la carte
+    "Vins": "v", "Fromages, beurres et crèmes": "f", "Viandes et charcuteries": "c",
+    "Fruits, légumes et huiles": "l", "Eaux-de-vie et cidres": "s",
+    "Poissons, coquillages et sel": "m", "Miel, pain, épices…": "e",
+}
+con.sql("CREATE TABLE familles AS SELECT * FROM (VALUES " + ", ".join(
+    f"('{nom}', '{lettre}', {rang})" for rang, (nom, lettre) in enumerate(FAMILLES.items())
+) + ") AS f(famille, lettre, rang)")
+
+con.sql("""
+CREATE TABLE numeros AS
+SELECT id_appellation, row_number() OVER (ORDER BY appellation) AS id FROM appellations
+""")
+
+con.sql("""
+CREATE TABLE simplifiees AS
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.005) AS geom
+    FROM communes
+),
+-- Le résultat est une collection, dans l'ordre des communes : chaque morceau garde le rang
+-- de sa commune (path[1]).
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, ST_Collect(list(geom)) AS geom FROM morceaux GROUP BY 1
+""")
+
+lettres = ", ".join(
+    f"coalesce(min(communes) FILTER (WHERE famille = '{nom}'), 0) AS {lettre}"
+    for nom, lettre in FAMILLES.items()
+)
+con.sql(f"""
+CREATE TABLE proprietes AS
+SELECT k.code,
+       ',' || string_agg(n.id::VARCHAR, ',' ORDER BY k.rang) || ',' AS i,
+       any_value(f.rang) FILTER (WHERE k.rang = 1) AS t,
+       any_value(k.communes) FILTER (WHERE k.rang = 1) AS n,
+       {lettres}
+FROM classement k JOIN numeros n USING (id_appellation) JOIN familles f USING (famille)
+GROUP BY k.code
+""")
+
+colonnes = ["code", "nom", "i", "t", "n", *FAMILLES.values()]
+lignes = con.sql(f"""
+SELECT c.code, c.nom, coalesce(p.i, ','), coalesce(p.t, -1), coalesce(p.n, 0),
+       {", ".join(f"coalesce(p.{lettre}, 0)" for lettre in FAMILLES.values())},
+       ST_AsGeoJSON(ST_ReducePrecision(s.geom, 0.001))
+FROM communes c JOIN simplifiees s USING (code) LEFT JOIN proprietes p USING (code)
+ORDER BY c.code
+""").fetchall()
+(SORTIE / "communes.geojson").write_text(json.dumps({
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": dict(zip(colonnes, ligne[:-1])), "geometry": json.loads(ligne[-1])}
+        for ligne in lignes
+    ],
+}, separators=(",", ":"), ensure_ascii=False))
+```
+
+La table des appellations porte, pour la carte, l'emprise de chaque aire (ses longitudes et
+latitudes extrêmes), qui sert à cadrer la carte sur l'appellation choisie. Celle des communes,
+pour le tableau et le téléchargement, donne la plus locale de chaque commune.
+
+```{python}
+#| output: false
+con.sql(f"""
+COPY (
+    SELECT n.id, a.appellation AS nom, a.famille, a.signe, a.communes,
+           round(ST_XMin(ST_Extent_Agg(s.geom)), 3) AS ouest, round(ST_YMin(ST_Extent_Agg(s.geom)), 3) AS sud,
+           round(ST_XMax(ST_Extent_Agg(s.geom)), 3) AS est, round(ST_YMax(ST_Extent_Agg(s.geom)), 3) AS nord
+    FROM appellations a JOIN numeros n USING (id_appellation)
+    JOIN commune_appellation ca USING (id_appellation) JOIN simplifiees s USING (code)
+    GROUP BY ALL ORDER BY n.id
+) TO '{SORTIE / "appellations.csv"}' (HEADER)
+""")
+
+con.sql(f"""
+COPY (
+    SELECT c.code, c.nom, c.departement, count(k.id_appellation) AS appellations,
+           any_value(k.appellation) FILTER (WHERE k.rang = 1) AS plus_locale,
+           any_value(k.famille) FILTER (WHERE k.rang = 1) AS famille,
+           any_value(k.communes) FILTER (WHERE k.rang = 1) AS communes_aire
+    FROM communes c LEFT JOIN classement k USING (code)
+    GROUP BY ALL ORDER BY c.code
+) TO '{SORTIE / "communes.csv"}' (HEADER)
+""")
+```
+
+### Les fromages
+
+Pour les petits multiples, l'aire de chaque fromage est la réunion de ses communes simplifiées,
+simplifiée encore (à 2 km environ). On les range par type de pâte, d'après la catégorie du
+référentiel. Le fond est la France métropolitaine, réunion des départements.
+
+```{python}
+con.sql("""
+CREATE TABLE fromages AS
+SELECT a.appellation AS nom, a.signe, a.communes,
+       CASE any_value(p.categorie)
+           WHEN 'Chèvre' THEN 'Fromages de chèvre'
+           WHEN 'Pâte pressée cuite' THEN 'Pâtes pressées cuites'
+           WHEN 'Pâte pressée non cuite' THEN 'Pâtes pressées non cuites'
+           WHEN 'Pâte molle et croûte fleurie' THEN 'Pâtes molles à croûte fleurie'
+           WHEN 'Pâte molle et croûte lavée' THEN 'Pâtes molles à croûte lavée'
+           WHEN 'Pâte persillée' THEN 'Pâtes persillées'
+           ELSE 'Autres fromages'
+       END AS type,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_SimplifyPreserveTopology(ST_Union_Agg(s.geom), 0.02), 0.01)) AS geojson
+FROM appellations a
+JOIN (SELECT DISTINCT id_appellation, categorie, classe FROM appellations_produits) p USING (id_appellation)
+JOIN commune_appellation USING (id_appellation) JOIN simplifiees s USING (code)
+WHERE p.classe = 'Fromages'
+GROUP BY a.appellation, a.signe, a.communes
+""")
+fromages = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"nom": nom, "signe": signe, "communes": communes, "type": type_},
+         "geometry": json.loads(geojson)}
+        for nom, signe, communes, type_, geojson in con.sql("SELECT * FROM fromages ORDER BY nom").fetchall()
+    ],
+}
+contour = json.loads(con.sql(f"""
+SELECT ST_AsGeoJSON(ST_ReducePrecision(ST_SimplifyPreserveTopology(ST_Union_Agg(geometry), 0.02), 0.01))
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+WHERE INSEE_DEP < '97'
+""").fetchone()[0])
+con.sql("SELECT type, count(*) AS fromages FROM fromages GROUP BY type ORDER BY fromages DESC").df()
+```
+
+```{python}
+ojs_define(chiffres=chiffres, fromages=fromages, contour=contour)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(communes, {
+  placeholder: "Rechercher une commune ou une appellation…",
+  columns: ["nom", "departement", "code", "plus_locale"],
+  format: (n) => `${entier(n)} communes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["code", "nom", "departement", "appellations", "plus_locale", "famille", "communes_aire"],
+  header: {
+    code: "Code", nom: "Commune", departement: "Département", appellations: "Appellations",
+    plus_locale: "La plus locale", famille: "Famille", communes_aire: "Communes de son aire"
+  },
+  format: {
+    appellations: entier,
+    communes_aire: (x) => x === null ? "" : entier(x)
+  },
+  sort: "appellations",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p>${DOM.download(
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "appellations", "plus_locale", "famille", "communes_aire"])], {type: "text/csv"}),
+  "appellations_plus_locales_communes.csv",
+  "Télécharger les communes (CSV)"
+)} ${DOM.download(
+  () => new Blob([d3.csvFormat(appellations, ["nom", "famille", "signe", "communes"])], {type: "text/csv"}),
+  "appellations_aires.csv",
+  "Télécharger les appellations (CSV)"
+)}</p>`
+```
+
+:::
+
+## Précautions
+
+- L'aire géographique n'est pas le vignoble ni le pâturage : c'est la liste des communes où le
+  produit peut être produit, transformé ou élaboré. Une commune peut être dans l'aire d'un vin
+  sans avoir une seule vigne. Pour les vins, l'INAO délimite aussi les parcelles, bien plus
+  précisément ([J3](03-polygons.qmd) montre ce que ce genre de parcelles donne en carte).
+- Les grands crus d'Alsace sont un cas extrême : les 51 ont la même aire géographique, celle de
+  tout le vignoble alsacien, alors que chacun ne couvre que quelques lieux-dits. La bulle de la
+  carte les compte au lieu de les énumérer.
+- Une commune nouvelle est dans l'aire dès que l'une de ses anciennes communes y est : la carte
+  étend parfois une aire à des territoires qui n'en font pas partie.
+- La taille d'une aire est comptée en communes, pas en kilomètres carrés : une aire de dix
+  communes est plus petite en Alsace que dans les Landes.
+- Les familles sont les nôtres, à partir des catégories de l'INAO. Les labels rouges, qui
+  garantissent une qualité mais pas une origine, ne sont pas sur la carte.
+
+## Pour aller plus loin
+
+- INAO, les [délimitations parcellaires des AOC viticoles](https://www.data.gouv.fr/datasets/delimitation-parcellaire-des-aoc-viticoles-de-linao),
+  à la parcelle, et les [contours des aires géographiques](https://www.data.gouv.fr/datasets/delimitation-des-aires-geographiques-des-siqo).
+- [J5 · Sight](05-sight.qmd), [J11 · Sound](11-sound.qmd) et [J19 · Smell](19-smell.qmd) : les
+  autres sens du défi.

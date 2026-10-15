@@ -1,0 +1,561 @@
+---
+title: "J16 · Collaborative map. Les adresses, commune par commune"
+description: "La Base Adresse Nationale s'écrit à 35 000 mains : quelles communes tiennent elles-mêmes leurs adresses, avec quel outil, et qui les aide."
+image: vignettes/16-collaborative-map.webp
+resources:
+  - donnees/j16/*.csv
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+millions = (x) => `${virgule(x / 1e6)} millions`
+dateLongue = (d) => new Date(d).toLocaleDateString("fr-FR", {day: "numeric", month: "long", year: "numeric"})
+html`<p class="lead">
+  Au ${dateLongue(chiffres.date_donnees)}, <strong>${entier(chiffres.communes_bal)} communes sur
+  ${entier(chiffres.communes)}</strong> (${pourcent(chiffres.communes_bal / chiffres.communes)})
+  ont leur Base Adresse Locale : elles publient elles-mêmes leurs adresses, seules ou avec de
+  l'aide. Elles abritent
+  ${pourcent(chiffres.population_bal / chiffres.population)} des habitants, et ont certifié
+  ${millions(chiffres.certifiees)} des ${millions(chiffres.adresses)} d'adresses de la Base
+  Adresse Nationale. ${entier(chiffres.communes_mutualisees)} d'entre elles passent par un service
+  mutualisé : une intercommunalité, un département, une région ou un syndicat.
+</p>`
+```
+
+Pour ce seizième jour, consacré aux cartes collaboratives, on regarde une carte que personne ne
+dessine seul : celle des adresses. La Base Adresse Nationale (BAN) rassemble les numéros et les
+noms de rues de toute la France, et ce sont les communes, une à une, qui les écrivent. La carte
+montre qui tient la plume dans chaque commune (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+grisSansBal = sombre ? "#4a4a4a" : "#d4d2cc"
+
+// Les 35 000 communes (bulles d'information, tableau) sont dans un fichier à part.
+communes = d3.csv("donnees/j16/communes.csv", (d) => ({
+  ...d, population: +d.population, adresses: +d.adresses, certifiees: +d.certifiees,
+  lon: +d.lon, lat: +d.lat
+}))
+
+// Chaque vue colore les groupes de communes selon l'une de leurs trois classes.
+vues = [
+  {
+    nom: "Qui écrit les adresses",
+    cle: "producteur",
+    classes: libelles.producteur,
+    couleurs: sombre ? ["#6fa8e8", "#f0a35e", "#c99be0", grisSansBal]
+                     : ["#2a6fbf", "#e07b39", "#8e44ad", grisSansBal]
+  },
+  {
+    nom: "Part des adresses certifiées",
+    cle: "certification",
+    classes: libelles.certification,
+    couleurs: sombre ? [grisSansBal, "#2f5a3a", "#4f9a5e", "#8fd49a"]
+                     : [grisSansBal, "#b9dcb0", "#6aae6a", "#2d7a3e"]
+  },
+  {
+    nom: "Dernière mise à jour",
+    cle: "fraicheur",
+    classes: libelles.fraicheur,
+    couleurs: sombre ? ["#9fd0f0", "#5a9fd0", "#36679a", "#283f5c", grisSansBal]
+                     : ["#08306b", "#3a7bbf", "#8dbbe0", "#d2e3f3", grisSansBal]
+  }
+]
+```
+
+```{ojs}
+//| echo: false
+viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const couleur = (f) => vue.couleurs[f.properties[vue.cle]]
+  return Plot.plot({
+    width: 820,
+    height: 760,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: groupes, inset: 6},
+    color: {type: "ordinal", domain: vue.classes, range: vue.couleurs, legend: true,
+            style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.geo(groupes, {fill: couleur}),
+      Plot.geo(departements, {stroke: fond, strokeWidth: 0.6}),
+      Plot.tip(communes, Plot.pointer({
+        x: "lon", y: "lat", maxRadius: 10,
+        title: (c) => `${c.nom} (${c.code})\n${entier(c.population)} habitants\n` +
+          (c.bal === "1"
+            ? `Adresses publiées par : ${c.producteur}\n` +
+              `${entier(c.certifiees)} adresses certifiées sur ${entier(c.adresses)}\n` +
+              `Dernière mise à jour : ${dateLongue(c.date_revision)}`
+            : `Pas de Base Adresse Locale\n${entier(c.adresses)} adresses assemblées par la BAN`)
+      }))
+    ]
+  })
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>Une commune (un arrondissement à Paris, Lyon et Marseille) est colorée selon la
+Base Adresse Locale qu'elle publie, ou grisée si elle n'en a pas : ses adresses viennent alors
+d'autres sources (IGN, cadastre, La Poste), assemblées par la BAN. Les départements d'outre-mer
+sont rapprochés de la métropole. Survolez une commune pour le détail. Situation au
+${dateLongue(chiffres.date_donnees)}. Source : Base Adresse Nationale, adresse.data.gouv.fr ; IGN,
+ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small></p>`
+```
+
+La plupart des communes publient leurs adresses avec **Mes Adresses**, l'éditeur en ligne mis
+à disposition par l'État : le secrétariat de mairie, un élu ou l'intercommunalité y place les
+numéros sur un plan, puis publie. Ailleurs, la carte dessine des taches nettes, qui suivent des
+frontières administratives : ce sont les territoires où une collectivité ou un syndicat tient
+les adresses pour le compte de toutes ses communes, dans son propre système d'information
+géographique. Les Pays de la Loire, le Calvados, l'Orne, la Dordogne ou le Pays basque se
+détachent ainsi.
+
+### Ceux qui écrivent pour les autres
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: 760,
+  height: 26 * mutualises.length + 40,
+  style: stylePlot,
+  marginLeft: 330,
+  marginRight: 40,
+  x: {label: "Communes dont il publie les adresses →", grid: true, tickFormat: (d) => d.toLocaleString("fr-FR")},
+  y: {label: null, domain: mutualises.map((d) => d.producteur)},
+  marks: [
+    Plot.barX(mutualises, {
+      x: "communes", y: "producteur", fill: sombre ? "#f0a35e" : "#e07b39",
+      tip: true,
+      title: (d) => `${d.producteur}\n${entier(d.communes)} communes\n${entier(d.population)} habitants`
+    }),
+    Plot.text(mutualises, {x: "communes", y: "producteur", text: (d) => entier(d.communes), dx: 4, textAnchor: "start", fill: "currentColor"}),
+    Plot.ruleX([0])
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Les ${mutualises.length} services qui publient les adresses du plus grand nombre de
+communes, hors Mes Adresses (${entier(chiffres.communes_mes_adresses)} communes). Un service
+est nommé par l'outil qui dépose les fichiers dans la BAN, ou par l'organisme qui publie sur
+data.gouv les fichiers que la BAN moissonne.</small></p>`
+```
+
+--------
+
+On va maintenant décrire comment obtenir les données de cette carte.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [État de la BAN par commune](https://adresse.data.gouv.fr/deploiement-bal) | Base Adresse Nationale | pour chaque commune, si elle a une Base Adresse Locale, son nombre d'adresses et d'adresses certifiées, la date de sa dernière publication | CSV |
+| [Révisions courantes des Bases Adresses Locales](https://plateforme-bal.adresse.data.gouv.fr/api-depot/current-revisions) | Base Adresse Nationale, API de dépôt | l'outil qui a déposé la dernière version de chaque Base Adresse Locale, et l'organisme qui l'a publiée | JSON |
+| [Communes et arrondissements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour, le nom, le département et la population de chaque commune, outre-mer rapproché | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import json
+import pathlib
+import shutil
+import tempfile
+import urllib.request
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les Bases Adresses Locales (BAN)
+
+Depuis la [loi 3DS](https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000045197395) de
+février 2022, chaque commune doit nommer ses voies, numéroter ses bâtiments et transmettre ces
+adresses à la Base Adresse Nationale. Elle le fait en publiant une **Base Adresse Locale**
+(BAL) : un fichier, dans un format commun, qui liste ses adresses avec leur position. Pour
+chaque adresse, la commune peut indiquer qu'elle la **certifie** : elle en garantit
+l'existence et la position.
+
+La BAN assemble ces fichiers. Dans les communes qui n'ont pas publié de BAL, elle reprend les
+adresses d'autres sources (IGN, cadastre de la DGFiP, La Poste…) : c'est l'« assemblage ».
+
+Deux fichiers décrivent l'état de la base, et sont mis à jour en continu :
+
+- l'**état par commune**, celui qu'utilise la [carte du déploiement des BAL](https://adresse.data.gouv.fr/deploiement-bal)
+  d'adresse.data.gouv.fr : une ligne par commune, avec le type de composition (`bal` ou
+  `assemblage`), le nombre d'adresses (`nb_numeros`) et d'adresses certifiées, la date de la
+  dernière version publiée ;
+- les **révisions courantes** de l'API de dépôt : pour chaque commune qui a une BAL, la
+  dernière version déposée, avec le **client** qui l'a déposée (Mes Adresses, ou l'outil d'une
+  collectivité) et, pour les fichiers moissonnés sur data.gouv, l'organisme qui les publie.
+
+```{python}
+ETAT_URL = "https://plateforme.adresse.data.gouv.fr/api/communes-summary.csv"
+REVISIONS_URL = "https://plateforme-bal.adresse.data.gouv.fr/api-depot/current-revisions"
+
+
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+            return
+        except OSError:
+            if essai == essais - 1:
+                raise
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    telecharger(ETAT_URL, f"{dossier}/etat.csv")
+    telecharger(REVISIONS_URL, f"{dossier}/revisions.json")
+    con.sql(f"""
+    CREATE TABLE etat AS
+    SELECT code_commune AS code, type_composition = 'bal' AS bal,
+           nb_numeros AS adresses, nb_numeros_certifies AS certifiees,
+           date_revision::TIMESTAMP AS date_revision, composed_at::TIMESTAMP AS compose_le
+    FROM read_csv('{dossier}/etat.csv', all_varchar = true)
+    """)
+    con.sql(f"""
+    CREATE TABLE revisions AS
+    SELECT codeCommune AS code, publishedAt AS publie_le,
+           client.legacyId AS client_id, client.nom AS client, client.mandataire AS mandataire,
+           context.organisation AS organisation
+    FROM read_json('{dossier}/revisions.json')
+    """)
+
+con.sql("""
+SELECT bal, count(*) AS communes, sum(adresses::INTEGER)::BIGINT AS adresses,
+       sum(certifiees::INTEGER)::BIGINT AS certifiees
+FROM etat GROUP BY ALL
+""").df().style.hide(axis="index")
+```
+
+Les outils qui ont déposé les révisions courantes :
+
+```{python}
+con.sql("""
+SELECT client, count(*) AS communes
+FROM revisions GROUP BY ALL ORDER BY communes DESC LIMIT 10
+""").df().style.hide(axis="index")
+```
+
+### Les communes (cartiflette)
+
+La BAN compte les adresses de Paris, Lyon et Marseille par arrondissement : on prend donc les
+contours au niveau `COMMUNE_ARRONDISSEMENT` de cartiflette, où chaque arrondissement municipal
+remplace sa commune (code `INSEE_COG`), dans la version où les départements d'outre-mer sont
+rapprochés de la métropole.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level=COMMUNE_ARRONDISSEMENT/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE contours AS
+SELECT INSEE_COG AS code, NOM AS nom, INSEE_DEP AS code_departement,
+       LIBELLE_DEPARTEMENT AS departement, POPULATION AS population, geometry AS geom
+FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+""")
+con.sql("SELECT count(*) AS communes, sum(population)::BIGINT AS population FROM contours").df()
+```
+
+## Les traitements
+
+### Raccorder les deux sources
+
+Chaque commune des contours doit figurer dans l'état de la BAN. L'inverse n'est pas vrai : la
+BAN couvre aussi les collectivités d'outre-mer (Saint-Martin, la Polynésie française…), qui ne
+sont pas dans les contours d'ADMIN EXPRESS et sortent de la carte.
+
+```{python}
+#| output: false
+manquantes = con.sql("SELECT count(*) FROM contours WHERE code NOT IN (SELECT code FROM etat)").fetchone()[0]
+assert manquantes == 0, f"{manquantes} communes des contours absentes de la BAN"
+```
+
+### Qui écrit les adresses
+
+Le client qui dépose la BAL dit qui la tient :
+
+- **Mes Adresses**, l'éditeur en ligne de l'Agence nationale de la cohésion des territoires
+  (ANCT), utilisé par la commune elle-même ou par une structure qui l'accompagne ;
+- **le système d'une collectivité** : une intercommunalité, un département, une région, un
+  syndicat ou une grande ville qui gère les adresses dans son propre système d'information
+  géographique et les dépose par un client dédié (GEOPAL pour les Pays de la Loire, Mapéo pour
+  le Calvados…), ou les publie sur data.gouv, où la BAN les moissonne (`moissonneur-bal`) ;
+- **un autre dépôt** : l'ancien formulaire de publication de l'ANCT, où une commune déposait
+  un fichier, et l'ancien Guichet Adresse de l'IGN.
+
+Le producteur affiché est l'organisme qui publie sur data.gouv pour les fichiers moissonnés, le
+nom du client sinon. Une poignée de communes ont une BAL sans révision courante dans l'API de
+dépôt : elles sont rangées avec les autres dépôts.
+
+On classe aussi chaque commune par la part de ses adresses certifiées et par l'ancienneté de
+sa dernière publication, comptée à partir de la date des données (la plus récente
+composition de la BAN). Chaque classe est un entier, rang de son libellé.
+
+```{python}
+libelles = {
+    "producteur": ["Mes Adresses (ANCT)", "Le système d'une collectivité", "Un autre dépôt",
+                   "Pas de Base Adresse Locale"],
+    "certification": ["Aucune adresse", "Moins de la moitié", "La moitié ou plus", "Toutes"],
+    "fraicheur": ["Moins de 3 mois", "De 3 mois à 1 an", "De 1 à 2 ans", "Plus de 2 ans",
+                  "Pas de Base Adresse Locale"],
+}
+date_donnees = con.sql("SELECT max(compose_le)::DATE FROM etat").fetchone()[0]
+
+con.sql(f"""
+CREATE TABLE communes AS
+WITH jointes AS (
+    SELECT c.*, e.bal, e.adresses::INTEGER AS adresses, e.certifiees::INTEGER AS certifiees,
+           e.date_revision, r.client_id, r.client, r.organisation,
+           date_diff('day', e.date_revision, DATE '{date_donnees}') AS age
+    FROM contours c JOIN etat e USING (code) LEFT JOIN revisions r USING (code)
+)
+SELECT *,
+       CASE WHEN NOT bal THEN NULL
+            WHEN client_id = 'mes-adresses' THEN 'Mes Adresses'
+            WHEN client_id = 'moissonneur-bal' THEN organisation
+            ELSE coalesce(client, 'Non renseigné') END AS producteur,
+       CASE WHEN NOT bal THEN 3
+            WHEN client_id = 'mes-adresses' THEN 0
+            WHEN client_id IN ('formulaire-publication', 'guichet-adresse') OR client_id IS NULL
+                 AND client IS NULL THEN 2
+            ELSE 1 END AS classe_producteur,
+       CASE WHEN certifiees = 0 THEN 0
+            WHEN certifiees < adresses / 2 THEN 1
+            WHEN certifiees < adresses THEN 2
+            ELSE 3 END AS classe_certification,
+       CASE WHEN NOT bal THEN 4
+            WHEN age < 91 THEN 0
+            WHEN age < 365 THEN 1
+            WHEN age < 730 THEN 2
+            ELSE 3 END AS classe_fraicheur
+FROM jointes
+""")
+con.sql("""
+SELECT classe_producteur, count(*) AS communes, sum(population)::BIGINT AS population,
+       sum(adresses)::BIGINT AS adresses, sum(certifiees)::BIGINT AS certifiees
+FROM communes GROUP BY ALL ORDER BY ALL
+""").df().style.hide(axis="index")
+```
+
+Les clients les plus récents n'ont pas d'identifiant historique (`client_id` vide) : ce sont
+tous des outils de collectivités, rangés comme tels. Seules les communes sans révision courante
+n'ont pas non plus de nom de client.
+
+Les chiffres de l'ensemble :
+
+```{python}
+chiffres = con.sql(f"""
+SELECT DATE '{date_donnees}'::VARCHAR AS date_donnees,
+       count(*) AS communes, count(*) FILTER (bal) AS communes_bal,
+       count(*) FILTER (classe_producteur = 0) AS communes_mes_adresses,
+       count(*) FILTER (classe_producteur = 1) AS communes_mutualisees,
+       sum(population)::BIGINT AS population, sum(population) FILTER (bal)::BIGINT AS population_bal,
+       sum(adresses)::BIGINT AS adresses, sum(certifiees) FILTER (bal)::BIGINT AS certifiees
+FROM communes
+""").df().to_dict("records")[0]
+chiffres
+```
+
+Les services qui publient les adresses du plus grand nombre de communes, hors Mes Adresses :
+
+```{python}
+mutualises = con.sql("""
+SELECT producteur, count(*) AS communes, sum(population)::BIGINT AS population
+FROM communes WHERE classe_producteur = 1
+GROUP BY ALL ORDER BY communes DESC LIMIT 20
+""").df()
+mutualises.style.hide(axis="index")
+```
+
+### Les contours de la carte
+
+Dessiner 35 000 communes alourdirait la page, et la carte n'a besoin que de leurs classes. On
+fusionne donc les communes qui ont les trois mêmes classes (au plus 4 × 4 × 5 = 80 groupes) ;
+chaque vue colore ensuite ces groupes selon l'une des trois. Les communes sont d'abord
+simplifiées ensemble, à 1 km environ (`ST_CoverageSimplify`), pour que les groupes restent
+jointifs, puis fusionnées (`ST_CoverageUnion_Agg`).
+
+```{python}
+con.sql("""
+CREATE TABLE simplifiees AS
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.01) AS geom
+    FROM communes
+),
+-- Le résultat est une collection, dans l'ordre des communes : chaque morceau garde le rang
+-- de sa commune (path[1]).
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, geom FROM morceaux
+""")
+
+
+def en_geojson(requete, proprietes):
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": dict(zip(proprietes, ligne[:-1])),
+                "geometry": json.loads(ligne[-1]),
+            }
+            for ligne in con.sql(requete).fetchall()
+        ],
+    }
+
+
+groupes = en_geojson("""
+SELECT c.classe_producteur, c.classe_certification, c.classe_fraicheur,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
+FROM simplifiees s JOIN communes c USING (code)
+GROUP BY ALL
+""", ["producteur", "certification", "fraicheur"])
+
+departements = en_geojson("""
+SELECT c.code_departement, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
+FROM simplifiees s JOIN communes c USING (code)
+GROUP BY ALL
+""", ["code"])
+len(groupes["features"]), len(departements["features"])
+```
+
+Pour la bulle d'information, chaque commune est réduite à un point intérieur
+(`ST_PointOnSurface`). Cette table de 35 000 lignes est écrite à part, en CSV, dans
+`donnees/j16/` : la page la charge après coup, sans s'alourdir.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j16")
+SORTIE.mkdir(parents=True, exist_ok=True)
+con.sql(f"""
+COPY (
+    SELECT code, nom, departement, population, bal::INTEGER AS bal,
+           coalesce(producteur, '') AS producteur, classe_producteur, adresses, certifiees,
+           strftime(date_revision, '%Y-%m-%d') AS date_revision,
+           round(ST_X(p), 3) AS lon, round(ST_Y(p), 3) AS lat
+    FROM (SELECT *, ST_PointOnSurface(geom) AS p FROM communes)
+    ORDER BY code
+) TO '{SORTIE / "communes.csv"}' (HEADER)
+""")
+```
+
+### Ce qui passe à la carte
+
+```{python}
+ojs_define(
+    groupes=groupes,
+    departements=departements,
+    libelles=libelles,
+    chiffres=chiffres,
+    mutualises=mutualises.to_dict("records"),
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(communes, {
+  placeholder: "Rechercher une commune…",
+  format: (n) => `${entier(n)} communes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["code", "nom", "departement", "population", "producteur", "adresses", "certifiees", "date_revision"],
+  header: {
+    code: "Code", nom: "Commune", departement: "Département", population: "Population",
+    producteur: "Adresses publiées par", adresses: "Adresses", certifiees: "Dont certifiées",
+    date_revision: "Dernière publication"
+  },
+  format: {
+    population: entier, adresses: entier, certifiees: entier,
+    producteur: (p) => p || "Pas de BAL",
+    date_revision: (d) => (d ? new Date(d).toLocaleDateString("fr-FR") : "")
+  },
+  sort: "population",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "population", "bal", "producteur", "adresses", "certifiees", "date_revision"])], {type: "text/csv"}),
+  "communes_bases_adresses_locales.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Les deux fichiers de la BAN changent tous les jours : la carte montre la situation à la date
+  du rendu de la page, pas une situation figée. Les mêmes calculs, refaits un autre jour, ne
+  donneront pas tout à fait les mêmes chiffres.
+- Le client qui dépose la BAL ne dit pas toujours qui fait le travail. Mes Adresses est aussi
+  utilisé par des intercommunalités ou des départements pour le compte de leurs communes, et la
+  carte les range alors avec les communes qui saisissent elles-mêmes.
+- Seule la dernière version de chaque BAL est connue : la carte ne dit pas depuis quand une
+  commune publie ses adresses, seulement quand elle l'a fait pour la dernière fois.
+- Une adresse non certifiée n'est pas forcément fausse : la certification est une garantie
+  que la commune ajoute, adresse par adresse, et toutes ne s'en servent pas.
+- La population est la population municipale des contours d'ADMIN EXPRESS 2026.
+- Les collectivités d'outre-mer (Saint-Pierre-et-Miquelon, Saint-Barthélemy, Saint-Martin,
+  Wallis-et-Futuna, la Polynésie française, la Nouvelle-Calédonie) sont dans la BAN mais pas
+  sur la carte.
+
+## Pour aller plus loin
+
+- [adresse.data.gouv.fr](https://adresse.data.gouv.fr/), le site de la Base Adresse
+  Nationale, avec sa [carte du déploiement des BAL](https://adresse.data.gouv.fr/deploiement-bal)
+  et l'éditeur [Mes Adresses](https://mes-adresses.data.gouv.fr/).
+- Le [format Base Adresse Locale](https://aitf-sig-topo.github.io/voies-adresses/), défini par
+  le groupe de travail de l'Association des ingénieurs territoriaux de France (AITF).
+- OpenStreetMap, l'autre grande carte collaborative des adresses, nourrie par des
+  contributeurs bénévoles plutôt que par les communes.

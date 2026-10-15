@@ -1,0 +1,911 @@
+---
+title: "J21 · OpenStreetMap. Qui a cartographié les terrains de sport ?"
+description: "Terrains de foot, courts de tennis, city-stades, boulodromes, skateparks, gymnases : ce qu'OpenStreetMap recense, comparé point par point au Recensement des équipements sportifs du ministère des Sports, département par département."
+resources:
+  - donnees/j21/*.csv
+  - donnees/j21/*.geojson
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x) => `${Math.round(100 * x)} %`
+dateOsm = new Date(chiffres.date_osm).toLocaleDateString("fr-FR", {day: "numeric", month: "long", year: "numeric"})
+html`<p class="lead">
+  Le ministère des Sports recense <strong>${entier(chiffres.res_football)} terrains de football</strong>
+  en France métropolitaine. Le ${dateOsm}, OpenStreetMap en comptait ${entier(chiffres.osm_football)},
+  et <strong>${pourcent(chiffres.part_football)} de ceux du ministère</strong> y ont leur double, à
+  moins de ${chiffres.distance} mètres. Les terrains en plein air se voient sur les photos
+  aériennes, les contributeurs les dessinent ; les gymnases, beaucoup moins :
+  ${pourcent(chiffres.part_gymnase)} seulement sont retrouvés.
+</p>`
+```
+
+[OpenStreetMap](https://www.openstreetmap.org) (OSM) est la carte du monde que dessinent ses
+contributeurs, bénévoles pour la plupart : routes, bâtiments, mais aussi terrains de sport,
+ajoutés un par un. Est-elle complète ? Pour le savoir, il faut une référence. Pour le sport, la
+statistique publique en a une : le [Recensement des équipements sportifs](https://equipements.sports.gouv.fr/)
+(RES) du ministère des Sports, qui décrit et géolocalise plus de 330 000 équipements, du stade
+au boulodrome, à partir des déclarations de leurs propriétaires, des communes surtout. On a pris
+six équipements qui ont un équivalent clair dans OSM, et cherché, pour chacun de ceux du RES, son
+double dans OSM (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+grisNeutre = sombre ? "#3a3a3a" : "#ebe8e1"
+
+// Les points des cadrages, chargés après la page.
+points = d3.csv("donnees/j21/points.csv", d3.autoType)
+communesCadrages = d3.json("donnees/j21/communes.geojson")
+
+// Part retrouvée : du pâle au vert franc.
+seuils = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+gamme = d3.quantize(d3.interpolateLab(sombre ? "#2f3a2c" : "#f1f1e4", sombre ? "#a6e38a" : "#2c6e2f"), seuils.length + 1)
+couleurPart = (x) => x === null || x === undefined ? grisNeutre : gamme[d3.bisectRight(seuils, x)]
+
+// Les trois cas d'un point : dans les deux bases, dans le RES seul, dans OSM seul.
+statuts = [
+  {cle: "les_deux", nom: "Dans les deux", couleur: sombre ? "#8fd16f" : "#2e7d32"},
+  {cle: "res", nom: "Dans le RES seulement", couleur: sombre ? "#ff9d5c" : "#d4570b"},
+  {cle: "osm", nom: "Dans OSM seulement", couleur: sombre ? "#a99cff" : "#5b4bc4"}
+]
+couleurStatut = new Map(statuts.map((s) => [s.cle, s.couleur]))
+nomStatut = new Map(statuts.map((s) => [s.cle, s.nom]))
+```
+
+```{ojs}
+//| echo: false
+viewof equipement = Inputs.radio(new Map(equipements.map((e) => [e.nom, e])), {value: equipements[0]})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const parDep = new Map(stats.filter((d) => d.equipement === equipement.cle).map((d) => [d.dep, d]))
+  const ligne = (f) => parDep.get(f.properties.code)
+  const legende = Plot.legend({
+    color: {type: "threshold", domain: seuils, range: gamme, tickFormat: (x) => pourcent(x),
+            label: `Part des ${equipement.nom.toLowerCase()} du RES retrouvés dans OSM`},
+    width: 440, style: {background: "transparent", color: "inherit"}
+  })
+  const carte = Plot.plot({
+    width: 820,
+    height: 780,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 6},
+    marks: [
+      Plot.geo(departements, {fill: (f) => couleurPart(ligne(f)?.part_res), stroke: fond, strokeWidth: 0.8}),
+      Plot.tip(departements.features, Plot.pointer(Plot.geoCentroid({
+        title: (f) => {
+          const d = ligne(f)
+          return `${f.properties.nom} (${f.properties.code})\n` +
+            `${equipement.nom} dans le RES : ${entier(d.res)}\n` +
+            `dans OSM : ${entier(d.osm)}\n` +
+            `dans les deux : ${entier(d.apparies)}, dont ${entier(d.venus_du_res)} recopiés du RES\n` +
+            `Retrouvés dans OSM : ${pourcent(d.part_res)} de ceux du RES\n` +
+            `Absents du RES : ${d.part_osm === null ? "–" : pourcent(1 - d.part_osm)} de ceux d'OSM`
+        }
+      })))
+    ]
+  })
+  return html`<div>${legende}${carte}</div>`
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+{
+  const n = totaux.find((d) => d.equipement === equipement.cle)
+  return html`<p><small>
+    ${equipement.nom} : ${entier(n.res)} dans le RES (${equipement.types_res}),
+    ${entier(n.osm)} dans OSM (<code>${equipement.etiquettes}</code>), ${entier(n.apparies)}
+    dans les deux, soit ${pourcent(n.part_res)} de ceux du RES et ${pourcent(n.part_osm)}
+    de ceux d'OSM. Un équipement du RES est « retrouvé » si un objet OSM du même type est à
+    moins de ${chiffres.distance} mètres (chaque objet OSM ne sert qu'une fois).
+    Sources : ministère des Sports, Recensement des équipements sportifs, extraction du
+    ${dateRes} ; contributeurs d'OpenStreetMap, extraction du ${dateOsm} (ODbL) ; IGN, ADMIN
+    EXPRESS COG CARTO 2025, via cartiflette.
+  </small></p>`
+}
+```
+
+```{ojs}
+//| echo: false
+dateRes = new Date(chiffres.date_res).toLocaleDateString("fr-FR", {day: "numeric", month: "long", year: "numeric"})
+```
+
+Les terrains de football et les courts de tennis sont, aux trois quarts, dans OSM : on les voit du
+ciel, et les contributeurs qui dessinent un village à partir des photos aériennes les tracent avec
+le reste. Les gymnases se voient aussi, mais comme des bâtiments parmi d'autres : OSM a souvent le
+toit, sans dire qu'on y fait du sport. Les terrains de boules et les city-stades sont les moins
+bien retrouvés. Un carré de gravier se repère mal sur une photo, et les city-stades n'ont pas, dans
+OSM, de description bien établie : le même enclos est un terrain « multisport » ici, un terrain de
+football ou de basket là, un terrain sans sport ailleurs. D'un département à l'autre, les écarts
+sont grands, et ne suivent pas la carte de la population : ils suivent celle des contributeurs, et
+celle des imports.
+
+## La carte libre recopie l'État
+
+```{ojs}
+//| echo: false
+html`<p>Une partie des terrains d'OSM n'a pas été vue sur place ou sur une photo : elle vient du
+RES lui-même. Diffusé sous licence ouverte, le recensement a été versé dans OSM par des
+contributeurs, terrain par terrain ou commune par commune, qui citent leur source
+(<code>source=Le ministère de la ville, de la jeunesse et des sports</code>) ou le numéro de
+l'équipement (<code>ref:FR:sport_equip</code>). C'est le cas de
+<strong>${pourcent(chiffres.part_venus)} des paires</strong>, et de
+${pourcent(chiffres.part_venus_boules)} pour les terrains de boules. Record départemental :
+${chiffres.dep_venus_nom}, où ${pourcent(chiffres.dep_venus_part)} des équipements retrouvés dans
+OSM sont arrivés ainsi.</p>`
+```
+
+```{ojs}
+//| echo: false
+{
+  const parts = [
+    {cle: "dessines", nom: "Dans OSM, dessinés par les contributeurs", couleur: sombre ? "#8fd16f" : "#2e7d32"},
+    {cle: "venus", nom: "Dans OSM, recopiés du RES", couleur: sombre ? "#d6c35a" : "#b08d00"},
+    {cle: "absents", nom: "Absents d'OSM", couleur: grisNeutre}
+  ]
+  const ordre = totaux.map((d) => d.equipement)
+  const barres = totaux.flatMap((d) => [
+    {equipement: d.equipement, part: "dessines", n: d.apparies - d.venus_du_res},
+    {equipement: d.equipement, part: "venus", n: d.venus_du_res},
+    {equipement: d.equipement, part: "absents", n: d.res - d.apparies}
+  ].map((b) => ({...b, total: d.res})))
+  const largeur = Math.min(width, 760)
+  return Plot.plot({
+    width: largeur,
+    height: 300,
+    marginLeft: 150,
+    style: stylePlot,
+    x: {label: "Part des équipements du RES", tickFormat: (x) => pourcent(x), grid: true},
+    y: {label: null, domain: ordre, tickFormat: (k) => equipements.find((e) => e.cle === k).nom},
+    color: {domain: parts.map((p) => p.cle), range: parts.map((p) => p.couleur),
+            tickFormat: (k) => parts.find((p) => p.cle === k).nom, legend: true},
+    marks: [
+      Plot.barX(barres, Plot.stackX({
+        x: (d) => d.n / d.total, y: "equipement", fill: "part", order: parts.map((p) => p.cle),
+        stroke: fond, strokeWidth: 0.5,
+        title: (d) => `${equipements.find((e) => e.cle === d.equipement).nom}\n` +
+          `${parts.find((p) => p.cle === d.part).nom} : ${entier(d.n)} (${pourcent(d.n / d.total)})`,
+        tip: true
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  Un objet d'OSM est compté comme recopié du RES s'il porte le numéro de l'équipement
+  (<code>ref:FR:sport_equip</code>) ou si son étiquette <code>source</code> cite le ministère ou
+  « Data ES ». Les autres ont pu, eux aussi, être tracés en regardant le RES, sans le dire.
+</small></p>`
+```
+
+Sans ces objets recopiés, la complétude d'OSM pour les terrains de boules et les city-stades
+baisserait d'un tiers. Comparer OSM au RES revient donc, en partie, à comparer le RES à lui-même :
+c'est une limite de l'exercice. C'est aussi ce que la statistique publique ouverte permet : servir
+de matière première à la carte que tout le monde peut corriger.
+
+## La ville et la campagne
+
+```{ojs}
+//| echo: false
+{
+  const largeur = Math.min(width, 760)
+  return Plot.plot({
+    width: largeur,
+    height: 420,
+    marginLeft: 50,
+    marginRight: largeur > 600 ? 150 : 20,
+    marginBottom: 70,
+    style: stylePlot,
+    x: {label: null, domain: densites.map((d) => d.nom), tickRotate: largeur > 600 ? 0 : -30,
+        tickFormat: (n) => largeur > 600 ? n.replace(/ (?=[^ ]+$)/, "\n") : n},
+    y: {label: "Part retrouvée dans OSM", domain: [0, 1], tickFormat: (x) => pourcent(x), grid: true},
+    marks: [
+      Plot.line(parDensite, {
+        x: "densite", y: "part_res", z: "equipement",
+        stroke: (d) => d.equipement === equipement.cle ? "currentColor" : grisNeutre,
+        strokeWidth: (d) => d.equipement === equipement.cle ? 3 : 1.5
+      }),
+      Plot.dot(parDensite.filter((d) => d.equipement === equipement.cle), {
+        x: "densite", y: "part_res", r: 4, fill: "currentColor"
+      }),
+      largeur > 600 ? Plot.text(parDensite, Plot.selectLast({
+        x: "densite", y: "part_res", z: "equipement", dx: 8, textAnchor: "start",
+        text: (d) => equipements.find((e) => e.cle === d.equipement).nom,
+        fill: (d) => d.equipement === equipement.cle ? "currentColor" : "var(--bs-secondary-color)",
+        fontWeight: (d) => d.equipement === equipement.cle ? 700 : 400
+      })) : null,
+      Plot.tip(parDensite, Plot.pointer({
+        x: "densite", y: "part_res", z: "equipement",
+        title: (d) => `${equipements.find((e) => e.cle === d.equipement).nom}, ${d.densite.toLowerCase()}\n` +
+          `${entier(d.apparies)} retrouvés sur ${entier(d.res)} (${pourcent(d.part_res)})`
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  Part des équipements du RES retrouvés dans OSM, selon la densité de leur commune (grille
+  communale de densité de l'Insee, sept niveaux, telle que le RES la donne). En gras :
+  ${equipement.nom.toLowerCase()}.
+</small></p>`
+```
+
+Pour les courts de tennis et les terrains de football, la pente est à l'envers de celle qu'on
+attend : OSM est plus complet dans les campagnes que dans les grandes villes. Le stade d'un
+village est un rectangle vert au bord du bourg, facile à tracer. En ville, les terrains sont
+serrés dans des complexes, dans des cours d'école ou sous des halles, et les courts de tennis
+couverts, nombreux, ne se voient pas du ciel.
+
+## Point par point
+
+```{ojs}
+//| echo: false
+viewof cadrage = Inputs.select(new Map(cadrages.map((c) => [c.nom, c])), {label: "Cadrage", value: cadrages[0]})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const [[o, s], [e, n]] = cadrage.cadre
+  const visibles = points.filter((d) => d.equipement === equipement.cle && d.cadrage === cadrage.nom)
+  const compte = d3.rollup(visibles, (v) => v.length, (d) => d.statut)
+  const legende = html`<div style="display: flex; flex-wrap: wrap; gap: 0.4em 1.6em; font-size: 0.85em; margin-bottom: 0.4em">
+    ${statuts.map((st) => html`<span><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${st.couleur}; vertical-align: -1px; margin-right: 0.35em"></span>${st.nom} (${entier(compte.get(st.cle) ?? 0)})</span>`)}
+  </div>`
+  const carte = Plot.plot({
+    width: 820,
+    height: 620,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], inset: 6,
+                 domain: {type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}},
+    marks: [
+      Plot.geo(communesCadrages, {fill: grisNeutre, stroke: fond, strokeWidth: 0.8, clip: "frame"}),
+      Plot.dot(visibles, {
+        x: "lon", y: "lat", r: cadrage.rayon, fill: (d) => couleurStatut.get(d.statut),
+        fillOpacity: 0.85, stroke: fond, strokeWidth: 0.5, clip: "frame"
+      }),
+      Plot.tip(visibles, Plot.pointer({
+        x: "lon", y: "lat", maxRadius: 12,
+        title: (d) => `${nomStatut.get(d.statut)} (${d.commune})` +
+          (d.nom_res ? `\nRES : ${d.nom_res}` : "") +
+          (d.nom_osm ? `\nOSM : ${d.nom_osm}` : d.statut !== "res" ? "\nOSM : (sans nom)" : "") +
+          (d.distance !== null ? `\nÉcart : ${entier(d.distance)} m` : "")
+      }))
+    ]
+  })
+  return html`<div>${legende}${carte}</div>`
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  Un point par équipement : à la position d'OSM s'il y figure, à celle du RES sinon. Les noms du
+  RES sont ceux de l'installation (le stade, le complexe sportif) ; ceux d'OSM, quand le
+  contributeur en a mis un, ceux du terrain ou du bâtiment.
+</small></p>`
+```
+
+À Paris, la plupart des gymnases du RES sont orange : OSM a bien le bâtiment, souvent celui d'une
+école ou d'un ensemble d'immeubles, mais sans dire qu'il abrite une salle de sport. Dans l'Indre,
+le vert domine pour presque tous les équipements : une bonne partie y a été versée depuis le RES.
+Les points violets, présents dans OSM seulement, sont, pour le tennis, souvent des courts privés,
+de jardins ou de résidences ; pour les autres équipements, des terrains que le RES n'a pas, ou
+qu'il place un peu plus loin.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Recensement des équipements sportifs, espaces et sites de pratiques](https://equipements.sports.gouv.fr/explore/dataset/data-es/) | ministère des Sports | la position, le type et le nom de chaque terrain de football, court de tennis, city-stade, terrain de boules, skatepark et gymnase ; la densité de sa commune | Parquet |
+| [OpenStreetMap](https://www.openstreetmap.org), interrogé par l'[API Overpass](https://wiki.openstreetmap.org/wiki/FR:Overpass_API) | contributeurs d'OpenStreetMap | les mêmes équipements, tels que les contributeurs les ont cartographiés | JSON |
+| [Départements et communes 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des départements et des communes | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import http.client
+import json
+import pathlib
+import shutil
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Six équipements, deux nomenclatures
+
+Le RES range les équipements dans sa propre nomenclature (185 types, de la « carrière » équestre
+à la « cascade de glace »), OSM les décrit par des étiquettes (*tags*) libres, documentées sur le
+[wiki](https://wiki.openstreetmap.org/wiki/FR:Map_Features) : un terrain de sport est un
+`leisure=pitch`, dont l'étiquette `sport=*` dit le sport. On retient six équipements parmi les
+plus nombreux du RES, pour lesquels les deux se correspondent bien. Les terrains mixtes du RES
+(football et rugby) sont comptés avec le football. Pour les gymnases, OSM hésite entre trois
+descriptions : un équipement sportif (`leisure=sports_hall`), un bâtiment de sport
+(`building=sports_hall`) ou un centre sportif bâti (`leisure=sports_centre` avec un bâtiment) ; on
+les prend toutes, sauf les centres sportifs consacrés à la natation, au tennis, à l'équitation,
+à l'escalade, au tir ou au golf.
+
+```{python}
+EQUIPEMENTS = [
+    {"cle": "football", "nom": "Terrains de football", "codes_res": ["2802", "2801"],
+     "types_res": "terrains de football et terrains mixtes",
+     "etiquettes": "leisure=pitch + sport=soccer (sans basketball, handball ni multi)",
+     "filtres": ['nwr["leisure"="pitch"]["sport"~"(^|;)soccer(;|$)"]["sport"!~"multi|basketball|handball"]']},
+    {"cle": "tennis", "nom": "Courts de tennis", "codes_res": ["501"],
+     "types_res": "courts de tennis",
+     "etiquettes": "leisure=pitch + sport=tennis",
+     "filtres": ['nwr["leisure"="pitch"]["sport"="tennis"]']},
+    {"cle": "citystade", "nom": "City-stades", "codes_res": ["1701"],
+     "types_res": "multisports et city-stades",
+     "etiquettes": "leisure=pitch + sport=multi, ou soccer et basketball",
+     "filtres": ['nwr["leisure"="pitch"]["sport"~"(^|;)multi(;|$)"]',
+                 'nwr["leisure"="pitch"]["sport"~"(^|;)soccer(;|$)"]["sport"~"(^|;)basketball(;|$)"]']},
+    {"cle": "boules", "nom": "Terrains de boules", "codes_res": ["201", "202", "203"],
+     "types_res": "terrains de boules, de pétanque et de boules traditionnelles",
+     "etiquettes": "leisure=pitch + sport=boules, petanque",
+     "filtres": ['nwr["leisure"="pitch"]["sport"~"(^|;)(boules|petanque)(;|$)"]']},
+    {"cle": "skatepark", "nom": "Skateparks", "codes_res": ["2603"],
+     "types_res": "skateparks",
+     "etiquettes": "leisure=skatepark, leisure=pitch + sport=skateboard",
+     "filtres": ['nwr["leisure"="skatepark"]', 'nwr["leisure"="pitch"]["sport"~"(^|;)skateboard(;|$)"]']},
+    {"cle": "gymnase", "nom": "Gymnases", "codes_res": ["1901"],
+     "types_res": "salles multisports",
+     "etiquettes": "leisure=sports_hall, building=sports_hall, leisure=sports_centre + building",
+     "filtres": ['nwr["leisure"="sports_hall"]', 'nwr["building"="sports_hall"]',
+                 'nwr["leisure"="sports_centre"]["building"]["sport"!~"swimming|tennis|equestrian|climbing|shooting|golf"]']},
+]
+pd.DataFrame(EQUIPEMENTS).drop(columns=["filtres", "types_res"])
+```
+
+### Le Recensement des équipements sportifs (ministère des Sports)
+
+Le ministère diffuse le RES sur un portail [Opendatasoft](https://equipements.sports.gouv.fr/),
+mis à jour chaque jour : les propriétaires des équipements, communes en tête, déclarent et
+corrigent leurs fiches au fil de l'eau. L'API du portail exporte le jeu complet en Parquet, en
+ne gardant que les colonnes utiles. Comme le serveur coupe parfois le téléchargement, on vérifie
+que le fichier se termine par la signature `PAR1` des fichiers Parquet, et on recommence sinon.
+
+Chaque équipement a une longitude et une latitude, qu'on convertit en Lambert 93 pour mesurer
+les distances en mètres. La colonne `dens_lib` donne la densité de la commune. On écarte les
+installations déclarées hors service.
+
+```{python}
+COLONNES_RES = [
+    "equip_numero", "inst_nom", "equip_nom", "equip_type_code", "equip_nature",
+    "new_name", "dep_code_filled", "dens_lib", "equip_x", "equip_y", "inst_hs_bool",
+]
+RES_URL = (
+    "https://equipements.sports.gouv.fr/api/explore/v2.1/catalog/datasets/data-es/exports/parquet?"
+    + urllib.parse.urlencode({"select": ",".join(COLONNES_RES)})
+)
+
+
+def telecharger_parquet(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=900) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+            with open(chemin, "rb") as f:
+                f.seek(-4, 2)
+                if f.read() == b"PAR1":
+                    return
+        except (OSError, http.client.HTTPException):
+            if essai == essais - 1:
+                raise
+    raise RuntimeError(f"téléchargement incomplet : {url}")
+
+
+codes_res = pd.DataFrame(
+    [(code, e["cle"]) for e in EQUIPEMENTS for code in e["codes_res"]],
+    columns=["code", "equipement"],
+)
+date_res = pd.Timestamp.now(tz="Europe/Paris").date().isoformat()
+with tempfile.TemporaryDirectory() as dossier:
+    telecharger_parquet(RES_URL, f"{dossier}/res.parquet")
+    con.sql(f"""
+    CREATE TABLE res_brut AS
+    SELECT c.equipement, r.equip_numero AS numero, r.equip_type_code AS code, r.equip_nature AS nature,
+           r.dep_code_filled AS dep, r.new_name AS commune, r.dens_lib AS densite,
+           coalesce(nullif(trim(r.inst_nom), ''), nullif(trim(r.equip_nom), '')) AS nom,
+           try_cast(r.equip_x AS DOUBLE) AS lon, try_cast(r.equip_y AS DOUBLE) AS lat,
+           lower(coalesce(r.inst_hs_bool, 'non')) = 'oui' AS hors_service
+    FROM read_parquet('{dossier}/res.parquet') r JOIN codes_res c ON c.code = r.equip_type_code
+    WHERE r.dep_code_filled < '97'   -- métropole
+    """)
+
+con.sql("""
+CREATE TABLE res AS
+SELECT row_number() OVER (ORDER BY numero) AS id, * EXCLUDE (point), ST_X(point) AS x, ST_Y(point) AS y
+FROM (
+    SELECT *, ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:2154') AS point
+    FROM res_brut WHERE NOT hors_service AND lon IS NOT NULL
+)
+""")
+con.sql("""
+SELECT equipement, count(*) AS equipements,
+       count(DISTINCT (x, y)) AS positions_distinctes,
+       (SELECT count(*) FROM res_brut b WHERE b.equipement = r.equipement AND b.hors_service) AS hors_service
+FROM res r GROUP BY equipement ORDER BY equipements DESC
+""").df()
+```
+
+Le RES place un équipement là où il est, et non à l'adresse de son propriétaire. Mais les
+équipements d'une même installation partagent parfois les mêmes coordonnées : c'est le cas d'un
+tiers des courts de tennis, souvent groupés par deux, trois ou quatre.
+
+### OpenStreetMap, par l'API Overpass
+
+L'[API Overpass](https://wiki.openstreetmap.org/wiki/FR:Overpass_API) interroge la base d'OSM
+à jour, à la minute près. On lui demande, pour chaque équipement, tous les objets portant l'une
+des étiquettes. Un objet peut être un nœud (un point) ou un chemin fermé (le contour du terrain
+ou du bâtiment) : `out center` renvoie son centre. Les serveurs publics sont souvent chargés et
+refusent les requêtes trop lourdes : on interroge région par région (un objet à cheval sur deux
+régions revient deux fois, on ne le garde qu'une), et on réessaie, sur un serveur miroir, avec
+une pause croissante.
+
+```{python}
+SERVEURS_OVERPASS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
+# Les 13 régions métropolitaines, par leur code ISO 3166-2.
+REGIONS = ["ARA", "BFC", "BRE", "CVL", "20R", "GES", "HDF", "IDF", "NOR", "NAQ", "OCC", "PDL", "PAC"]
+
+
+def overpass(filtres, region, essais=15):
+    union = "".join(f"{filtre}(area.zone);" for filtre in filtres)
+    requete = (
+        f'[out:json][timeout:300];area["ISO3166-2"="FR-{region}"]->.zone;'
+        f"({union});out center tags;"
+    )
+    donnees = urllib.parse.urlencode({"data": requete}).encode()
+    for essai in range(essais):
+        serveur = SERVEURS_OVERPASS[essai % len(SERVEURS_OVERPASS)]
+        try:
+            demande = urllib.request.Request(serveur, data=donnees, headers={
+                "User-Agent": "30daymapchallenge2026 (https://github.com/linogaliana/30daymapchallenge2026)"
+            })
+            with urllib.request.urlopen(demande, timeout=600) as reponse:
+                resultat = json.load(reponse)
+            # Une requête trop longue renvoie un résultat incomplet, avec une remarque.
+            if "error" in resultat.get("remark", ""):
+                raise RuntimeError(resultat["remark"])
+            return resultat
+        except (OSError, http.client.HTTPException, RuntimeError, ValueError):
+            if essai == essais - 1:
+                raise
+            time.sleep(min(20 * (essai + 1), 120))
+
+
+objets, dates = {}, []
+for e in EQUIPEMENTS:
+    for region in REGIONS:
+        resultat = overpass(e["filtres"], region)
+        dates.append(resultat["osm3s"]["timestamp_osm_base"])
+        for o in resultat["elements"]:
+            centre = o if "lon" in o else o["center"]
+            cle = (f'{o["type"]}/{o["id"]}', e["cle"])
+            etiquettes = o["tags"]
+            objets[cle] = (
+                *cle, etiquettes.get("name"), centre["lon"], centre["lat"],
+                etiquettes.get("ref:FR:sport_equip"), etiquettes.get("source", ""),
+            )
+
+osm_brut = pd.DataFrame(objets.values(), columns=["id", "equipement", "nom", "lon", "lat", "numero_res", "source"])
+date_osm = min(dates)
+con.sql("""
+CREATE TABLE osm_monde AS
+SELECT *, ST_Transform(ST_Point(lon, lat), 'EPSG:4326', 'EPSG:2154') AS point FROM osm_brut
+""")
+date_osm, len(osm_brut)
+```
+
+### Les départements et les communes (cartiflette)
+
+Les objets d'OSM n'ont pas de code de département. On les rattache au département le plus proche,
+à moins de 2 km (pour ne pas perdre ceux du bord de mer, que la simplification des contours peut
+laisser au large).
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
+    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE departements AS
+SELECT INSEE_DEP AS dep, LIBELLE_DEPARTEMENT AS nom, geometry AS geom,
+       ST_Transform(geometry, 'EPSG:4326', 'EPSG:2154') AS geom_l93
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+WHERE INSEE_DEP < '97'
+""")
+
+con.sql("""
+CREATE TABLE osm AS
+SELECT o.id, o.equipement, o.nom, o.lon, o.lat, ST_X(o.point) AS x, ST_Y(o.point) AS y, d.dep,
+       o.numero_res, o.numero_res IS NOT NULL OR o.source ILIKE '%jeunesse et des sports%'
+           OR o.source ILIKE '%data es%' AS venu_du_res
+FROM osm_monde o JOIN departements d ON ST_DWithin(d.geom_l93, o.point, 2000)
+QUALIFY row_number() OVER (PARTITION BY o.id, o.equipement ORDER BY ST_Distance(d.geom_l93, o.point)) = 1
+""")
+con.sql("""
+SELECT equipement, (SELECT count(*) FROM osm_brut b WHERE b.equipement = o.equipement) AS extraits,
+       count(*) AS rattaches
+FROM osm o GROUP BY equipement ORDER BY rattaches DESC
+""").df()
+```
+
+## Les traitements
+
+### Apparier les deux bases
+
+Un identifiant commun existe, mais il est rare : quelques milliers d'objets d'OSM portent le numéro
+de leur équipement dans le RES (étiquette `ref:FR:sport_equip`). Quand il y est, et que les deux
+sont du même type, on s'en sert. Pour tous les autres, on apparie par la distance : deux
+équipements du même type, l'un dans le RES, l'autre dans OSM, à moins de 100 mètres, sont le
+même. Comme quatre courts de tennis sont souvent côte à côte, chaque objet ne sert qu'une fois :
+on range toutes les paires possibles de la plus proche à la plus lointaine, et on les retient
+dans cet ordre, sauf si l'un des deux est déjà pris.
+
+```{python}
+DISTANCE = 100  # mètres
+
+par_numero = con.sql("""
+SELECT r.id AS id_res, o.id AS id_osm, sqrt((r.x - o.x) ^ 2 + (r.y - o.y) ^ 2) AS distance
+FROM res r JOIN osm o ON o.numero_res = r.numero AND o.equipement = r.equipement
+QUALIFY row_number() OVER (PARTITION BY r.id ORDER BY distance) = 1
+    AND row_number() OVER (PARTITION BY o.id ORDER BY distance) = 1
+""").df()
+
+paires = con.sql(f"""
+SELECT r.id AS id_res, o.id AS id_osm, sqrt((r.x - o.x) ^ 2 + (r.y - o.y) ^ 2) AS distance
+FROM res r JOIN osm o
+  ON r.equipement = o.equipement
+ AND o.x BETWEEN r.x - {DISTANCE} AND r.x + {DISTANCE}
+ AND o.y BETWEEN r.y - {DISTANCE} AND r.y + {DISTANCE}
+WHERE distance <= {DISTANCE}
+ORDER BY distance, id_res, id_osm
+""").df()
+
+retenues = [(*p, "numero") for p in par_numero.itertuples(index=False)]
+pris_res, pris_osm = set(par_numero["id_res"]), set(par_numero["id_osm"])
+for id_res, id_osm, distance in paires.itertuples(index=False):
+    if id_res in pris_res or id_osm in pris_osm:
+        continue
+    retenues.append((id_res, id_osm, distance, "distance"))
+    pris_res.add(id_res)
+    pris_osm.add(id_osm)
+appariements = pd.DataFrame(retenues, columns=["id_res", "id_osm", "distance", "methode"])
+
+con.sql("""
+SELECT r.equipement, count(*) AS paires, count(*) FILTER (WHERE methode = 'numero') AS par_numero,
+       round(median(a.distance)) AS distance_mediane, round(quantile_cont(a.distance, 0.9)) AS distance_9e_decile
+FROM appariements a JOIN res r ON r.id = a.id_res
+GROUP BY ALL ORDER BY paires DESC
+""").df()
+```
+
+Les paires sont très proches : la moitié à moins d'une dizaine de mètres, neuf sur dix à moins de
+50 mètres. Le seuil compte peu : à 300 mètres, les parts retrouvées ne gagnent que quelques points.
+
+### Les parts retrouvées
+
+Pour chaque équipement et chaque département, on compte les équipements du RES, ceux d'OSM et
+les paires. Deux parts en découlent : celle des équipements du RES qu'on retrouve dans OSM (la
+complétude d'OSM, si l'on prend le RES pour référence) et celle des objets d'OSM qu'on retrouve
+dans le RES.
+
+```{python}
+con.sql("""
+CREATE TABLE comptes AS
+WITH cote_res AS (
+    SELECT r.equipement, r.dep, count(*) AS res, count(a.id_res) AS apparies,
+           count(a.id_res) FILTER (WHERE o.venu_du_res) AS venus_du_res
+    FROM res r LEFT JOIN appariements a ON a.id_res = r.id LEFT JOIN osm o ON o.id = a.id_osm
+    GROUP BY ALL
+),
+cote_osm AS (SELECT equipement, dep, count(*) AS osm FROM osm GROUP BY ALL)
+SELECT equipement, dep, coalesce(res, 0) AS res, coalesce(osm, 0) AS osm,
+       coalesce(apparies, 0) AS apparies, coalesce(venus_du_res, 0) AS venus_du_res
+FROM cote_res FULL JOIN cote_osm USING (equipement, dep)
+""")
+
+totaux = con.sql("""
+SELECT equipement, sum(res) AS res, sum(osm) AS osm, sum(apparies) AS apparies,
+       sum(venus_du_res) AS venus_du_res,
+       sum(apparies) / sum(res) AS part_res, sum(apparies) / sum(osm) AS part_osm
+FROM comptes GROUP BY equipement ORDER BY part_res DESC
+""").df()
+totaux
+```
+
+Les départements extrêmes, pour chaque équipement :
+
+```{python}
+stats = con.sql("""
+SELECT c.*, d.nom, apparies / nullif(res, 0) AS part_res, apparies / nullif(osm, 0) AS part_osm
+FROM comptes c JOIN departements d USING (dep)
+""").df()
+con.sql("""
+SELECT equipement,
+       arg_max(nom, part_res) AS le_plus_complet, round(max(part_res), 2) AS part_max,
+       arg_min(nom, part_res) AS le_moins_complet, round(min(part_res), 2) AS part_min
+FROM stats GROUP BY equipement ORDER BY equipement
+""").df()
+```
+
+Et selon la densité de la commune, d'après la [grille communale de densité](https://www.insee.fr/fr/information/6439600)
+à sept niveaux, que le RES donne pour chaque équipement :
+
+```{python}
+densites = pd.DataFrame({
+    "rang": range(1, 8),
+    "nom": ["Grands centres urbains", "Centres urbains intermédiaires", "Ceintures urbaines",
+            "Petites villes", "Bourgs ruraux", "Rural à habitat dispersé", "Rural à habitat très dispersé"],
+})
+par_densite = con.sql("""
+SELECT r.equipement, r.densite, d.rang, count(*) AS res, count(a.id_res) AS apparies,
+       count(a.id_res) / count(*) AS part_res
+FROM res r JOIN densites d ON d.nom = r.densite LEFT JOIN appariements a ON a.id_res = r.id
+GROUP BY ALL ORDER BY r.equipement, d.rang
+""").df()
+par_densite.pivot(index="densite", columns="equipement", values="part_res").loc[densites["nom"]].round(2)
+```
+
+Et selon que l'équipement est couvert ou non :
+
+```{python}
+con.sql("""
+SELECT r.equipement, r.nature, count(*) AS res, round(count(a.id_res) / count(*), 2) AS part_res
+FROM res r LEFT JOIN appariements a ON a.id_res = r.id
+WHERE r.nature IN ('Découvert', 'Intérieur')
+GROUP BY ALL HAVING count(*) >= 500 ORDER BY ALL
+""").df()
+```
+
+Huit courts de tennis découverts sur dix sont dans OSM, moins de trois courts couverts sur dix :
+un court sous une bulle ou dans une halle ne se voit pas sur une photo aérienne, et OSM n'en
+garde souvent que le bâtiment.
+
+### Les chiffres de l'accroche
+
+```{python}
+total = totaux.set_index("equipement")
+chiffres = {
+    "date_osm": date_osm,
+    "date_res": date_res,
+    "distance": DISTANCE,
+    "res_football": int(total.loc["football", "res"]),
+    "osm_football": int(total.loc["football", "osm"]),
+    "part_football": float(total.loc["football", "part_res"]),
+    "part_gymnase": float(total.loc["gymnase", "part_res"]),
+    "part_venus": float(totaux["venus_du_res"].sum() / totaux["apparies"].sum()),
+    "part_venus_boules": float(total.loc["boules", "venus_du_res"] / total.loc["boules", "apparies"]),
+}
+# Le département où la part des paires recopiées du RES est la plus forte (300 paires au moins).
+par_dep = stats.groupby(["dep", "nom"])[["apparies", "venus_du_res"]].sum().reset_index()
+par_dep = par_dep[par_dep["apparies"] >= 300].assign(part=lambda d: d["venus_du_res"] / d["apparies"])
+plus_recopie = par_dep.sort_values("part").iloc[-1]
+chiffres["dep_venus_nom"] = plus_recopie["nom"]
+chiffres["dep_venus_part"] = float(plus_recopie["part"])
+chiffres
+```
+
+### Ce qui passe à la carte
+
+Les contours des départements sont simplifiés ensemble (`ST_CoverageSimplify`), pour rester
+jointifs. Pour les cartes point par point, on garde, dans quelques cadrages, chaque équipement
+avec son statut : dans les deux bases (à la position d'OSM), dans le RES seulement ou dans OSM
+seulement. Ces points vont dans `donnees/j21/points.csv`, avec le contour des communes des
+cadrages.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j21")
+SORTIE.mkdir(parents=True, exist_ok=True)
+
+contours = con.sql("""
+WITH couverture AS (
+    SELECT list(dep ORDER BY dep) AS codes,
+           ST_CoverageSimplify(list(geom ORDER BY dep), 0.005) AS geom
+    FROM departements
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.0005))
+FROM morceaux GROUP BY ALL
+""").fetchall()
+noms = dict(con.sql("SELECT dep, nom FROM departements").fetchall())
+departements_geo = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"code": code, "nom": noms[code]}, "geometry": json.loads(geojson)}
+        for code, geojson in contours
+    ],
+}
+
+# [nom, [[ouest, sud], [est, nord]], rayon des points]
+CADRAGES = [
+    ("Paris", [[2.22, 48.815], [2.47, 48.905]], 2.5),
+    ("Marseille", [[5.28, 43.19], [5.55, 43.39]], 2.5),
+    ("Rennes et ses environs", [[-1.85, 48.0], [-1.5, 48.2]], 3),
+    ("L'Indre", [[0.85, 46.33], [2.2, 47.28]], 2.5),
+]
+cadrages = pd.DataFrame(
+    [(nom, o, s, e, n, rayon) for nom, ((o, s), (e, n)), rayon in CADRAGES],
+    columns=["nom", "ouest", "sud", "est", "nord", "rayon"],
+)
+
+con.sql(f"""
+COPY (
+    WITH tous AS (
+        SELECT o.equipement, CASE WHEN a.id_osm IS NULL THEN 'osm' ELSE 'les_deux' END AS statut,
+               o.lon, o.lat, r.nom AS nom_res, o.nom AS nom_osm, round(a.distance) AS distance
+        FROM osm o LEFT JOIN appariements a ON a.id_osm = o.id LEFT JOIN res r ON r.id = a.id_res
+        UNION ALL
+        SELECT r.equipement, 'res', r.lon, r.lat, r.nom, NULL, NULL
+        FROM res r WHERE r.id NOT IN (SELECT id_res FROM appariements)
+    ),
+    dans_cadrage AS (
+        SELECT c.nom AS cadrage, t.*, ST_Point(t.lon, t.lat) AS point
+        FROM tous t JOIN cadrages c
+          ON t.lon BETWEEN c.ouest AND c.est AND t.lat BETWEEN c.sud AND c.nord
+    )
+    SELECT p.cadrage, p.equipement, p.statut, round(p.lon, 5) AS lon, round(p.lat, 5) AS lat,
+           p.nom_res, p.nom_osm, p.distance, any_value(m.NOM) AS commune
+    FROM dans_cadrage p
+    LEFT JOIN read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false) m
+      ON ST_Intersects(m.geometry, p.point)
+    GROUP BY ALL
+    ORDER BY ALL
+) TO '{SORTIE / "points.csv"}' (HEADER)
+""")
+
+con.sql(f"""
+COPY (
+    SELECT DISTINCT m.INSEE_COM AS code, m.NOM AS nom, ST_ReducePrecision(m.geometry, 0.0001) AS geom
+    FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false) m
+    JOIN cadrages c ON ST_Intersects(m.geometry, ST_MakeEnvelope(c.ouest, c.sud, c.est, c.nord))
+) TO '{SORTIE / "communes.geojson"}' (FORMAT gdal, DRIVER 'GeoJSON')
+""")
+```
+
+```{python}
+ojs_define(
+    equipements=[{k: v for k, v in e.items() if k not in ("filtres", "codes_res")} for e in EQUIPEMENTS],
+    departements=departements_geo,
+    stats=stats.drop(columns="nom").to_dict("records"),
+    totaux=totaux.to_dict("records"),
+    densites=densites.to_dict("records"),
+    parDensite=par_densite.to_dict("records"),
+    cadrages=[{"nom": nom, "cadre": cadre, "rayon": rayon} for nom, cadre, rayon in CADRAGES],
+    chiffres=chiffres,
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+nomEquipement = new Map(equipements.map((e) => [e.cle, e.nom]))
+nomDepartement = new Map(departements.features.map((f) => [f.properties.code, f.properties.nom]))
+lignes = stats.map((d) => ({...d, nom: nomDepartement.get(d.dep), equipement: nomEquipement.get(d.equipement)}))
+viewof tableau = Inputs.search(lignes, {
+  placeholder: "Rechercher un département ou un équipement…",
+  columns: ["nom", "dep", "equipement"],
+  format: (n) => `${entier(n)} lignes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["dep", "nom", "equipement", "res", "osm", "apparies", "part_res", "part_osm"],
+  header: {
+    dep: "Code", nom: "Département", equipement: "Équipement", res: "Dans le RES", osm: "Dans OSM",
+    apparies: "Dans les deux", part_res: "Part du RES retrouvée", part_osm: "Part d'OSM retrouvée"
+  },
+  format: {
+    res: entier, osm: entier, apparies: entier,
+    part_res: (x) => x === null ? "" : pourcent(x), part_osm: (x) => x === null ? "" : pourcent(x)
+  },
+  sort: "part_res",
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(lignes, ["dep", "nom", "equipement", "res", "osm", "apparies", "part_res", "part_osm"])], {type: "text/csv"}),
+  "res_osm_departements.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Le RES n'est pas la vérité. Il est déclaratif : les propriétaires des équipements, communes en
+  tête, créent et corrigent leurs fiches, plus ou moins souvent. Un terrain démoli peut y rester,
+  un city-stade récent peut y manquer. Une partie des objets d'OSM « absents du RES » sont de vrais
+  équipements que le RES n'a pas ; d'autres sont privés (courts de tennis de jardin, de copropriété).
+- Les deux bases ne sont pas indépendantes : une partie d'OSM a été recopiée du RES (voir plus
+  haut), et d'autres objets ont pu l'être sans le dire.
+- Les définitions diffèrent. OSM décrit un city-stade de plusieurs façons, dont certaines ne sont
+  pas retenues ici (un terrain de basket ou sans sport). Un gymnase n'y est souvent qu'un
+  bâtiment sans étiquette sportive. Les terrains mixtes du RES (football et rugby) peuvent être
+  décrits dans OSM comme des terrains de rugby, qu'on ne compte pas.
+- L'appariement par la distance se trompe dans les deux sens. Deux terrains voisins du même type
+  peuvent être appariés à tort ; un terrain placé à plus de 100 mètres de son double compte deux
+  fois, une fois de chaque côté. Avec un seuil de 300 mètres, les parts retrouvées gagnent
+  quelques points ; l'ordre entre équipements ne change pas.
+- Un même équipement peut être décrit deux fois dans OSM (le terrain et le bâtiment, ou un point et
+  un contour) : le second objet compte alors parmi ceux « absents du RES ».
+- Les deux bases n'ont pas tout à fait la même date : le RES est extrait le jour du rendu, comme
+  OSM, mais chaque fiche a sa propre date de mise à jour.
+- Les équipements du RES sans coordonnées, et ceux des installations déclarées hors service, ne
+  comptent pas.
+
+## Pour aller plus loin
+
+- [J16 · Collaborative map](16-collaborative-map.qmd) : la Base Adresse Nationale, l'autre carte
+  écrite à plusieurs mains.
+- [J20 · Hexagons](20-hexagons.qmd) : les équipements du quotidien, d'après la base permanente des
+  équipements de l'Insee.
+- [J10 · Prompting only](10-prompting-only.qmd) : seize services statistiques, seize cartes.
+- Ministère des Sports, [le portail du Recensement des équipements sportifs](https://equipements.sports.gouv.fr/) :
+  la carte, les fiches des équipements et la documentation.
+- OpenStreetMap France, [l'état des lieux de la contribution](https://openstreetmap.fr/) et les
+  outils de l'association, dont [Osmose](https://osmose.openstreetmap.fr/), qui signale aux
+  contributeurs, entre autres, les équipements d'une base publique absents d'OSM.

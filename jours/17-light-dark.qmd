@@ -1,0 +1,510 @@
+---
+title: "J17 · Light & dark. La France de jour, la France de nuit"
+description: "Où dorment les Français, où passent-ils la journée ? La population de chaque commune la nuit et le jour, d'après les navettes domicile-travail et domicile-études du recensement de 2023."
+resources:
+  - donnees/j17/*.csv
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+millions = (x) => (x / 1e6).toLocaleString("fr-FR", {maximumFractionDigits: 1})
+pourcent = (x) => `${Math.round(100 * x)} %`
+html`<p class="lead">
+  La nuit, chacun dort dans sa commune. Le jour, <strong>${millions(resume.partants)} millions
+  de personnes</strong> (${pourcent(resume.partants / resume.habitants)} de la population) la
+  quittent pour aller travailler ou étudier ailleurs. ${entier(resume.communes_videes)} communes
+  sur ${entier(resume.communes)} se vident ; ${entier(resume.communes - resume.communes_videes)} se remplissent ou restent
+  stables. Le
+  8<sup>e</sup> arrondissement de Paris compte ${entier(huitieme.habitants)} habitants, mais
+  ${entier(huitieme.jour)} personnes y passent la journée.
+</p>`
+```
+
+Pour le thème *light & dark*, la carte bascule avec le site : en thème clair, elle montre la
+France du jour, et en thème sombre, celle de la nuit. Le bouton en haut de la carte permet de passer
+de l'un à l'autre sans changer de thème. Chaque point est une commune (ou un arrondissement à
+Paris, Lyon et Marseille), sa surface suit le nombre de personnes présentes, sa couleur l'écart
+entre le jour et la nuit (making of 👇).
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+
+// Les 35 000 communes sont dans un fichier à part, chargé après la page.
+communes = d3.csv("donnees/j17/communes.csv", (d) => ({
+  ...d,
+  habitants: +d.habitants, jour: +d.jour, partants: +d.partants, arrivants: +d.arrivants,
+  rapport: +d.rapport, lon: +d.lon, lat: +d.lat
+}))
+```
+
+```{ojs}
+//| echo: false
+// Cadrages : [nom, [[ouest, sud], [est, nord]], rayon maximal des points].
+cadrages = [
+  ["France métropolitaine", [[-5.2, 41.3], [9.6, 51.1]], 20],
+  ["Paris", [[2.0, 48.65], [2.7, 49.05]], 30],
+  ["Lyon", [[4.6, 45.6], [5.1, 45.9]], 30],
+  ["Toulouse", [[1.1, 43.4], [1.75, 43.8]], 30],
+  ["Bordeaux", [[-0.85, 44.7], [-0.35, 45.0]], 30],
+  ["Marseille", [[5.15, 43.15], [5.65, 43.5]], 30],
+  ["Lille", [[2.8, 50.5], [3.35, 50.8]], 30],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]], 30]
+]
+viewof moment = Inputs.radio(new Map([["☀️ Le jour", "jour"], ["🌙 La nuit", "nuit"]]), {
+  value: sombre ? "nuit" : "jour"
+})
+```
+
+```{ojs}
+//| echo: false
+viewof cadrage = Inputs.select(new Map(cadrages.map((c) => [c[0], c])), {
+  value: cadrages[0], label: "Cadrage"
+})
+```
+
+```{ojs}
+//| echo: false
+nuit = moment === "nuit"
+// La carte a son propre fond : clair le jour, nuit bleue la nuit.
+fondCarte = nuit ? "#0d1430" : "#fbf7ee"
+texteCarte = nuit ? "#e8e6f0" : "#2b2b2b"
+couleurTerre = nuit ? "#18213f" : "#efe9dc"
+couleurBord = nuit ? "#2a3560" : "#d9d1bf"
+// Bleu : la commune se vide le jour ; orange : elle se remplit. Les communes à
+// l'équilibre sont pâles, comme des lumières la nuit.
+couleursRapport = nuit ? ["#4f8df5", "#f4e7c1", "#ff8c42"] : ["#2b6cb0", "#c9c2b2", "#c2451e"]
+
+// Cadre en sens des aiguilles d'une montre : sinon, d3 prend tout le globe sauf le cadre.
+function cadreGeo([[o, s], [e, n]]) {
+  return {type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}
+}
+function dansCadre(d) {
+  const [[o, s], [e, n]] = cadrage[1]
+  return d.lon >= o && d.lon <= e && d.lat >= s && d.lat <= n
+}
+visibles = d3.sort(communes.filter(dansCadre), (d) => -(nuit ? d.habitants : d.jour))
+// Le même rayon pour le jour et la nuit, pour que la bascule compare.
+rayonMax = d3.max(visibles, (d) => Math.max(d.habitants, d.jour))
+etiquettes = d3.sort(visibles, (d) => -Math.max(d.habitants, d.jour))
+  .slice(0, cadrage[0] === "France métropolitaine" ? 12 : 10)
+facteur = (r) => r >= 1 ? `× ${r.toLocaleString("fr-FR", {maximumFractionDigits: 1})}`
+                        : `÷ ${(1 / r).toLocaleString("fr-FR", {maximumFractionDigits: 1})}`
+```
+
+```{ojs}
+//| echo: false
+echelleCouleur = ({
+  type: "log", domain: [0.5, 1, 2], range: couleursRapport, interpolate: "lab", clamp: true,
+  label: "Présents le jour / habitants", ticks: [0.5, 0.71, 1, 1.41, 2], tickFormat: facteur
+})
+Plot.legend({color: echelleCouleur, marginLeft: 16, width: 340})
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: 900,
+  height: 820,
+  style: {background: fondCarte, color: texteCarte, borderRadius: "6px"},
+  projection: cadrage[0] === "La Réunion"
+    ? {type: "mercator", domain: cadreGeo(cadrage[1]), inset: 10}
+    : {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0],
+       domain: cadreGeo(cadrage[1]), inset: 10},
+  r: {range: [0, cadrage[2]], domain: [0, rayonMax]},
+  color: echelleCouleur,
+  marks: [
+    Plot.geo(departements, {fill: couleurTerre, stroke: couleurBord, strokeWidth: 0.6, clip: "frame"}),
+    Plot.dot(visibles, {
+      x: "lon", y: "lat",
+      r: nuit ? "habitants" : "jour",
+      fill: "rapport",
+      fillOpacity: nuit ? 0.85 : 0.75,
+      stroke: nuit ? null : fondCarte, strokeWidth: 0.3,
+      mixBlendMode: nuit ? "screen" : "normal",
+      clip: "frame"
+    }),
+    Plot.text(etiquettes, {
+      x: "lon", y: "lat", text: (d) => d.nom.replace(" Arrondissement", ""), dy: -12, fontSize: 11, fontWeight: 600,
+      fill: texteCarte, stroke: fondCarte, strokeWidth: 3, clip: "frame"
+    }),
+    Plot.tip(visibles, Plot.pointer({
+      x: "lon", y: "lat", maxRadius: 15,
+      fill: fondCarte,
+      channels: {
+        "Commune": (d) => `${d.nom} (${d.departement})`,
+        "La nuit (habitants)": (d) => entier(d.habitants),
+        "Le jour (présents)": (d) => entier(d.jour),
+        "Partent le matin": (d) => entier(d.partants),
+        "Arrivent le matin": (d) => entier(d.arrivants)
+      },
+      format: {x: false, y: false, r: false, fill: false}
+    }))
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  ${nuit
+    ? "La nuit : chaque commune avec ses habitants (population municipale)."
+    : "Le jour : les habitants, moins ceux qui partent travailler ou étudier dans une autre commune, plus ceux qui y viennent."}
+  ${visibles.length.toLocaleString("fr-FR")} communes dans le cadre.
+  Sources : Insee, recensement de la population 2023 (mobilités professionnelles et scolaires) ;
+  IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.
+</small></p>`
+```
+
+La France de nuit est celle du peuplement : des points partout, serrés dans les villes et
+le long des côtes. Le jour, la population se ramasse dans les pôles d'emploi : centres des
+grandes villes, préfectures, zones d'activité. Les communes périurbaines et rurales, presque
+toutes bleues, se vident ; même les banlieues populeuses (Asnières-sur-Seine, Drancy, Argenteuil)
+perdent le quart de leur population. Seules gagnent les communes où l'emploi est concentré : en
+Île-de-France, Paris-Centre et l'Ouest (8<sup>e</sup>, 9<sup>e</sup>, La Défense), ailleurs le
+centre des métropoles.
+
+## Les plus grands écarts
+
+```{ojs}
+//| echo: false
+viewof sens = Inputs.radio(new Map([["Se remplissent le jour", "gain"], ["Se vident le jour", "perte"]]), {value: "gain"})
+```
+
+```{ojs}
+//| echo: false
+{
+  const ecarts = d3.sort(communes, (d) => sens === "gain" ? d.habitants - d.jour : d.jour - d.habitants).slice(0, 15)
+  const couleurJour = sombre ? "#ffb347" : "#c2451e"
+  const couleurNuit = sombre ? "#7aa7ff" : "#1f3a7a"
+  return Plot.plot({
+    width: 760,
+    height: 440,
+    marginLeft: 190,
+    x: {label: "Personnes présentes", grid: true, tickFormat: (x) => `${x / 1000} k`},
+    y: {label: null, domain: ecarts.map((d) => d.nom)},
+    marks: [
+      Plot.link(ecarts, {x1: "habitants", x2: "jour", y1: "nom", y2: "nom", stroke: "currentColor", strokeOpacity: 0.3, strokeWidth: 2}),
+      Plot.dot(ecarts, {x: "habitants", y: "nom", r: 5, fill: couleurNuit}),
+      Plot.dot(ecarts, {x: "jour", y: "nom", r: 5, fill: couleurJour}),
+      Plot.tip(ecarts, Plot.pointerY({
+        x: "jour", y: "nom",
+        channels: {"La nuit": (d) => entier(d.habitants), "Le jour": (d) => entier(d.jour)},
+        format: {x: false, y: false}
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  <span style="color:${sombre ? "#7aa7ff" : "#1f3a7a"}">●</span> la nuit (habitants)
+  <span style="color:${sombre ? "#ffb347" : "#c2451e"}">●</span> le jour (présents).
+  Les 15 communes dont la population change le plus, en nombre de personnes.
+</small></p>`
+```
+
+## Les données
+
+Trois sources, lues avec [DuckDB](https://duckdb.org/) : les deux fichiers détail du
+recensement de l'Insee sur les déplacements domicile-travail et domicile-études, et
+[cartiflette](https://github.com/InseeFrLab/cartiflette) pour les communes, leur population et
+le fond de carte.
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Mobilités professionnelles 2023](https://www.insee.fr/fr/statistiques/9004795) (MOBPRO) | Insee, recensement | Commune de résidence et commune de travail de chaque actif ayant un emploi | Parquet |
+| [Mobilités scolaires 2023](https://www.insee.fr/fr/statistiques/9004793) (MOBSCO) | Insee, recensement | Commune de résidence et commune d'études de chaque élève ou étudiant de 2 ans ou plus | Parquet |
+| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | Contours des communes et des arrondissements, population municipale, départements | GeoParquet |
+
+```{python}
+import json
+import pathlib
+import shutil
+import tempfile
+import urllib.request
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les navettes (Insee, recensement 2023)
+
+Les deux fichiers ont une ligne par personne recensée, avec sa commune de résidence (`COMMUNE`,
+et `ARM` pour l'arrondissement à Paris, Lyon et Marseille), la commune où elle travaille
+(`DCLT`, [documentation](https://www.insee.fr/fr/information/2383243)) ou étudie (`DCETUF`,
+[documentation](https://www.insee.fr/fr/information/2383297)), et son poids (`IPONDI`) : chaque
+calcul se fait en sommant les poids. Les communes de travail et d'études sont données à
+l'arrondissement près à Paris, Lyon et Marseille.
+
+Le serveur de l'Insee ne répond pas aux requêtes partielles : DuckDB ne peut pas lire les
+fichiers à distance. On les télécharge (67 et 24 Mo) en vérifiant qu'ils sont complets, puis on
+garde, pour chaque personne, d'où elle part, où elle va et son poids.
+
+```{python}
+MOBPRO_URL = "https://www.insee.fr/fr/statistiques/fichier/9004795/RP2023_mobpro.parquet"
+MOBSCO_URL = "https://www.insee.fr/fr/statistiques/fichier/9004793/RP2023_mobsco.parquet"
+
+
+# Le serveur coupe parfois le téléchargement sans erreur, et n'envoie pas la
+# taille : un fichier Parquet complet finit par « PAR1 ».
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+        except OSError:
+            if essai == essais - 1:
+                raise
+            continue
+        with open(chemin, "rb") as f:
+            f.seek(-4, 2)
+            if f.read() == b"PAR1":
+                return
+    raise RuntimeError(f"téléchargement incomplet : {url}")
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    telecharger(MOBPRO_URL, f"{dossier}/mobpro.parquet")
+    telecharger(MOBSCO_URL, f"{dossier}/mobsco.parquet")
+    con.sql(f"""
+    CREATE TABLE deplacements AS
+    SELECT 'travail' AS motif,
+           CASE WHEN ARM <> 'ZZZZZ' THEN ARM ELSE COMMUNE END AS residence,
+           DCLT AS destination, IPONDI AS poids
+    FROM read_parquet('{dossier}/mobpro.parquet')
+    UNION ALL
+    SELECT 'études',
+           CASE WHEN ARM <> 'ZZZZZ' THEN ARM ELSE COMMUNE END,
+           DCETUF, IPONDI
+    FROM read_parquet('{dossier}/mobsco.parquet')
+    """)
+
+con.sql("""
+SELECT motif, round(sum(poids)) AS personnes,
+       round(sum(poids) FILTER (WHERE destination <> residence)) AS hors_de_leur_commune
+FROM deplacements GROUP BY motif ORDER BY motif DESC
+""").df().style.hide(axis="index").format("{:,.0f}", subset=["personnes", "hors_de_leur_commune"])
+```
+
+### Les communes (cartiflette)
+
+Le recensement de 2023 est diffusé dans la géographie communale 2026, celle des contours
+cartiflette de 2026, au niveau `COMMUNE_ARRONDISSEMENT` (les arrondissements de Paris, Lyon et
+Marseille à la place de leur commune). La colonne `POPULATION` y est la population municipale
+légale, celle du recensement de 2023 : ce sont les habitants de la carte de nuit.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COG AS code, NOM AS nom, LIBELLE_DEPARTEMENT AS departement,
+       POPULATION AS habitants, ST_PointOnSurface(geometry) AS point
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE_ARRONDISSEMENT")}',
+                  hive_partitioning = false)
+""")
+```
+
+## Les traitements
+
+### La population de jour
+
+Pour chaque commune, la population de jour, ce sont ses habitants, moins ceux qui partent
+travailler ou étudier dans une autre commune (ou à l'étranger), plus ceux qui viennent d'une
+autre commune y travailler ou y étudier. Les autres, retraités, enfants non scolarisés,
+chômeurs, ceux qui travaillent ou étudient sur place, restent dans leur commune.
+
+```{python}
+con.sql("""
+CREATE TABLE bilan AS
+WITH partants AS (
+    SELECT residence AS code, sum(poids) AS partants
+    FROM deplacements WHERE destination <> residence GROUP BY ALL
+),
+arrivants AS (
+    SELECT destination AS code, sum(poids) AS arrivants
+    FROM deplacements WHERE destination <> residence GROUP BY ALL
+)
+SELECT c.*,
+       coalesce(p.partants, 0) AS partants,
+       coalesce(a.arrivants, 0) AS arrivants,
+       c.habitants - coalesce(p.partants, 0) + coalesce(a.arrivants, 0) AS jour
+FROM communes c
+LEFT JOIN partants p USING (code)
+LEFT JOIN arrivants a USING (code)
+""")
+
+con.sql("""
+SELECT nom, departement, habitants, round(jour) AS jour, round(jour / habitants, 1) AS rapport
+FROM bilan ORDER BY jour - habitants DESC LIMIT 10
+""").df().style.hide(axis="index").format({"habitants": "{:,.0f}", "jour": "{:,.0f}"})
+```
+
+Le total du jour est un peu plus faible que celui de la nuit : ceux qui travaillent ou
+étudient à l'étranger quittent la France le matin, et les frontaliers qui viennent y travailler
+ne sont pas recensés en France.
+
+```{python}
+resume = con.sql("""
+SELECT count(*) AS communes,
+       count(*) FILTER (WHERE jour < habitants) AS communes_videes,
+       sum(habitants) AS habitants,
+       sum(jour) AS jour,
+       sum(partants) AS partants
+FROM bilan
+""").df().iloc[0]
+huitieme = con.sql("SELECT habitants, jour FROM bilan WHERE code = '75108'").df().iloc[0]
+resume
+```
+
+### Les points et le fond de carte
+
+Chaque commune est réduite à un point intérieur (`ST_PointOnSurface`). La table des 35 000
+communes est écrite à part, en CSV, dans `donnees/j17/` : la page la charge après coup, sans
+s'alourdir. Le rapport entre la population de jour et celle de nuit donne la couleur des points.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j17")
+SORTIE.mkdir(parents=True, exist_ok=True)
+con.sql(f"""
+COPY (
+    SELECT code, nom, departement, habitants,
+           round(jour)::INTEGER AS jour,
+           round(partants)::INTEGER AS partants,
+           round(arrivants)::INTEGER AS arrivants,
+           round(jour / nullif(habitants, 0), 3) AS rapport,
+           round(ST_X(point), 4) AS lon, round(ST_Y(point), 4) AS lat
+    FROM bilan
+    ORDER BY code
+) TO '{SORTIE / "communes.csv"}' (HEADER)
+""")
+```
+
+Le fond de carte, ce sont les départements, simplifiés ensemble à 1 km environ
+(`ST_CoverageSimplify`) pour rester jointifs.
+
+```{python}
+departements = con.sql(f"""
+WITH couverture AS (
+    SELECT list(INSEE_DEP ORDER BY INSEE_DEP) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY INSEE_DEP), 0.01) AS geom
+    FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.001)) AS geojson
+FROM morceaux GROUP BY ALL
+""").fetchall()
+departements = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"code": code}, "geometry": json.loads(geojson)}
+        for code, geojson in departements
+    ],
+}
+```
+
+### Ce qui passe à la carte
+
+Les tables sont transmises au JavaScript de la page avec `ojs_define`, la carte est faite avec
+[Observable Plot](https://observablehq.com/plot/).
+
+```{python}
+ojs_define(
+    departements=departements,
+    resume={k: float(resume[k]) for k in resume.index},
+    huitieme={k: float(huitieme[k]) for k in huitieme.index},
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof tableau = Inputs.search(communes, {
+  placeholder: "Rechercher une commune…",
+  columns: ["nom", "departement"],
+  format: (n) => `${entier(n)} communes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["code", "nom", "departement", "habitants", "jour", "partants", "arrivants", "rapport"],
+  header: {
+    code: "Code", nom: "Commune", departement: "Département", habitants: "La nuit (habitants)",
+    jour: "Le jour (présents)", partants: "Partent", arrivants: "Arrivent", rapport: "Jour / nuit"
+  },
+  format: {
+    habitants: entier, jour: entier, partants: entier, arrivants: entier,
+    rapport: (r) => r.toLocaleString("fr-FR", {minimumFractionDigits: 2, maximumFractionDigits: 2})
+  },
+  sort: "jour",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "habitants", "jour", "partants", "arrivants", "rapport"])], {type: "text/csv"}),
+  "population_jour_nuit_2023.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- La population de jour ne compte que les déplacements pour le travail et les études. Elle
+  ignore les achats, les soins, les loisirs, le tourisme : une station de ski ou une ville
+  commerçante accueille bien plus de monde que ce que montre la carte.
+- Le recensement retient le lieu de travail habituel déclaré, pas un trajet quotidien : le
+  télétravail, les horaires décalés ou le travail de nuit n'y figurent pas. Un actif qui
+  travaille à Paris deux jours par semaine depuis Lyon compte comme présent à Paris.
+- Un apprenti ou un étudiant salarié peut figurer dans les deux fichiers : il est alors compté
+  deux fois parmi les partants et les arrivants.
+- Les frontaliers venus de Belgique, du Luxembourg, d'Allemagne, de Suisse, d'Italie ou d'Espagne
+  ne sont pas recensés en France : les communes où ils travaillent sont moins remplies qu'en
+  réalité le jour. Les petits flux, estimés sur un échantillon, sont des ordres de grandeur.
+- Une anomalie du recensement 2023 attribue à Maxey-sur-Vaise (Meuse) des emplois du quartier de
+  Vaise, à Lyon ([Insee](https://www.insee.fr/fr/statistiques/8998300)).
+
+## Pour aller plus loin
+
+- [J2 · Lines](02-lines.qmd) : les mêmes navettes domicile-travail, vues comme des flux entre
+  bassins de vie.
+- Insee, [Mobilités professionnelles en 2023](https://www.insee.fr/fr/statistiques/8998300) et
+  [Mobilités scolaires en 2023](https://www.insee.fr/fr/statistiques/8998322) (flux agrégés
+  par commune).
+- Insee Première n° 1835, janvier 2021, [« La voiture reste majoritaire pour les déplacements domicile-travail, même pour de courtes distances »](https://www.insee.fr/fr/statistiques/5013868).

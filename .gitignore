@@ -1,3 +1,9 @@
+
+jours/donnees/
+jours/brouillons/
+.vscode/
+*_files/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

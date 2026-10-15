@@ -1,0 +1,639 @@
+---
+title: "J25 · Is this a map? Le monde vu des Douanes"
+description: "Un cercle par pays, de la taille de ce que la France lui vend ou lui achète en 2025, d'après les statistiques du commerce extérieur des Douanes : sans un seul contour, le monde se dessine encore, mais l'Allemagne y pèse plus que l'Afrique."
+image: vignettes/25-is-this-a-map.webp
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x) => `${Math.round(100 * x)}\u00a0%`
+milliards = (x) => `${virgule(x / 1e9)} Md€`
+html`<p class="lead">
+  En 2025, la France a vendu pour <strong>${milliards(resume.exportations)}</strong> de
+  marchandises au reste du monde et en a acheté pour ${milliards(resume.importations)}.
+  ${pourcent(resume.part_ue)} de ces échanges se font avec les 26 autres pays de l'Union
+  européenne, et ${pourcent(resume.part_2000km)} avec des pays dont le centre est à moins de
+  2 000 km de Paris. L'Allemagne, premier partenaire, pèse à elle seule
+  ${milliards(resume.allemagne)} d'échanges, ${virgule(resume.allemagne / resume.afrique)} fois
+  plus que les 54 pays d'Afrique réunis.
+</p>`
+```
+
+Pour le thème *is this a map?*, une carte sans carte : pas un contour, pas une côte, seulement
+des cercles. Chaque pays est un cercle dont la surface est proportionnelle à ce que la France
+lui vend, lui achète, ou à la différence des deux, poussé juste assez loin de sa place pour ne
+pas chevaucher ses voisins (un *cartogramme de Dorling*). On reconnaît pourtant le monde,
+tassé autour de l'Europe. Le bouton « Montrer le monde » remet les contours dessous
+(making of 👇).
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+couleurTerre = sombre ? "#2e2e2e" : "#f2efe8"
+couleurBord = sombre ? "#444" : "#d8d3c8"
+
+// Le taux de couverture (exportations / importations), en cinq classes, du déficit (rouge)
+// à l'excédent (bleu).
+classes = [
+  {nom: "achète 2 fois plus qu'elle ne vend", max: 0.5, clair: "#b2182b", sombre: "#f4776b"},
+  {nom: "achète plus qu'elle ne vend", max: 0.8, clair: "#ef8a62", sombre: "#f4b183"},
+  {nom: "à peu près autant (± 25 %)", max: 1.25, clair: "#cfcac0", sombre: "#8a8a8a"},
+  {nom: "vend plus qu'elle n'achète", max: 2, clair: "#67a9cf", sombre: "#7fb8de"},
+  {nom: "vend 2 fois plus qu'elle n'achète", max: Infinity, clair: "#2166ac", sombre: "#4a9ae0"}
+]
+classe = (d) => classes.find((c) => d.exportations / d.importations < c.max) ?? classes[4]
+couleurClasse = (c) => c[sombre ? "sombre" : "clair"]
+// Le texte sur les cercles : blanc sur les classes foncées.
+couleurTexte = (c) => (c === classes[0] || c === classes[4]) !== sombre ? "#fff" : "#1a1a1a"
+
+paysParCode = new Map(pays.map((p) => [p.pays, p]))
+```
+
+```{ojs}
+//| echo: false
+viewof indicateur = Inputs.radio(new Map([
+  ["📦 Ce que la France vend", "exportations"],
+  ["🛒 Ce qu'elle achète", "importations"],
+  ["⚖️ La différence", "solde"]
+]), {value: "exportations"})
+```
+
+```{ojs}
+//| echo: false
+viewof produit = Inputs.select(groupes, {value: groupes[0], label: "Produits"})
+```
+
+```{ojs}
+//| echo: false
+viewof contours = Inputs.toggle({label: "Montrer le monde", value: false})
+```
+
+```{ojs}
+//| echo: false
+largeur = 900
+hauteur = 540
+// Le globe est calé en bas du cadre : les cercles européens, très gros, débordent vers le nord.
+projection = d3.geoEqualEarth().rotate([-10, 0])
+  .fitExtent([[4, 90], [largeur - 4, hauteur - 4]], {type: "Sphere"})
+
+// Le cartogramme : chaque cercle part de la position du pays (projetée) et s'en écarte
+// juste assez pour ne pas chevaucher ses voisins (d3.forceCollide).
+// L'échelle est la même pour les ventes et les achats d'un même produit : les cercles
+// couvrent ensemble 16 % du cadre pour le plus gros des deux totaux.
+cercles = {
+  const lignes = flux.filter((d) => d.groupe === produit)
+  const total = Math.max(d3.sum(lignes, (d) => d.exportations), d3.sum(lignes, (d) => d.importations))
+  const k = Math.sqrt(0.16 * largeur * hauteur / (Math.PI * total))
+  const noeuds = lignes.flatMap((d) => {
+    const p = paysParCode.get(d.pays)
+    const valeur = indicateur === "solde" ? Math.abs(d.exportations - d.importations) : d[indicateur]
+    if (!p || !(valeur > 0)) return []
+    const [x, y] = projection([p.lon, p.lat])
+    const r = k * Math.sqrt(valeur)
+    // L'étiquette : le nom s'il tient dans le cercle, sinon le code, sinon rien.
+    const taille = Math.max(8.5, Math.min(14, r / 2.6))
+    const etiquette = p.nom.length * 0.6 * taille < 1.9 * r ? p.nom : 1.2 * taille < 1.9 * r ? p.pays : ""
+    return [{...p, ...d, valeur, classe: classe(d), r, taille, etiquette, x, y, x0: x, y0: y}]
+  })
+  const simulation = d3.forceSimulation(noeuds)
+    .force("x", d3.forceX((d) => d.x0).strength(0.08))
+    .force("y", d3.forceY((d) => d.y0).strength(0.08))
+    .force("collision", d3.forceCollide((d) => d.r + 0.6).iterations(4))
+    .stop()
+  // Les cercles restent dans le cadre.
+  for (let i = 0; i < 300; i++) {
+    simulation.tick()
+    for (const d of noeuds) {
+      d.x = Math.max(d.r, Math.min(largeur - d.r, d.x))
+      d.y = Math.max(d.r, Math.min(hauteur - d.r, d.y))
+    }
+  }
+  // Retour en longitude, latitude, pour que Plot les place avec la même projection.
+  for (const d of noeuds) [d.lon, d.lat] = projection.invert([d.x, d.y])
+  return d3.sort(noeuds, (d) => -d.r)
+}
+
+// Les contours de GISCO sont orientés à l'inverse de ce qu'attend d3 : un polygone qui
+// couvrirait plus de la moitié du globe est retourné.
+monde = ({
+  type: "FeatureCollection",
+  features: mondeBrut.features.map((f) => d3.geoArea(f) <= 2 * Math.PI ? f : {
+    ...f,
+    geometry: {
+      type: f.geometry.type,
+      coordinates: f.geometry.type === "Polygon"
+        ? f.geometry.coordinates.map((anneau) => [...anneau].reverse())
+        : f.geometry.coordinates.map((p) => p.map((anneau) => [...anneau].reverse()))
+    }
+  })
+})
+```
+
+```{ojs}
+//| echo: false
+indicateur === "solde"
+  ? Plot.legend({
+      color: {domain: ["La France achète plus qu'elle ne vend", "La France vend plus qu'elle n'achète"],
+              range: [couleurClasse(classes[0]), couleurClasse(classes[4])]}
+    })
+  : Plot.legend({
+      color: {domain: classes.map((c) => `La France ${c.nom}`), range: classes.map(couleurClasse)},
+      columns: "280px"
+    })
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: largeur,
+  height: hauteur,
+  margin: 0,
+  style: {background: fond},
+  projection,
+  r: {type: "identity"},
+  marks: [
+    contours ? [
+      Plot.geo(monde, {fill: couleurTerre, stroke: couleurBord, strokeWidth: 0.5}),
+      Plot.sphere({stroke: couleurBord})
+    ] : [],
+    Plot.dot(cercles, {
+      x: "lon", y: "lat", r: "r",
+      // En mode « différence », deux couleurs seulement : le sens du solde.
+      fill: (d) => couleurClasse(indicateur === "solde"
+        ? (d.exportations < d.importations ? classes[0] : classes[4])
+        : d.classe),
+      fillOpacity: contours ? 0.85 : 1,
+      stroke: fond, strokeWidth: 0.6
+    }),
+    Plot.text(cercles.filter((d) => d.etiquette), {
+      x: "lon", y: "lat", text: "etiquette", fontSize: "taille",
+      fill: (d) => indicateur === "solde"
+        ? "#fff"
+        : couleurTexte(d.classe),
+      fontWeight: 600
+    }),
+    Plot.tip(cercles, Plot.pointer({
+      x: "lon", y: "lat", maxRadius: 30, fill: fond,
+      channels: {
+        "Pays": "nom",
+        "La France lui vend": (d) => milliards(d.exportations),
+        "La France lui achète": (d) => milliards(d.importations),
+        "Solde": (d) => `${d.exportations >= d.importations ? "+" : "−"} ${milliards(Math.abs(d.exportations - d.importations))}`
+      },
+      format: {x: false, y: false}
+    }))
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  ${produit}, 2025. Un cercle par pays, de surface proportionnelle
+  ${indicateur === "exportations" ? "à ce que la France lui vend"
+    : indicateur === "importations" ? "à ce que la France lui achète"
+    : "à la différence entre ce que la France lui vend et ce qu'elle lui achète"}.
+  ${indicateur === "solde" ? "" : "La couleur dit si la France lui vend plus qu'elle ne lui achète."}
+  Pour un même produit, ventes et achats sont à la même échelle ; d'un produit à l'autre,
+  l'échelle change.
+  Sources : Douanes (DSECE), statistiques nationales du commerce extérieur 2025 ;
+  Eurostat, GISCO, pays 2024.
+</small></p>`
+```
+
+Les ventes de la France sont d'abord européennes : Allemagne, Italie, Espagne, Belgique,
+Royaume-Uni, et les États-Unis, seul gros cercle loin de l'Europe. Côté achats, la Chine
+grossit d'un coup : la France lui achète trois fois plus qu'elle ne lui vend. Selon le
+produit, le monde change de forme. L'énergie vient des États-Unis (pétrole et gaz naturel
+liquéfié), de Belgique, d'Algérie, du Nigeria, du Kazakhstan, d'Arabie saoudite, et encore
+de Russie ; les avions partent vers les
+États-Unis, l'Allemagne, la Chine et les Émirats ; les vins et spiritueux vers les
+États-Unis, le Royaume-Uni et Singapour ; les vêtements arrivent de Chine, d'Italie, du
+Bangladesh et du Viêt Nam.
+
+## Une carte à une dimension
+
+Le cartogramme garde un peu de géographie ; on peut n'en garder qu'une seule donnée, la
+distance. Chaque pays est un point : en abscisse, sa distance à Paris ; en ordonnée, la
+somme de ce que la France lui vend et lui achète, les deux sur une échelle logarithmique.
+
+```{ojs}
+//| echo: false
+{
+  const points = flux.filter((d) => d.groupe === groupes[0]).flatMap((d) => {
+    const p = paysParCode.get(d.pays)
+    const echanges = d.exportations + d.importations
+    return p && echanges > 1e6 ? [{...p, ...d, echanges}] : []
+  })
+  const nommes = new Set(d3.sort(points, (d) => -d.echanges).slice(0, 18).map((d) => d.pays))
+  // Les étiquettes sont à droite du point, au-dessus ou, pour ne pas se chevaucher, en dessous.
+  const dessous = new Set(["ES", "NL", "CN", "KR", "SE"])
+  const kms = d3.extent(points, (d) => d.km)
+  return Plot.plot({
+    width: 900,
+    height: 540,
+    marginLeft: 70,
+    marginTop: 30,
+    marginBottom: 45,
+    style: {background: fond},
+    x: {type: "log", label: "Distance à Paris (km, à vol d'oiseau) →", grid: true,
+        ticks: [500, 1000, 2000, 5000, 10000, 20000], tickFormat: entier},
+    y: {type: "log", label: "↑ Échanges avec la France en 2025", grid: true,
+        ticks: [1e6, 1e7, 1e8, 1e9, 1e10, 1e11],
+        tickFormat: (x) => x < 1e9 ? `${entier(x / 1e6)} M€` : `${entier(x / 1e9)} Md€`},
+    color: {domain: ["Union européenne", "Hors Union européenne"],
+            range: sombre ? ["#7fb8de", "#f2a541"] : ["#2166ac", "#d9752b"], legend: true},
+    marks: [
+      // La droite ajustée en Python : échanges proportionnels à distance ^ pente.
+      Plot.line(d3.range(kms[0], kms[1] * 1.01, (kms[1] - kms[0]) / 200), {
+        x: (km) => km, y: (km) => Math.exp(gravite.constante + gravite.pente * Math.log(km)),
+        stroke: "currentColor", strokeOpacity: 0.5, strokeDasharray: "4,3"
+      }),
+      Plot.dot(points, {
+        x: "km", y: "echanges", r: 3.5,
+        fill: (d) => d.ue ? "Union européenne" : "Hors Union européenne",
+        fillOpacity: 0.8, stroke: fond, strokeWidth: 0.5
+      }),
+      [-8, 9].map((dy) => Plot.text(points.filter((d) => nommes.has(d.pays) && dessous.has(d.pays) === (dy > 0)), {
+        x: "km", y: "echanges", text: "nom", dx: 6, dy, textAnchor: "start", fontSize: 11,
+        fill: "currentColor", stroke: fond, strokeWidth: 3
+      })),
+      Plot.tip(points, Plot.pointer({
+        x: "km", y: "echanges", fill: fond,
+        channels: {
+          "Pays": "nom",
+          "Distance à Paris": (d) => `${entier(d.km)} km`,
+          "Échanges": (d) => milliards(d.echanges)
+        },
+        format: {x: false, y: false, fill: false}
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Les ${entier(gravite.pays)} pays avec lesquels la France échange plus d'un
+million d'euros de marchandises en 2025. La distance va de Paris au point d'étiquette du pays
+dans GISCO. La droite en pointillés est ajustée sur l'ensemble des pays : à distance double,
+les échanges sont en moyenne divisés par ${virgule(2 ** -gravite.pente)}.</small></p>`
+```
+
+C'est le vieux *modèle de gravité* du commerce international : on échange d'abord avec ses
+voisins. Mais la distance seule n'explique qu'une petite part des écarts (un R² de
+${virgule(gravite.r2, 2)}) : il manque la taille des pays. Les points au-dessus de la droite
+sont les partenaires plus gros que leur distance ne le laisserait attendre, les États-Unis
+et la Chine au premier chef ; ceux du dessous, de petits pays proches, ou des pays pauvres.
+Ce graphique n'a plus rien d'une carte, et c'est pourtant la géographie qui lui donne sa
+forme.
+
+## Les données
+
+Deux sources, lues avec [DuckDB](https://duckdb.org/) : les statistiques du commerce
+extérieur des Douanes et les pays de GISCO, le service d'information géographique
+d'Eurostat.
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Statistiques nationales du commerce extérieur, exportations et importations 2025](https://www.douane.gouv.fr/la-douane/opendata/mots-cles/commerce-exterieur) | Douanes (DSECE) | Les ventes et les achats de la France par mois, produit (NC8, A129) et pays partenaire, en euros | Texte zippé |
+| [Countries 2024](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/countries) | Eurostat (GISCO) | Le point d'étiquette de chaque pays, son appartenance à l'UE, ses contours au 1:60 millions | GeoParquet |
+
+```{python}
+import pathlib
+import tempfile
+import urllib.request
+import zipfile
+
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Le commerce extérieur (Douanes)
+
+Le département des statistiques et des études du commerce extérieur (DSECE) des Douanes
+publie chaque année deux archives, l'une pour les exportations, l'autre pour les
+importations, d'environ 20 Mo chacune. Le fichier principal n'a pas d'en-tête : flux (`E` ou
+`I`), mois, année, produit en trois nomenclatures (CPF6, A129, NC8), pays partenaire, valeur
+en euros, masse en kilos et unité supplémentaire. Ses 4,7 millions de lignes sont agrégées
+d'emblée par flux, produit (A129) et pays.
+
+```{python}
+DOUANE_URL = "https://www.douane.gouv.fr/sites/default/files/2026-10/07/202608-National-2025-{flux}.zip"
+COLONNES = ["flux", "mois", "annee", "cpf6", "a129", "nc8", "pays", "valeur", "masse", "unite_sup"]
+
+telechargements = pathlib.Path(tempfile.mkdtemp())
+for flux in ["export", "import"]:
+    requete = urllib.request.Request(DOUANE_URL.format(flux=flux),
+                                     headers={"User-Agent": "Mozilla/5.0 (30daymapchallenge)"})
+    with urllib.request.urlopen(requete, timeout=600) as reponse:
+        (telechargements / f"{flux}.zip").write_bytes(reponse.read())
+    with zipfile.ZipFile(telechargements / f"{flux}.zip") as archive:
+        archive.extractall(telechargements)
+
+con.sql(f"""
+CREATE TABLE echanges AS
+SELECT flux, a129, pays, sum(valeur) AS valeur
+FROM read_csv(['{telechargements}/National-2025-export/National_2025_Export.txt',
+               '{telechargements}/National-2025-import/National_2025_Import.txt'],
+              delim = ';', header = false, names = {COLONNES},
+              types = {{'cpf6': 'VARCHAR', 'a129': 'VARCHAR', 'nc8': 'VARCHAR', 'pays': 'VARCHAR'}})
+GROUP BY ALL
+""")
+con.sql(f"""
+CREATE TABLE libelles_pays AS
+SELECT column0 AS pays, column1 AS libelle
+FROM read_csv('{telechargements}/National-2025-export/Libelle_PAYS.txt', delim = ';', header = false)
+WHERE column3 = '999912'
+""")
+
+con.sql("""
+SELECT flux, count(DISTINCT pays) AS pays, round(sum(valeur) / 1e9, 1) AS milliards
+FROM echanges GROUP BY ALL ORDER BY flux DESC
+""").df().style.hide(axis="index")
+```
+
+Les codes pays sont ceux de la nomenclature européenne, proches de l'ISO 3166 : `GB` pour le
+Royaume-Uni, `XS` pour la Serbie. Quelques codes en `Q` ne sont pas des pays : les échanges
+non ventilés par pays (`QU`), l'avitaillement des navires et avions (`QR`, `QS`), la haute mer
+(`QP`). Attention, `QA`, lui, est bien un pays : le Qatar. Enfin, des importations ont pour
+pays d'origine la France (`FR`) : des marchandises françaises qui reviennent, après une
+réparation, un refus ou un aller-retour. On les laisse de côté.
+
+```{python}
+con.sql("""
+SELECT e.pays, l.libelle, round(sum(valeur) / 1e9, 2) AS milliards
+FROM echanges e LEFT JOIN libelles_pays l USING (pays)
+WHERE e.pays LIKE 'Q%' OR e.pays = 'FR'
+GROUP BY ALL ORDER BY milliards DESC
+""").df().style.hide(axis="index")
+```
+
+### Les pays (GISCO)
+
+GISCO publie les pays du monde en GeoParquet, dont un point d'étiquette par pays, placé à
+l'intérieur de ses frontières (dans la partie continentale pour la France ou les
+États-Unis). Ses identifiants suivent aussi la nomenclature européenne, sauf trois : `UK`,
+`EL` (Grèce) et `RS` (Serbie), qu'on renomme comme les Douanes. Les codes en `X` n'ont pas le
+même sens des deux côtés : territoires disputés pour GISCO (`XC`, l'Aksai Chin), enclaves ou
+pays récents pour les Douanes (`XC`, Ceuta). On écarte ceux de GISCO, et on place à la main,
+au centre de leur territoire, Ceuta, Melilla, le Kosovo et Taïwan, qui n'ont pas de point
+dans GISCO.
+
+```{python}
+GISCO_URL = "https://gisco-services.ec.europa.eu/distribution/v2/countries/parquet/CNTR_{couche}_2024_4326.parquet"
+
+con.sql(f"""
+CREATE TABLE positions AS
+SELECT CASE CNTR_ID WHEN 'UK' THEN 'GB' WHEN 'EL' THEN 'GR' WHEN 'RS' THEN 'XS' ELSE CNTR_ID END AS pays,
+       NAME_FREN AS nom, EU_STAT = 'T' AS ue, ST_X(Shape) AS lon, ST_Y(Shape) AS lat
+FROM read_parquet('{GISCO_URL.format(couche="LB")}')
+WHERE CNTR_ID NOT LIKE 'X%'
+UNION ALL
+SELECT * FROM (VALUES
+    ('XC', 'Ceuta', false, -5.32, 35.89), ('XL', 'Melilla', false, -2.94, 35.29),
+    ('XK', 'Kosovo', false, 20.90, 42.60), ('TW', 'Taïwan', false, 120.97, 23.75)
+)
+""")
+
+con.sql("""
+SELECT e.pays, l.libelle, round(sum(valeur) / 1e9, 3) AS milliards
+FROM echanges e LEFT JOIN libelles_pays l USING (pays)
+WHERE e.pays NOT IN (SELECT pays FROM positions) AND e.pays NOT LIKE 'Q%'
+GROUP BY ALL ORDER BY milliards DESC
+""").df().style.hide(axis="index")
+```
+
+Seul reste sans position le Territoire britannique de l'océan Indien, pour quelques
+centaines de milliers d'euros.
+
+## Les traitements
+
+### Les produits
+
+La nomenclature A129 compte 75 postes dans ces fichiers. On en tire neuf familles, pour voir
+le monde changer de forme selon ce qu'on échange ; chaque famille est une liste de préfixes de
+codes A129.
+
+```{python}
+FAMILLES = {
+    "Tous les produits": [""],
+    "Énergie (pétrole, gaz, charbon, électricité)": ["B05", "B06", "C19", "D35"],
+    "Produits agricoles et alimentaires": ["A0", "C10"],
+    "Vins, spiritueux et autres boissons": ["C11"],
+    "Parfums et cosmétiques": ["C20B"],
+    "Médicaments": ["C21"],
+    "Automobiles et équipements": ["C29"],
+    "Avions et engins spatiaux": ["C30C"],
+    "Vêtements, cuir et chaussures": ["C14", "C15"],
+    "Électronique et informatique": ["C26"],
+}
+familles = pd.DataFrame(
+    [(famille, prefixe) for famille, prefixes in FAMILLES.items() for prefixe in prefixes],
+    columns=["groupe", "prefixe"],
+)
+
+con.sql("""
+CREATE TABLE flux AS
+SELECT f.groupe, e.pays,
+       coalesce(sum(e.valeur) FILTER (WHERE e.flux = 'E'), 0) AS exportations,
+       coalesce(sum(e.valeur) FILTER (WHERE e.flux = 'I'), 0) AS importations
+FROM echanges e JOIN familles f ON starts_with(e.a129, f.prefixe)
+WHERE e.pays IN (SELECT pays FROM positions) AND e.pays <> 'FR'
+GROUP BY ALL
+""")
+
+con.sql("""
+SELECT groupe, round(sum(exportations) / 1e9, 1) AS exportations, round(sum(importations) / 1e9, 1) AS importations
+FROM flux GROUP BY ALL ORDER BY sum(exportations + importations) DESC
+""").df().style.hide(axis="index")
+```
+
+### Les distances à Paris
+
+La distance de Paris au point d'étiquette de chaque pays, sur la sphère (formule de
+haversine, avec un rayon terrestre de 6 371 km).
+
+```{python}
+con.sql("""
+CREATE TABLE pays AS
+SELECT pays, nom, ue, lon, lat,
+       2 * 6371 * asin(sqrt(
+           sin(radians(lat - 48.857) / 2) ** 2
+           + cos(radians(48.857)) * cos(radians(lat)) * sin(radians(lon - 2.352) / 2) ** 2
+       )) AS km
+FROM positions
+WHERE pays IN (SELECT pays FROM flux)
+""")
+```
+
+Le modèle de gravité relie le logarithme des échanges à celui de la distance : la pente de la
+droite des moindres carrés (`regr_slope`) est l'élasticité des échanges à la distance. On
+l'ajuste sur les pays avec lesquels la France échange plus d'un million d'euros.
+
+```{python}
+gravite = con.sql("""
+SELECT regr_slope(ln(f.exportations + f.importations), ln(p.km)) AS pente,
+       regr_intercept(ln(f.exportations + f.importations), ln(p.km)) AS constante,
+       regr_r2(ln(f.exportations + f.importations), ln(p.km)) AS r2,
+       count(*) AS pays
+FROM flux f JOIN pays p USING (pays)
+WHERE f.groupe = 'Tous les produits' AND f.exportations + f.importations > 1e6
+""").df().iloc[0]
+gravite
+```
+
+### Les chiffres de l'accroche
+
+```{python}
+resume = con.sql("""
+SELECT sum(exportations) AS exportations, sum(importations) AS importations,
+       sum(exportations + importations) FILTER (WHERE p.ue) / sum(exportations + importations) AS part_ue,
+       sum(exportations + importations) FILTER (WHERE p.km < 2000) / sum(exportations + importations) AS part_2000km,
+       sum(exportations + importations) FILTER (WHERE f.pays = 'DE') AS allemagne,
+       sum(exportations + importations) FILTER (WHERE f.pays IN (
+           'DZ', 'AO', 'BJ', 'BW', 'BF', 'BI', 'CV', 'CM', 'CF', 'KM', 'CG', 'CD', 'CI', 'DJ', 'EG',
+           'ER', 'SZ', 'ET', 'GA', 'GM', 'GH', 'GN', 'GW', 'GQ', 'KE', 'LS', 'LR', 'LY', 'MG', 'MW',
+           'ML', 'MA', 'MU', 'MR', 'MZ', 'NA', 'NE', 'NG', 'UG', 'RW', 'ST', 'SN', 'SC', 'SL', 'SO',
+           'SD', 'SS', 'TZ', 'TD', 'TG', 'TN', 'ZM', 'ZW', 'ZA'
+       )) AS afrique
+FROM flux f JOIN pays p USING (pays)
+WHERE f.groupe = 'Tous les produits'
+""").df().iloc[0]
+resume
+```
+
+### Ce qui passe à la carte
+
+Les contours des pays ne servent qu'au bouton « Montrer le monde » : on les arrondit au
+centième de degré. Le reste, une ligne par pays et par famille de produits, passe tel quel au
+JavaScript avec `ojs_define`. Le cartogramme lui-même est calculé dans la page, avec
+[d3-force](https://d3js.org/d3-force) : chaque cercle est attiré vers la position de son pays,
+projetée en *Equal Earth*, et repoussé par ceux qu'il chevauche, jusqu'à ce que plus aucun ne
+se recouvre. La carte est faite avec [Observable Plot](https://observablehq.com/plot/).
+
+```{python}
+import json
+
+contours = con.sql(f"""
+SELECT ST_AsGeoJSON(ST_ReducePrecision(Shape, 0.01)) AS geojson
+FROM read_parquet('{GISCO_URL.format(couche="RG_60M")}')
+""").fetchall()
+
+ojs_define(
+    flux=con.sql("SELECT * FROM flux ORDER BY groupe, pays").df().to_dict("records"),
+    pays=con.sql("SELECT * FROM pays ORDER BY pays").df().to_dict("records"),
+    groupes=list(FAMILLES),
+    gravite={k: float(gravite[k]) for k in gravite.index},
+    resume={k: float(resume[k]) for k in resume.index},
+    mondeBrut={
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "properties": {}, "geometry": json.loads(g)} for (g,) in contours],
+    },
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+tableComplete = flux.map((d) => {
+  const p = paysParCode.get(d.pays)
+  return {
+    groupe: d.groupe, pays: d.pays, nom: p.nom, ue: p.ue ? "oui" : "non",
+    exportations: d.exportations, importations: d.importations,
+    solde: d.exportations - d.importations,
+    couverture: d.importations > 0 ? d.exportations / d.importations : null,
+    km: p.km
+  }
+})
+viewof tableau = Inputs.search(tableComplete.filter((d) => d.groupe === produit), {
+  placeholder: "Rechercher un pays…",
+  columns: ["pays", "nom"],
+  format: (n) => `${entier(n)} pays · ${produit}`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["pays", "nom", "ue", "exportations", "importations", "solde", "couverture", "km"],
+  header: {
+    pays: "Code", nom: "Pays", ue: "UE", exportations: "Ventes (M€)", importations: "Achats (M€)",
+    solde: "Solde (M€)", couverture: "Taux de couverture", km: "Distance à Paris (km)"
+  },
+  format: {
+    exportations: (x) => entier(x / 1e6), importations: (x) => entier(x / 1e6),
+    solde: (x) => entier(x / 1e6), couverture: (x) => x === null ? "–" : pourcent(x), km: entier
+  },
+  sort: "exportations",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(tableComplete)], {type: "text/csv"}),
+  "commerce_exterieur_pays_2025.csv",
+  "Télécharger toutes les familles de produits (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Ce sont des marchandises : les services (tourisme, transport, logiciels, conseil…), où la
+  France est excédentaire, ne sont pas dans ces fichiers.
+- Les données de l'open data sont brutes de collecte, sans correction de la non-réponse,
+  contrairement aux chiffres publiés chaque mois par les Douanes : les totaux diffèrent un peu
+  de ceux du [chiffre du commerce extérieur](https://lekiosque.finances.gouv.fr/). Depuis 2022,
+  les échanges avec l'UE sont collectés par une nouvelle enquête (EMEBI), ce qui peut créer des
+  ruptures de série.
+- Le pays partenaire n'est pas toujours celui qu'on croit : à l'export, c'est le pays de
+  destination ; à l'import, le pays d'origine pour les marchandises venues de hors de l'UE,
+  mais le pays d'expédition pour celles qui arrivent d'un autre pays de l'UE. Un produit chinois
+  dédouané à Rotterdam puis livré en France peut ainsi compter comme un achat aux Pays-Bas.
+- Les départements d'outre-mer font partie du territoire statistique français, de même que
+  Monaco : leurs échanges avec la métropole ne sont pas du commerce extérieur. La
+  Nouvelle-Calédonie, la Polynésie française ou Saint-Pierre-et-Miquelon sont, eux, des
+  partenaires comme les autres.
+- 13,6 milliards d'euros d'échanges ne sont pas ventilés par pays (`QU`) et ne figurent pas sur la
+  carte.
+- La position d'un cercle n'est qu'approchée : il part du point d'étiquette du pays, qui n'est
+  pas son centre (celui des États-Unis exclut l'Alaska), et s'en écarte pour laisser la place
+  aux autres. Les cercles des petits pays proches d'un gros voisin (Luxembourg, Suisse, Pays-Bas)
+  peuvent finir assez loin de leur place.
+
+## Pour aller plus loin
+
+- [J10 · Prompting only](10-prompting-only.qmd) : le premier client de chaque département,
+  avec les statistiques départementales des Douanes.
+- Douanes, [Le chiffre du commerce extérieur](https://lekiosque.finances.gouv.fr/) : séries
+  mensuelles corrigées, par produit et par pays.
+- Daniel Dorling, *Area cartograms: their use and creation* (1996), l'article qui a donné son
+  nom aux cartogrammes de cercles.

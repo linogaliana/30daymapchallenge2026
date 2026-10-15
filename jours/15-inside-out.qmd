@@ -1,0 +1,632 @@
+---
+title: "J15 · Inside out. Né ici, mort ailleurs"
+description: "Chaque département vu de l'intérieur et de l'extérieur : ceux qui y sont nés et sont morts ailleurs, ceux qui y sont morts et étaient nés ailleurs, d'après le fichier des décès de l'Insee."
+image: vignettes/15-inside-out.webp
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+html`<p class="lead">
+  En ${chiffres.annee}, <strong>${entier(chiffres.deces)} personnes</strong> sont mortes en
+  France. Moins d'une sur deux, ${pourcent(chiffres.part_meme)}, est morte dans le département où
+  elle était née. ${pourcent(chiffres.part_autre_dep)} étaient nées dans un autre département,
+  ${pourcent(chiffres.part_etranger)} à l'étranger.
+</p>`
+```
+
+Pour ce quinzième jour, on retourne chaque département comme un gant. Vu de l'intérieur : parmi
+ceux qui y sont nés, combien sont allés mourir ailleurs ? Vu de l'extérieur : parmi ceux qui y
+sont morts, combien venaient d'ailleurs ? Le fichier des décès de l'Insee est la seule source
+exhaustive qui donne, pour chaque personne, son lieu de naissance et son lieu de décès : le
+début et la fin d'une vie (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+
+// Orange pour ceux qui partent, bleu pour ceux qui arrivent. Sur fond sombre, l'ordre
+// est inversé : les petites valeurs se fondent dans le fond.
+oranges = ["#fde0c5", "#f6b083", "#eb6834", "#b8461c", "#7a2c0e"]
+bleus = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]
+gamme = (g) => (sombre ? [...g].reverse() : g)
+// Le département choisi, dans les cartes du bas.
+couleurSoi = sombre ? "#f2f2f2" : "#333"
+
+parCode = new Map(departements.map((d) => [d.code, d]))
+nomDe = (code) => (parCode.has(code) ? `${parCode.get(code).nom} (${code})` : code)
+
+decrire = (d) => `${d.nom} (${d.code})\n` +
+  `${entier(d.nes)} personnes nées ici et mortes en ${chiffres.annee},\n` +
+  `dont ${pourcent(d.part_partis)} mortes hors du département\n` +
+  `${entier(d.morts)} personnes mortes ici,\n` +
+  `dont ${pourcent(d.part_venus)} nées ailleurs (${pourcent(d.part_etranger)} à l'étranger)\n` +
+  `Cliquer pour choisir ce département`
+
+projection = ({type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: contours})
+
+// Une carte des départements, colorée par `valeur` ; un clic choisit le département.
+carte = ({titre, valeur, echelle, bulle, choisi, remplir = false}) => {
+  const plot = Plot.plot({
+    title: titre,
+    width: 520,
+    style: stylePlot,
+    projection,
+    color: {...echelle, legend: true, width: 300, style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.geo(contours, {fill: (f) => valeur(f.properties.code), stroke: fond, strokeWidth: 0.4}),
+      // Le département choisi : cerné, et rempli dans les cartes du détail.
+      Plot.geo(contours.features.filter((f) => f.properties.code === choisi),
+        {stroke: "currentColor", strokeWidth: 1.5, fill: remplir ? couleurSoi : "none"}),
+      Plot.tip(contours.features, Plot.pointer(Plot.centroid({title: (f) => bulle(f.properties.code)})))
+    ]
+  })
+  plot.style.cursor = "pointer"
+  plot.addEventListener("click", () => {
+    if (!plot.value) return
+    viewof choix.value = plot.value.properties.code
+    viewof choix.dispatchEvent(new Event("input", {bubbles: true}))
+  })
+  return plot
+}
+
+seuils = [0.3, 0.4, 0.5, 0.65]
+legendeSeuils = (label, g) => ({type: "threshold", domain: seuils, range: gamme(g), label, tickFormat: (x) => pourcent(x)})
+```
+
+## Dedans, dehors
+
+À gauche, la part des personnes nées dans le département qui sont mortes ailleurs ; à droite, la
+part des personnes mortes dans le département qui étaient nées ailleurs. Cliquez sur un
+département pour le voir en détail plus bas.
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+html`<div class="duo">
+  ${carte({
+    titre: "Nés ici, morts ailleurs",
+    valeur: (code) => parCode.get(code)?.part_partis,
+    echelle: legendeSeuils("Part des natifs morts hors du département", oranges),
+    bulle: (code) => decrire(parCode.get(code)),
+    choisi: choix
+  })}
+  ${carte({
+    titre: "Morts ici, nés ailleurs",
+    valeur: (code) => parCode.get(code)?.part_venus,
+    echelle: legendeSeuils("Part des décédés nés hors du département", bleus),
+    bulle: (code) => decrire(parCode.get(code)),
+    choisi: choix
+  })}
+</div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>Décès survenus en ${chiffres.annee}. Paris et la petite couronne sont agrandies à
+gauche, les départements d'outre-mer rapprochés. Source : Insee, fichier des personnes décédées,
+code officiel géographique ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small></p>`
+```
+
+Les deux cartes ne se ressemblent pas. Celle des départs est d'abord celle des maternités : on
+naît là où l'on accouche, et à Paris naissent beaucoup d'enfants de la banlieue. Celle des
+arrivées a deux pôles : la banlieue parisienne, où l'on meurt après être né à Paris, en province
+ou à l'étranger ; le littoral méditerranéen, où l'on s'installe pour la retraite. L'Alsace, le
+Nord et le Pas-de-Calais, La Réunion et les Antilles gardent leurs natifs et en accueillent
+peu.
+
+## Un département, retourné
+
+```{ojs}
+//| echo: false
+viewof choix = Inputs.select(
+  d3.sort(departements, (d) => d.code).map((d) => d.code),
+  {label: "Département", value: "75", format: nomDe}
+)
+```
+
+```{ojs}
+//| echo: false
+choisi = parCode.get(choix)
+// Où sont morts ceux qui sont nés dans le département choisi, et d'où venaient ceux qui y
+// sont morts : des parts du total, pour comparer des départements de tailles différentes.
+sorties = new Map(flux.filter((d) => d.naissance === choix).map((d) => [d.deces, d.n / choisi.nes]))
+entrees = new Map(flux.filter((d) => d.deces === choix).map((d) => [d.naissance, d.n / choisi.morts]))
+seuilsFlux = [0.005, 0.01, 0.02, 0.05]
+legendeFlux = (label, g) => ({type: "threshold", domain: seuilsFlux, range: gamme(g), label,
+  tickFormat: (x) => pourcent(x, x < 0.01 ? 1 : 0)})
+// Les plus grosses destinations et origines, hors du département lui-même.
+premiers = (m, n = 5) => d3.sort([...m].filter(([code]) => code !== choix && parCode.has(code)), ([, p]) => -p)
+  .slice(0, n)
+liste = (paires) => paires.map(([code, p]) => `${nomDe(code)}, ${pourcent(p, 1)}`).join(" ; ")
+pays = origines.filter((d) => d.deces === choix)
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+html`<div class="duo">
+  ${carte({
+    titre: `Où sont morts les natifs : ${nomDe(choix)}`,
+    valeur: (code) => sorties.get(code) ?? 0,
+    echelle: legendeFlux("Part des natifs du département morts ici", oranges),
+    bulle: (code) => `${nomDe(code)}\n${pourcent(sorties.get(code) ?? 0, 1)} des natifs : ${nomDe(choix)}`,
+    choisi: choix,
+    remplir: true
+  })}
+  ${carte({
+    titre: `D'où venaient les morts : ${nomDe(choix)}`,
+    valeur: (code) => entrees.get(code) ?? 0,
+    echelle: legendeFlux("Part des décédés du département nés ici", bleus),
+    bulle: (code) => `${nomDe(code)}\n${pourcent(entrees.get(code) ?? 0, 1)} des décédés : ${nomDe(choix)}`,
+    choisi: choix,
+    remplir: true
+  })}
+</div>`
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>Le département choisi est en ${sombre ? "blanc" : "gris foncé"}. Les couleurs donnent
+une part de tous ses natifs (à gauche) ou de tous ses décédés (à droite) : les petits flux ne se
+voient qu'à côté des grands.</small></p>`
+```
+
+```{ojs}
+//| echo: false
+html`<p><strong>Dedans → dehors.</strong> Sur ${entier(choisi.nes)} personnes nées dans ce
+département et mortes en ${chiffres.annee}, ${pourcent(1 - choisi.part_partis)} y sont mortes.
+Hors du département, d'abord dans : ${liste(premiers(sorties))}.
+${sorties.get("etranger") ? `${pourcent(sorties.get("etranger"), 1)} sont mortes à l'étranger.` : ""}</p>
+<p><strong>Dehors → dedans.</strong> Sur ${entier(choisi.morts)} personnes mortes dans ce
+département, ${pourcent(1 - choisi.part_venus)} y étaient nées. Les autres venaient d'abord
+de : ${liste(premiers(entrees))}. ${pourcent(choisi.part_etranger)} étaient nées à
+l'étranger${pays.length ? `, d'abord ${pays.map((d) => `${d.pays} (${entier(d.n)})`).join(", ")}` : ""}.</p>`
+```
+
+--------
+
+On va maintenant décrire comment obtenir les données de ces cartes.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Fichier des personnes décédées](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees) | Insee, à partir de l'état civil | le lieu de naissance et le lieu de décès de chaque personne morte en 2025 | texte à largeur fixe |
+| [Fichier des oppositions à la publication des décès](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees) | Insee | les décès à retirer | CSV |
+| [Code officiel géographique 2026](https://www.insee.fr/fr/information/8740222) | Insee | l'historique des codes de communes depuis 1943, les noms des pays | CSV |
+| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour et le nom de chaque département, outre-mer rapproché | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import json
+import shutil
+import tempfile
+import urllib.request
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Le fichier des décès (Insee)
+
+Chaque mois, les mairies transmettent à l'Insee les actes de décès. L'Insee en publie un fichier
+par année, sur [data.gouv.fr](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees).
+C'est un fichier texte à largeur fixe : une ligne de 200 caractères par décès, où chaque
+information occupe toujours les mêmes positions.
+
+| Positions | Contenu |
+|---|---|
+| 1 à 80 | nom et prénoms |
+| 81 | sexe |
+| 82 à 89 | date de naissance (AAAAMMJJ) |
+| 90 à 94 | code du lieu de naissance |
+| 95 à 124 | commune de naissance |
+| 125 à 154 | pays de naissance |
+| 155 à 162 | date de décès (AAAAMMJJ) |
+| 163 à 167 | code du lieu de décès |
+| 168 à 176 | numéro d'acte de décès |
+
+Le fichier de 2025 pèse 130 Mo. On le télécharge par le lien permanent de data.gouv.fr, qui
+renvoie vers la dernière version publiée.
+
+```{python}
+DECES_URL = "https://www.data.gouv.fr/api/1/datasets/r/a4153e14-68b4-41b7-937c-53c0c62ff4a3"
+OPPOSITIONS_URL = "https://www.data.gouv.fr/api/1/datasets/r/7bcdfa57-dc50-43a8-beb6-6c76537e7057"
+ANNEE = 2025
+
+
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+            return
+        except OSError:
+            if essai == essais - 1:
+                raise
+```
+
+DuckDB lit chaque ligne en une seule colonne (avec un séparateur qui n'apparaît jamais), puis
+`substr` découpe les positions. Le nom et les prénoms ne sont pas lus. On garde les décès
+survenus en 2025 : le fichier contient aussi quelques décès plus anciens, transmis en retard.
+
+```{python}
+#| output: false
+with tempfile.TemporaryDirectory() as dossier:
+    telecharger(DECES_URL, f"{dossier}/deces.txt")
+    telecharger(OPPOSITIONS_URL, f"{dossier}/oppositions.csv")
+    con.sql(f"""
+    CREATE TABLE deces AS
+    SELECT substr(ligne, 90, 5) AS lieu_naissance,
+           substr(ligne, 155, 8) AS date_deces,
+           substr(ligne, 163, 5) AS lieu_deces,
+           trim(substr(ligne, 168, 9)) AS acte
+    FROM read_csv('{dossier}/deces.txt', columns = {{'ligne': 'VARCHAR'}},
+                  delim = '\x01', quote = '', header = false)
+    WHERE substr(ligne, 155, 4) = '{ANNEE}'
+    """)
+    con.sql(f"""
+    CREATE TABLE oppositions AS
+    SELECT "Date de décès" AS date_deces, "Code du lieu de décès" AS lieu_deces,
+           "Numéro d'acte de décès" AS acte
+    FROM read_csv('{dossier}/oppositions.csv', delim = ';', header = true, all_varchar = true)
+    """)
+```
+
+Les proches d'une personne décédée peuvent s'opposer à la publication de son décès. L'Insee
+publie la liste de ces décès (date, lieu et numéro d'acte), qu'il faut retirer du fichier.
+
+```{python}
+retires = con.sql("""
+SELECT count(*) FROM deces JOIN oppositions USING (date_deces, lieu_deces, acte)
+""").fetchone()[0]
+con.sql("""
+DELETE FROM deces USING oppositions o
+WHERE deces.date_deces = o.date_deces AND deces.lieu_deces = o.lieu_deces AND deces.acte = o.acte
+""")
+total = con.sql("SELECT count(*) FROM deces").fetchone()[0]
+```
+
+On garde `{python} f"{total:,}".replace(",", " ")` décès survenus en `{python} ANNEE`, après en
+avoir retiré `{python} retires` pour opposition.
+
+### Le code officiel géographique (Insee)
+
+Le lieu de naissance est codé avec la géographie de la date de naissance, pas celle
+d'aujourd'hui. Une personne née à Montreuil en 1940 est née dans la Seine, avec le code `75048` ;
+née en 1970, elle a le code `93048` de la Seine-Saint-Denis, créée en 1968. De même, la Corse
+était un seul département (`20`) avant 1976, et l'Algérie française avait ses propres codes,
+qui ressemblent à ceux de l'Essonne ou des Hauts-de-Seine (`91352` pour le département d'Alger,
+`92352` pour celui d'Oran).
+
+Le [code officiel géographique](https://www.insee.fr/fr/information/8740222) (COG) donne
+l'historique de toutes les communes depuis 1943 et la liste des événements qui les ont
+touchées. On en garde les changements de département (code `41`) et les fusions de communes
+(codes `31` à `34`) : une commune absorbée avant un changement de département doit le suivre.
+Chaque code ancien reçoit le code qui l'a remplacé, au dernier de ses événements.
+
+```{python}
+COG_URL = "https://www.insee.fr/fr/statistiques/fichier/8740222/"
+
+con.sql(f"""
+CREATE TABLE communes_cog AS
+SELECT DISTINCT COM AS com FROM read_csv('{COG_URL}v_commune_depuis_1943.csv', all_varchar = true);
+
+CREATE TABLE evenements AS
+SELECT MOD AS type, COM_AV AS avant, COM_AP AS apres, DATE_EFF AS date
+FROM read_csv('{COG_URL}v_mvt_commune_2026.csv', all_varchar = true)
+WHERE MOD IN ('31', '32', '33', '34', '41')
+  AND TYPECOM_AV = 'COM' AND TYPECOM_AP = 'COM' AND COM_AV <> COM_AP;
+
+CREATE TABLE successeurs AS
+SELECT avant, arg_max(apres, date) AS apres FROM evenements GROUP BY avant;
+
+-- Le nom actuel de chaque pays ou territoire (codes 99xxx).
+CREATE TABLE pays AS
+SELECT COG AS code, arg_max(LIBCOG, coalesce(DATE_FIN, '9999')) AS pays
+FROM read_csv('{COG_URL}v_pays_et_territoire_depuis_1943.csv', all_varchar = true)
+GROUP BY ALL;
+""")
+```
+
+Les changements de département, par année :
+
+```{python}
+con.sql("""
+SELECT left(date, 4) AS annee, left(avant, 2) AS avant, left(apres, 2) AS apres, count(*) AS communes
+FROM evenements WHERE type = '41' GROUP BY ALL HAVING count(*) > 5 ORDER BY annee, avant, apres
+""").df().style.hide(axis="index")
+```
+
+### Les départements (cartiflette)
+
+Les contours des départements 2026 viennent de [cartiflette](https://github.com/InseeFrLab/cartiflette),
+dans la version où les départements d'outre-mer sont rapprochés de la métropole et où Paris et
+sa petite couronne sont agrandies (`layout=FRANCE_ENTIERE_DROM_RAPPROCHES`). Ils sont simplifiés
+ensemble (`ST_CoverageSimplify`) pour rester jointifs.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level=DEPARTEMENT/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE noms AS
+SELECT INSEE_DEP AS code, LIBELLE_DEPARTEMENT AS nom, geometry
+FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+""")
+
+lignes = con.sql("""
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY code), 0.01) AS geom
+    FROM noms
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Collect(list(geom)), 0.001)) AS geojson
+FROM morceaux GROUP BY ALL
+""").fetchall()
+
+contours = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"code": code}, "geometry": json.loads(geojson)}
+        for code, geojson in lignes
+    ],
+}
+```
+
+## Les traitements
+
+### Ramener chaque lieu à un département d'aujourd'hui
+
+Pour le lieu de naissance, on remplace chaque code par son successeur, jusqu'à trois fois :
+`75048` devient `93048`, `20004` devient `2A004`. Brustico (`20044`), absorbée en 1972 par
+Carcheto-Brustico (`20063`), passe ensuite en Haute-Corse (`2B063`). Les anciens codes de Mayotte
+(`985xx`, avant qu'elle devienne un département) sont ramenés aux actuels (`976xx`).
+
+Un code de commune présent dans le COG donne un département : les deux premiers caractères, trois
+en outre-mer. Un code `99xxx` est un pays étranger, dont on garde le nom. Les codes des
+départements de l'Algérie française (`91352` à `94352`) ne sont pas des communes du COG : ils
+vont avec l'Algérie. Le reste (collectivités d'outre-mer comme la Polynésie, anciennes colonies)
+est classé à part. Le lieu de décès, codé dans la géographie de 2025, suit les mêmes règles.
+
+```{python}
+con.sql("""
+CREATE MACRO departement(code) AS CASE WHEN code LIKE '97%' THEN left(code, 3) ELSE left(code, 2) END;
+
+CREATE MACRO lieu(code) AS CASE
+    WHEN code IN (SELECT com FROM communes_cog) THEN departement(code)
+    WHEN code LIKE '99%' OR code IN ('91352', '92352', '93352', '94352') THEN 'etranger'
+    ELSE 'autre'
+END;
+
+CREATE TABLE lieux AS
+WITH recodes AS (
+    SELECT d.*,
+           CASE WHEN lieu_naissance LIKE '985%' THEN '976' || right(lieu_naissance, 2)
+                ELSE lieu_naissance END AS code0
+    FROM deces d
+)
+SELECT lieu(coalesce(s3.apres, s2.apres, s1.apres, code0)) AS naissance,
+       CASE WHEN code0 LIKE '99%' THEN code0
+            WHEN code0 IN ('91352', '92352', '93352', '94352') THEN '99352' END AS pays_naissance,
+       lieu(lieu_deces) AS deces
+FROM recodes
+LEFT JOIN successeurs s1 ON s1.avant = code0
+LEFT JOIN successeurs s2 ON s2.avant = s1.apres
+LEFT JOIN successeurs s3 ON s3.avant = s2.apres
+""")
+
+con.sql("""
+SELECT naissance, count(*) AS deces FROM lieux
+WHERE naissance IN ('75', '93', '20', '2A', '2B', 'etranger', 'autre') GROUP BY ALL ORDER BY naissance
+""").df().style.hide(axis="index")
+```
+
+Plus personne n'est rattaché à la Corse unique (`20`) : chacun a retrouvé la Corse-du-Sud ou la
+Haute-Corse (le contrôle plus bas le vérifie pour tous les départements).
+
+### Compter les départs et les arrivées
+
+Chaque décès est un flux, du département de naissance vers celui du décès. On les compte par
+couple.
+
+```{python}
+con.sql("""
+CREATE TABLE flux AS
+SELECT naissance, deces, count(*)::INTEGER AS n FROM lieux GROUP BY ALL
+""")
+```
+
+Pour chaque département, vu de l'intérieur : les natifs, et la part de ceux morts ailleurs (dans
+un autre département, à l'étranger ou en outre-mer hors département) ; vu de l'extérieur : les
+décédés, et la part de ceux nés ailleurs, dont à l'étranger.
+
+```{python}
+departements = con.sql("""
+WITH dedans AS (
+    SELECT naissance AS code, sum(n) AS nes, sum(n) FILTER (WHERE deces <> naissance) AS partis
+    FROM flux GROUP BY ALL
+),
+dehors AS (
+    SELECT deces AS code, sum(n) AS morts,
+           sum(n) FILTER (WHERE naissance <> deces) AS venus,
+           coalesce(sum(n) FILTER (WHERE naissance = 'etranger'), 0) AS etrangers
+    FROM flux GROUP BY ALL
+)
+SELECT code, nom, nes::INTEGER AS nes, partis::INTEGER AS partis,
+       round(partis / nes, 4) AS part_partis,
+       morts::INTEGER AS morts, venus::INTEGER AS venus,
+       round(venus / morts, 4) AS part_venus,
+       round(etrangers / morts, 4) AS part_etranger
+FROM noms JOIN dedans USING (code) JOIN dehors USING (code)
+ORDER BY code
+""").df()
+departements.sort_values("part_partis").head(5).style.hide(axis="index").format(
+    {"part_partis": "{:.0%}", "part_venus": "{:.0%}", "part_etranger": "{:.0%}"}
+)
+```
+
+Pour chaque département, les cinq premiers pays de naissance de ceux qui y sont morts :
+
+```{python}
+origines = con.sql("""
+SELECT deces, p.pays, count(*)::INTEGER AS n
+FROM lieux JOIN pays p ON p.code = pays_naissance
+WHERE deces IN (SELECT code FROM noms)
+GROUP BY deces, p.pays
+QUALIFY row_number() OVER (PARTITION BY deces ORDER BY n DESC, p.pays) <= 5
+ORDER BY deces, n DESC
+""").df()
+origines[origines.deces == "75"].style.hide(axis="index")
+```
+
+Et les chiffres de l'accroche, pour la France entière :
+
+```{python}
+chiffres = con.sql(f"""
+SELECT {ANNEE} AS annee, count(*) AS deces,
+       avg((naissance NOT IN ('etranger', 'autre') AND naissance = deces)::INTEGER) AS part_meme,
+       avg((naissance NOT IN ('etranger', 'autre') AND naissance <> deces)::INTEGER) AS part_autre_dep,
+       avg((naissance = 'etranger')::INTEGER) AS part_etranger
+FROM lieux
+""").df()
+chiffres.style.hide(axis="index").format(
+    {"part_meme": "{:.1%}", "part_autre_dep": "{:.1%}", "part_etranger": "{:.1%}"}
+)
+```
+
+### Contrôler
+
+Chaque lieu doit être un département d'aujourd'hui, l'étranger ou « autre » ; chaque
+département de la carte doit avoir ses chiffres ; et les décès des départements, plus ceux
+survenus à l'étranger ou hors département, redonner le total.
+
+```{python}
+#| output: false
+lieux_connus = set(departements.code) | {"etranger", "autre"}
+inconnus = set(con.sql("SELECT naissance FROM flux UNION SELECT deces FROM flux").df().naissance) - lieux_connus
+assert not inconnus, f"lieux inconnus : {inconnus}"
+manquants = {f["properties"]["code"] for f in contours["features"]} - set(departements.code)
+assert not manquants, f"départements sans données : {manquants}"
+hors = con.sql("SELECT sum(n) FROM flux WHERE deces IN ('etranger', 'autre')").fetchone()[0]
+assert departements.morts.sum() + hors == total
+```
+
+```{python}
+#| echo: false
+ojs_define(
+    departements=departements.to_dict("records"),
+    flux=con.sql("SELECT * FROM flux").df().to_dict("records"),
+    origines=origines.to_dict("records"),
+    chiffres=chiffres.to_dict("records")[0],
+    contours=contours,
+)
+```
+
+## Les données de la carte
+
+Une ligne par département.
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(departements, {
+  placeholder: "Rechercher un département…",
+  format: (n) => `${n} départements`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["code", "nom", "nes", "part_partis", "morts", "part_venus", "part_etranger"],
+  header: {
+    code: "Code", nom: "Département", nes: "Nés ici", part_partis: "… morts ailleurs",
+    morts: "Morts ici", part_venus: "… nés ailleurs", part_etranger: "… nés à l'étranger"
+  },
+  format: {part_partis: pourcent, part_venus: pourcent, part_etranger: pourcent},
+  sort: "part_partis",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p>
+  ${DOM.download(
+    () => new Blob([d3.csvFormat(departements)], {type: "text/csv"}),
+    `deces_${chiffres.annee}_departements.csv`,
+    "Télécharger les départements (CSV)"
+  )}
+  ${DOM.download(
+    () => new Blob([d3.csvFormat(flux)], {type: "text/csv"}),
+    `deces_${chiffres.annee}_flux.csv`,
+    "Télécharger les flux de naissance à décès (CSV)"
+  )}
+</p>`
+```
+
+:::
+
+## Précautions
+
+- Le lieu de naissance est celui de la maternité, pas celui où vivaient les parents. Depuis les
+  années 1960, on naît presque toujours à l'hôpital : les grandes villes, Paris en tête,
+  comptent beaucoup de natifs qui n'y ont jamais habité.
+- De même, le lieu de décès est souvent un hôpital ou un Ehpad : on meurt parfois dans le
+  département voisin de celui où l'on vivait. La carte ne montre pas les déménagements, seulement
+  le début et la fin de la vie.
+- Les personnes mortes en 2025 sont surtout âgées : la carte raconte les migrations des
+  générations nées entre les années 1920 et 1950, pas celles des jeunes d'aujourd'hui.
+- Le fichier ne recense les décès survenus à l'étranger que s'ils ont été transcrits à l'état
+  civil français : la part des natifs morts à l'étranger est sous-estimée.
+- Le fichier des décès de 2025 contient les décès transmis à l'Insee en 2025. Les décès de la
+  fin d'année 2025 transmis en 2026 manquent, soit environ 2 % des décès de l'année.
+
+## Pour aller plus loin
+
+- Insee, [fichier des personnes décédées](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees),
+  depuis 1970, avec sa documentation.
+- Insee, [code officiel géographique](https://www.insee.fr/fr/information/8740222) et l'historique
+  des communes depuis 1943.
+- Le jour 2 de ce défi, sur les [navettes domicile-travail](02-lines.qmd) : un autre
+  dedans-dehors, à l'échelle d'une journée.

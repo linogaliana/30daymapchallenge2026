@@ -493,3 +493,9 @@ button.ecouter:hover {
     display: none;
   }
 }
+
+/* Petits multiples plus serrés (J23 : une carte par fromage) */
+.multiples-serres {
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.8em 1em;
+}

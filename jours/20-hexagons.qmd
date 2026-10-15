@@ -1,0 +1,823 @@
+---
+title: "J20 · Hexagons. L'école d'à côté"
+description: "La France métropolitaine en hexagones de 42 km² : d'où viennent les élèves des écoles publiques et privées qui s'y côtoient, d'après l'indice de position sociale de la DEPP."
+resources:
+  - donnees/j20/*.csv
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+signe = (x, n = 1) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${virgule(Math.abs(x), n)}`
+html`<p class="lead">
+  Découpons la France métropolitaine en hexagones de ${virgule(chiffres.surface_km2, 0)} km². Dans
+  <strong>${entier(chiffres.mixtes)} d'entre eux</strong>, une école publique et une école privée sous
+  contrat accueillent les enfants du même coin. Dans ${pourcent(chiffres.part_prive_plus)} de ces
+  hexagones, les élèves du privé viennent d'un milieu plus favorisé que ceux du public, d'après
+  l'indice de position sociale de la DEPP : <strong>${signe(chiffres.ecart_median)} points</strong>
+  d'écart en médiane, et plus de 20 points dans ${pourcent(chiffres.part_ecart_20)} des cas.
+</p>`
+```
+
+Le vingtième thème du défi, ce sont les hexagones. Ce pavage est un classique de la
+cartographie statistique : des cases toutes de même taille, qui ne dépendent pas des limites
+communales, et dont chacune touche six voisines par un côté. On s'en sert ici pour comparer ce
+qui se compare : les écoles d'un même petit territoire. L'indice de position sociale (IPS) résume
+la profession des parents des élèves ; plus il est élevé, plus les élèves sont d'origine
+favorisée. Choisissez les écoles à regarder (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+grisFond = sombre ? "#333" : "#ece9e2"
+
+hexagones = d3.csv("donnees/j20/hexagones.csv", d3.autoType)
+ecolesZoom = d3.csv("donnees/j20/ecoles_villes.csv", d3.autoType)
+villes = transpose(villes_colonnes)
+regions = transpose(regions_colonnes)
+
+// Un hexagone à sommet plat, de côté COTE, autour de son centre (en mètres, LAEA).
+hexagone = (x, y) => ({
+  type: "Polygon",
+  coordinates: [d3.range(7).map((i) => [x + COTE * Math.cos(Math.PI / 3 * i), y + COTE * Math.sin(Math.PI / 3 * i)])]
+})
+formes = new Map(hexagones.map((h) => [h, hexagone(h.x, h.y)]))
+
+styleLegende = ({width: 320, style: {background: "transparent", color: "inherit"}})
+// L'IPS : de l'orange (élèves d'origine défavorisée) au violet (favorisée).
+echelleIps = ({type: "threshold", domain: [85, 95, 105, 115, 125], scheme: "PuOr", reverse: true, label: "IPS moyen des écoles", tickFormat: (x) => virgule(x, 0), ...styleLegende})
+// L'écart privé − public : en gris quand il est trop faible pour être interprété (3 points).
+echelleEcart = ({
+  type: "threshold", domain: [-3, 3, 10, 20],
+  range: sombre ? ["#4cc1b2", "#5a5a5a", "#7d4a6c", "#b8679a", "#f2a7d3"] : ["#2a9d8f", "#d6d1c7", "#e7b3d0", "#c25a9a", "#7a1f5c"],
+  label: "Écart d'IPS privé − public (points)", tickFormat: (x) => signe(x, 0), ...styleLegende
+})
+indicateurs = [
+  {nom: "Toutes les écoles", cle: "ips", echelle: echelleIps},
+  {nom: "Les écoles publiques", cle: "ips_public", echelle: echelleIps},
+  {nom: "Les écoles privées sous contrat", cle: "ips_prive", echelle: echelleIps},
+  {nom: "L'écart entre le privé et le public", cle: "ecart", echelle: echelleEcart}
+]
+decrire = (h, s) => {
+  const ligne = (secteur, nom) => h[`ecoles_${secteur}${s}`] === 0 ? `aucune école ${nom}` :
+    `${entier(h[`ecoles_${secteur}${s}`])} école${h[`ecoles_${secteur}${s}`] > 1 ? "s" : ""} ${nom}${h[`ecoles_${secteur}${s}`] > 1 ? "s" : ""}, IPS ${virgule(h[`ips_${secteur}${s}`])}`
+  return `${ligne("public", "publique")}\n${ligne("prive", "privée")}` +
+    (h[`ecart${s}`] === null ? "" : `\nÉcart privé − public : ${signe(h[`ecart${s}`])} points`)
+}
+```
+
+```{ojs}
+//| echo: false
+viewof choix = Inputs.radio(new Map(indicateurs.map((i) => [i.nom, i])), {value: indicateurs[0]})
+viewof avecVoisins = Inputs.checkbox(["Compter aussi les écoles des six hexagones voisins"])
+voisins = avecVoisins.length > 0
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const s = voisins ? "_7" : ""
+  const colonne = `${choix.cle}${s}`
+  const visibles = hexagones.filter((h) => h[colonne] !== null)
+  return Plot.plot({
+    width: 820,
+    height: 860,
+    style: stylePlot,
+    projection: {type: "reflect-y", domain: departements, inset: 6},
+    color: {...choix.echelle, legend: true},
+    marks: [
+      Plot.geo(departements, {fill: grisFond}),
+      Plot.geo(visibles, {geometry: (h) => formes.get(h), fill: colonne, stroke: colonne, strokeWidth: 0.4}),
+      Plot.geo(departements, {stroke: fond, strokeWidth: 0.8}),
+      Plot.tip(visibles, Plot.pointer({
+        x: "x", y: "y", maxRadius: 12,
+        title: (h) => `${h.commune ?? "?"}${voisins ? " et alentours" : ""}\n${decrire(h, s)}`
+      }))
+    ]
+  })
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  Un hexagone de ${virgule(chiffres.cote_km, 0)} km de côté (${virgule(chiffres.surface_km2)} km²)
+  pour chaque morceau de métropole où se trouve au moins une école ${choix.cle === "ips_public" ? "publique" :
+  choix.cle === "ips_prive" ? "privée" : choix.cle === "ecart" ? "publique et au moins une école privée" : ""}
+  dont l'IPS est diffusé${voisins ? ", en comptant les écoles des six hexagones voisins" : ""}. L'IPS d'un
+  hexagone est la moyenne de ceux de ses écoles, pondérée par leur nombre d'élèves d'élémentaire.
+  Les écarts de moins de 3 points (en gris) ne sont pas significatifs. Sources : DEPP, IPS des
+  écoles à la rentrée 2024, effectifs d'élèves par école, annuaire de l'éducation ; IGN, ADMIN
+  EXPRESS COG CARTO 2025, via cartiflette.
+</small></p>`
+```
+
+```{ojs}
+//| echo: false
+html`<p>À l'échelle nationale, l'IPS moyen des élèves de CM2 est de
+${virgule(chiffres.ips_national_public)} dans le public et de ${virgule(chiffres.ips_national_prive)}
+dans le privé sous contrat, d'après la DEPP. Cet écart moyen mélange deux choses : l'endroit où
+sont les écoles privées (plus souvent en ville, où les familles sont en moyenne plus favorisées), et
+les familles qu'elles recrutent, au même endroit, par rapport à l'école publique voisine.
+L'hexagone neutralise en grande partie la première : on n'y compare que des écoles distantes de
+quelques kilomètres.</p>`
+```
+
+## Dans le même hexagone, deux écoles
+
+```{ojs}
+//| echo: false
+{
+  const s = voisins ? "_7" : ""
+  const mixtes = hexagones.filter((h) => h[`ecart${s}`] !== null)
+  const etendue = [60, 160]
+  return Plot.plot({
+    width: 640,
+    height: 600,
+    style: stylePlot,
+    x: {label: "IPS des écoles publiques de l'hexagone →", domain: etendue, grid: true},
+    y: {label: "↑ IPS des écoles privées de l'hexagone", domain: etendue, grid: true},
+    r: {range: [1, 9]},
+    color: {...echelleEcart, legend: true},
+    marks: [
+      Plot.line(etendue.map((v) => [v, v]), {stroke: "currentColor", strokeOpacity: 0.5, strokeDasharray: "4 3"}),
+      Plot.dot(mixtes, {
+        x: `ips_public${s}`, y: `ips_prive${s}`, r: (h) => h.eleves_public + h.eleves_prive,
+        fill: `ecart${s}`, fillOpacity: 0.75, stroke: fond, strokeWidth: 0.5
+      }),
+      Plot.text([[150, 152]], {x: (d) => d[0], y: (d) => d[1], text: () => "même IPS", rotate: -45, fontSize: 11, fillOpacity: 0.7, dy: -8}),
+      Plot.tip(mixtes, Plot.pointer({
+        x: `ips_public${s}`, y: `ips_prive${s}`,
+        title: (h) => `${h.commune ?? "?"}${voisins ? " et alentours" : ""}\n${decrire(h, s)}`
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const s = voisins ? "_7" : ""
+  return html`<p><small>Un point par hexagone qui compte au moins une école publique et une école
+  privée${voisins ? ", en comptant les six hexagones voisins" : ""} :
+  ${entier(chiffres[`mixtes${s}`])} hexagones. La taille du point suit le nombre d'élèves
+  d'élémentaire de ses écoles. Au-dessus de la diagonale, le privé accueille des élèves plus
+  favorisés que le public voisin. Source : DEPP.</small></p>`
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p>La grande majorité des points sont au-dessus de la diagonale : dans
+${pourcent(chiffres.part_prive_plus_3)} des hexagones mixtes, l'écart en faveur du privé dépasse
+la marge d'erreur de 3 points ; l'inverse n'arrive que dans ${pourcent(chiffres.part_public_plus_3)}
+des cas. L'écart est le plus fort là où le public accueille les élèves les moins favorisés : en bas
+à gauche, l'école privée a souvent 20 à 40 points de plus. En comptant les six hexagones voisins,
+on compare des groupes d'écoles plus grands, à une douzaine de kilomètres au plus ; le constat ne
+change pas (${pourcent(chiffres.part_prive_plus_3_7)} des ${entier(chiffres.mixtes_7)} hexagones,
+${signe(chiffres.ecart_median_7)} points en médiane).</p>`
+```
+
+## L'Ouest à part
+
+```{ojs}
+//| echo: false
+{
+  const lignes = regions.filter((d) => d.mixtes >= 20)
+  // Position de l'étiquette : [dx, dy, ancrage] ; au-dessus du point par défaut.
+  const positions = {
+    "Bourgogne-Franche-Comté": [0, 16, "middle"], "Nouvelle-Aquitaine": [10, 8, "start"],
+    "Normandie": [10, -2, "start"], "Provence-Alpes-Côte d'Azur": [0, -12, "middle"],
+    "Hauts-de-France": [12, 3, "start"], "Grand Est": [-10, 3, "end"], "Centre-Val de Loire": [10, 3, "start"]
+  }
+  const place = (d) => positions[d.region] ?? [0, -14, "middle"]
+  return Plot.plot({
+    width: 640,
+    height: 420,
+    marginRight: 30,
+    style: stylePlot,
+    x: {label: "Part des élèves d'élémentaire scolarisés dans le privé →", tickFormat: (x) => pourcent(x), domain: [0, 0.42], grid: true},
+    y: {label: "↑ Écart médian privé − public dans un hexagone (points)", domain: [0, 28], grid: true},
+    r: {range: [3, 12]},
+    marks: [
+      Plot.dot(lignes, {x: "part_eleves_prive", y: "ecart_median", r: "mixtes", fill: (d) => d.ecart_median,
+        fillOpacity: 0.85, stroke: fond}),
+      // Plot n'accepte que des décalages constants : une marque par position.
+      ...d3.groups(lignes, (d) => place(d).join()).map(([, groupe]) => {
+        const [dx, dy, textAnchor] = place(groupe[0])
+        return Plot.text(groupe, {
+          x: "part_eleves_prive", y: "ecart_median", text: "region", fontSize: 11, dx, dy, textAnchor,
+          stroke: fond, strokeWidth: 3, fill: "currentColor"
+        })
+      }),
+      Plot.tip(lignes, Plot.pointer({
+        x: "part_eleves_prive", y: "ecart_median",
+        title: (d) => `${d.region}\n${pourcent(d.part_eleves_prive)} des élèves dans le privé\n` +
+          `${entier(d.mixtes)} hexagones avec les deux secteurs\nÉcart médian : ${signe(d.ecart_median)} points\n` +
+          `Le privé plus favorisé (au-delà de 3 points) : ${pourcent(d.part_prive_plus_3)} des hexagones\n` +
+          `Le public plus favorisé : ${pourcent(d.part_public_plus_3)}`
+      }))
+    ],
+    color: {...echelleEcart, legend: false}
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Une bulle par région, de taille proportionnelle au nombre d'hexagones qui ont les
+deux secteurs (la Corse, qui n'en a que ${entier(regions.find((d) => d.region === "Corse")?.mixtes ?? 0)},
+n'est pas représentée). Source : DEPP.</small></p>`
+```
+
+```{ojs}
+//| echo: false
+{
+  const r = (nom) => regions.find((d) => d.region === nom)
+  const [bretagne, loire, idf] = [r("Bretagne"), r("Pays de la Loire"), r("Île-de-France")]
+  return html`<p>Là où le privé scolarise le plus d'élèves, il est le moins sélectif. En Bretagne,
+  ${pourcent(bretagne.part_eleves_prive)} des élèves d'élémentaire sont dans une école privée ; dans
+  un hexagone breton qui a les deux secteurs, l'écart médian n'est que de
+  ${signe(bretagne.ecart_median)} points, et c'est le public qui accueille les élèves les plus
+  favorisés dans ${pourcent(bretagne.part_public_plus_3)} des cas. Les Pays de la Loire
+  (${pourcent(loire.part_eleves_prive)} des élèves dans le privé) suivent de près. Dans l'Ouest,
+  l'enseignement catholique est implanté de longue date, jusque dans les bourgs : l'école privée y
+  est souvent une école de proximité comme une autre. À l'opposé, en Île-de-France, où le privé ne
+  scolarise que ${pourcent(idf.part_eleves_prive)} des élèves, l'écart médian atteint
+  ${signe(idf.ecart_median)} points, et le public n'a les élèves les plus favorisés dans
+  ${idf.part_public_plus_3 === 0 ? "aucun" : pourcent(idf.part_public_plus_3)} des
+  ${entier(idf.mixtes)} hexagones mixtes.</p>`
+}
+```
+
+## Du point à l'hexagone
+
+```{ojs}
+//| echo: false
+viewof ville = Inputs.select(new Map(villes.map((v) => [v.nom, v])), {label: "Autour de", value: villes[0]})
+```
+
+```{ojs}
+//| echo: false
+{
+  const [x0, y0, x1, y1] = [ville.x0, ville.y0, ville.x1, ville.y1]
+  const cadre = {type: "Polygon", coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]}
+  const visibles = hexagones.filter((h) => h.x > x0 - COTE && h.x < x1 + COTE && h.y > y0 - COTE && h.y < y1 + COTE)
+  const points = ecolesZoom.filter((e) => e.ville === ville.nom)
+  return Plot.plot({
+    width: 820,
+    height: 820 * (y1 - y0) / (x1 - x0),
+    style: stylePlot,
+    projection: {type: "reflect-y", domain: cadre},
+    color: {...echelleIps, legend: true},
+    symbol: {domain: ["public", "prive"], range: ["circle", "square"]},
+    marks: [
+      Plot.geo(visibles, {geometry: (h) => formes.get(h), fill: "ips", fillOpacity: 0.35, clip: "frame"}),
+      Plot.geo(visibles, {geometry: (h) => formes.get(h), stroke: "currentColor", strokeWidth: 0.8, strokeOpacity: 0.5, clip: "frame"}),
+      Plot.geo(departements, {stroke: "currentColor", strokeWidth: 1.5, strokeOpacity: 0.6, clip: "frame"}),
+      Plot.dot(points, {
+        x: "x", y: "y", fill: "ips", symbol: "secteur", r: (e) => e.secteur === "prive" ? 4.5 : 3.5,
+        stroke: sombre ? "#eee" : "#222", strokeWidth: 0.6, clip: "frame"
+      }),
+      Plot.tip(points, Plot.pointer({
+        x: "x", y: "y", maxRadius: 8,
+        title: (e) => `${e.nom}\n${e.secteur === "prive" ? "Privée sous contrat" : "Publique"}, ${entier(e.eleves)} élèves d'élémentaire\nIPS : ${virgule(e.ips)}`
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Autour de ${ville.nom} : chaque école dont l'IPS est diffusé (un rond pour le
+public, un carré pour le privé sous contrat), colorée selon son IPS, et la grille d'hexagones,
+colorée selon l'IPS moyen de leurs écoles ; en trait épais, les limites des départements et le
+littoral. Source : DEPP ; IGN, via cartiflette.</small></p>`
+```
+
+Les hexagones ne viennent pas des données : on les pose sur le territoire, puis on y range les
+écoles qui tombent dedans. Dans une grande ville, un hexagone de 42 km² rassemble des dizaines
+d'écoles, de quartiers parfois très différents ; il lisse les contrastes d'une rue à l'autre,
+mais garde ceux d'une ville à l'autre, ou d'un côté à l'autre d'une agglomération.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Indices de position sociale des écoles (à partir de 2022)](https://data.education.gouv.fr/explore/dataset/fr-en-ips-ecoles-ap2022/) | DEPP | l'IPS de chaque école à la rentrée 2024, son secteur et sa commune | Parquet |
+| [Effectifs d'élèves par école](https://data.education.gouv.fr/explore/dataset/fr-en-ecoles-effectifs-nb_classes/) | DEPP | le nombre d'élèves d'élémentaire de chaque école à la rentrée 2024 | Parquet |
+| [Annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | Ministère de l'Éducation nationale | la position de chaque école | Parquet |
+| [Communes, arrondissements municipaux et départements 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les noms et le centre des communes, le contour des départements | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Les trois jeux de données de l'Éducation nationale sont publiés sur
+[data.education.gouv.fr](https://data.education.gouv.fr/), dont l'API exporte n'importe quel jeu
+en Parquet, filtré au besoin sur ses lignes (`where`) et ses colonnes (`select`) : DuckDB le lit
+directement.
+
+```{python}
+#| output: false
+import json
+import math
+import pathlib
+import urllib.parse
+
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude), ou (x, y)
+SET enable_progress_bar = false
+""")
+
+
+def depp(jeu, **parametres):
+    return (
+        f"https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/{jeu}/exports/parquet?"
+        + urllib.parse.urlencode(parametres)
+    )
+```
+
+### L'indice de position sociale des écoles (DEPP)
+
+L'[indice de position sociale](https://www.education.gouv.fr/l-indice-de-position-sociale-ips-357755)
+associe à chaque profession des parents, ou couple de professions, une valeur qui résume les
+conditions de vie des élèves liées à la réussite scolaire : d'autant plus élevée que ces conditions
+sont favorables, autour de 100 en moyenne. L'IPS d'une école est la
+moyenne de ceux de ses anciens élèves de CM2 sur cinq ans, dont la DEPP connaît les parents une
+fois qu'ils sont au collège. Il n'est diffusé que pour les écoles qui ont eu au moins 25 élèves de
+CM2 en cinq ans : les autres (`NS`, non significatif) et les écoles maternelles n'en ont pas. Le
+fichier rappelle aussi l'IPS national du public et du privé sous contrat.
+
+```{python}
+RENTREE = "2024-2025"
+
+con.sql(f"""
+CREATE TABLE ips AS
+SELECT uai, nom_de_l_etablissement AS nom, code_insee_de_la_commune AS commune,
+       CASE WHEN secteur = 'public' THEN 'public' ELSE 'prive' END AS secteur,
+       TRY_CAST(ips AS DOUBLE) AS ips,
+       TRY_CAST(ips_national_public AS DOUBLE) AS ips_national_public,
+       TRY_CAST(ips_national_prive AS DOUBLE) AS ips_national_prive
+FROM read_parquet('{depp("fr-en-ips-ecoles-ap2022", where=f"rentree_scolaire = '{RENTREE}'")}')
+WHERE code_du_departement < '97'
+""")
+con.sql("""
+SELECT secteur, count(*) AS ecoles, count(ips) AS avec_ips, round(avg(ips), 1) AS ips_moyen_des_ecoles
+FROM ips GROUP BY ALL ORDER BY secteur DESC
+""").df().style.hide(axis="index")
+```
+
+### Les effectifs (DEPP)
+
+L'IPS d'une école ne dit pas combien d'élèves il décrit. Pour faire la moyenne d'un hexagone, on
+pondère chaque école par ses élèves d'élémentaire à la même rentrée.
+
+```{python}
+con.sql(f"""
+CREATE TABLE effectifs AS
+SELECT numero_ecole AS uai, nombre_eleves_elementaire_hors_ulis AS eleves
+FROM read_parquet('{depp("fr-en-ecoles-effectifs-nb_classes", where="rentree_scolaire = date'2024-01-01'")}')
+""")
+con.sql("SELECT count(*) AS ecoles, sum(eleves)::INTEGER AS eleves_elementaire FROM effectifs").df().style.hide(axis="index")
+```
+
+### La position des écoles (annuaire de l'éducation)
+
+L'annuaire de l'éducation donne, pour chaque établissement ouvert, ses coordonnées (`latitude`,
+`longitude`), le plus souvent au numéro de la rue, le nom à jour de sa commune et sa région.
+
+```{python}
+con.sql(f"""
+CREATE TABLE annuaire AS
+SELECT identifiant_de_l_etablissement AS uai,
+       -- « Marseille  2e  Arrondissement » devient « Marseille 2e arrondissement »
+       replace(regexp_replace(nom_commune, '\s+', ' ', 'g'), 'Arrondissement', 'arrondissement') AS nom_commune,
+       replace(libelle_region, 'Ile-', 'Île-') AS region, longitude, latitude
+FROM read_parquet('{depp("fr-en-annuaire-education", select="identifiant_de_l_etablissement, nom_commune, libelle_region, longitude, latitude", where="type_etablissement = 'Ecole'")}')
+WHERE latitude IS NOT NULL
+""")
+con.sql("SELECT count(*) AS ecoles_localisees FROM annuaire").df().style.hide(axis="index")
+```
+
+### Les communes et les départements (cartiflette)
+
+Le centre des communes (avec les arrondissements de Paris, Lyon et Marseille, comme dans le
+fichier des IPS) sert à placer les quelques écoles absentes de l'annuaire ; les départements, passés dans la projection de la grille, dessinent le fond de carte.
+
+```{python}
+def cartiflette(niveau, simplification=0):
+    return (
+        "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+        "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
+        f"administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
+        f"vectorfile_format=parquet/simplification={simplification}/raw.parquet"
+    )
+
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COG AS commune, NOM AS nom,
+       ST_Transform(ST_PointOnSurface(geometry), 'EPSG:4326', 'EPSG:3035') AS point
+FROM read_parquet('{cartiflette("COMMUNE_ARRONDISSEMENT", 50)}', hive_partitioning = false)
+WHERE INSEE_DEP < '97'
+""")
+con.sql(f"""
+CREATE TABLE departements AS
+SELECT INSEE_DEP AS dep,
+       ST_ReducePrecision(ST_Transform(geometry, 'EPSG:4326', 'EPSG:3035'), 10) AS geom
+FROM read_parquet('{cartiflette("DEPARTEMENT", 50)}', hive_partitioning = false)
+WHERE INSEE_DEP < '97'
+""")
+```
+
+## Les traitements
+
+### Une grille d'hexagones
+
+On pave le plan d'hexagones réguliers « à sommet plat », de 4 km de côté. Chaque hexagone est
+repéré par deux coordonnées entières, `q` (la colonne) et `r` (la diagonale), qu'on appelle
+[coordonnées axiales](https://www.redblobgames.com/grids/hexagons/). Pour trouver l'hexagone qui
+contient un point, on calcule ses coordonnées axiales non entières, puis on les arrondit en
+respectant la contrainte `q + r + s = 0` : on arrondit les trois, et on recalcule celle dont
+l'arrondi a le plus bougé. Le centre de l'hexagone `(q, r)` s'en déduit directement.
+
+La projection compte : la grille est posée dans la projection européenne de Lambert azimutale
+(`EPSG:3035`), qui conserve les surfaces. Tous les hexagones couvrent donc vraiment la même surface
+au sol, de Dunkerque à Bonifacio. La taille, elle, est un compromis : avec des hexagones plus
+petits, peu contiendraient à la fois une école publique et une école privée ; plus grands, ils
+mélangeraient des quartiers et des villes que tout oppose.
+
+```{python}
+COTE = 4000  # en mètres
+
+con.sql(f"""
+CREATE MACRO hexagone(x, y) AS (
+    WITH fractionnaire AS (
+        SELECT 2 / 3 * x / {COTE} AS q, (-x / 3 + sqrt(3) / 3 * y) / {COTE} AS r
+    ),
+    arrondi AS (
+        SELECT q, r, -q - r AS s, round(q) AS rq, round(r) AS rr, round(-q - r) AS rs
+        FROM fractionnaire
+    )
+    SELECT CASE
+        WHEN abs(rq - q) > abs(rr - r) AND abs(rq - q) > abs(rs - s) THEN {{'q': (-rr - rs)::INTEGER, 'r': rr::INTEGER}}
+        WHEN abs(rr - r) > abs(rs - s) THEN {{'q': rq::INTEGER, 'r': (-rq - rs)::INTEGER}}
+        ELSE {{'q': rq::INTEGER, 'r': rr::INTEGER}}
+    END
+    FROM arrondi
+)
+""")
+con.sql(f"CREATE MACRO centre_x(h) AS {COTE} * 3 / 2 * h.q")
+con.sql(f"CREATE MACRO centre_y(h) AS {COTE} * sqrt(3) * (h.r + h.q / 2)")
+
+surface_km2 = 3 * math.sqrt(3) / 2 * (COTE / 1000) ** 2
+f"Un hexagone de {COTE / 1000:.0f} km de côté couvre {surface_km2:.1f} km²."
+```
+
+Pour vérifier la macro, on tire 100 000 points au hasard et on contrôle que le centre de
+l'hexagone trouvé est bien, parmi lui et ses six voisins, le plus proche du point.
+
+```{python}
+VOISINS = "[[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]]"
+
+con.sql(f"""
+WITH points AS (SELECT random() * 1e6 AS x, random() * 1e6 AS y FROM range(100000)),
+candidats AS (
+    SELECT x, y, d, {{'q': h.q + d[1], 'r': h.r + d[2]}} AS voisin
+    FROM (SELECT x, y, hexagone(x, y) AS h, unnest({VOISINS}) AS d FROM points)
+),
+plus_proche AS (
+    SELECT * FROM candidats
+    QUALIFY row_number() OVER (
+        PARTITION BY x, y ORDER BY (x - centre_x(voisin)) ** 2 + (y - centre_y(voisin)) ** 2
+    ) = 1
+)
+SELECT count(*) AS points, count(*) FILTER (WHERE d != [0, 0]) AS erreurs FROM plus_proche
+""").df().style.hide(axis="index")
+```
+
+### Placer les écoles
+
+On garde les écoles qui ont un IPS et des élèves d'élémentaire. Celles de l'annuaire passent des
+coordonnées géographiques à la projection de la grille ; celles qui n'y sont plus (fermées ou
+fusionnées depuis la rentrée 2024) vont au centre de leur commune.
+
+```{python}
+con.sql("""
+CREATE TABLE ecoles AS
+WITH points AS (
+    SELECT i.uai, i.nom, i.commune, coalesce(a.nom_commune, c.nom) AS nom_commune, a.region,
+           i.secteur, i.ips, e.eleves, a.uai IS NULL AS place_a_la_commune,
+           CASE WHEN a.uai IS NOT NULL
+                THEN ST_Transform(ST_Point(a.longitude, a.latitude), 'EPSG:4326', 'EPSG:3035')
+                ELSE c.point END AS point
+    FROM ips i
+    JOIN effectifs e USING (uai)
+    LEFT JOIN annuaire a USING (uai)
+    LEFT JOIN communes c ON c.commune = i.commune
+    WHERE i.ips IS NOT NULL AND e.eleves > 0
+)
+SELECT *, ST_X(point) AS x, ST_Y(point) AS y, hexagone(ST_X(point), ST_Y(point)) AS h
+FROM points WHERE point IS NOT NULL
+""")
+con.sql("""
+SELECT (SELECT count(*) FROM ips WHERE ips IS NOT NULL) AS ecoles_avec_ips,
+       count(*) AS ecoles_placees, count(*) FILTER (WHERE place_a_la_commune) AS dont_au_centre_de_la_commune
+FROM ecoles
+""").df().style.hide(axis="index")
+```
+
+Une vérification : pondéré par les élèves d'élémentaire, l'IPS moyen de ces écoles est proche de
+l'IPS national des élèves de CM2 que donne la DEPP.
+
+```{python}
+con.sql("""
+SELECT secteur, count(*) AS ecoles, sum(eleves)::INTEGER AS eleves,
+       round(sum(ips * eleves) / sum(eleves), 1) AS ips_pondere,
+       CASE secteur WHEN 'public' THEN (SELECT any_value(ips_national_public) FROM ips)
+                    ELSE (SELECT any_value(ips_national_prive) FROM ips) END AS ips_national_depp
+FROM ecoles GROUP BY secteur ORDER BY secteur DESC
+""").df().style.hide(axis="index")
+```
+
+### Les hexagones et leurs voisins
+
+Pour chaque hexagone et chaque secteur, on compte les écoles et leurs élèves, et on somme l'IPS
+multiplié par les élèves : la moyenne pondérée s'en déduit, et elle s'additionne d'un hexagone à
+l'autre. Pour la « fleur » d'un hexagone et de ses six voisins, chaque école compte pour son
+hexagone et pour les six qui l'entourent : on ajoute à ses coordonnées axiales les six décalages des
+voisins.
+
+```{python}
+con.sql("""
+CREATE TABLE par_hexagone AS
+SELECT h, secteur, count(*) AS ecoles, sum(eleves) AS eleves, sum(ips * eleves) AS ips_eleves
+FROM ecoles GROUP BY ALL
+""")
+con.sql(f"""
+CREATE TABLE par_fleur AS
+SELECT {{'q': h.q + d[1], 'r': h.r + d[2]}} AS h, secteur,
+       sum(ecoles) AS ecoles, sum(eleves) AS eleves, sum(ips_eleves) AS ips_eleves
+FROM (SELECT *, unnest({VOISINS}) AS d FROM par_hexagone)
+GROUP BY ALL
+""")
+
+
+def indicateurs(table, s):
+    return f"""
+    SELECT h,
+        coalesce(sum(ecoles) FILTER (WHERE secteur = 'public'), 0)::INTEGER AS ecoles_public{s},
+        coalesce(sum(ecoles) FILTER (WHERE secteur = 'prive'), 0)::INTEGER AS ecoles_prive{s},
+        coalesce(sum(eleves) FILTER (WHERE secteur = 'public'), 0)::INTEGER AS eleves_public{s},
+        coalesce(sum(eleves) FILTER (WHERE secteur = 'prive'), 0)::INTEGER AS eleves_prive{s},
+        sum(ips_eleves) / sum(eleves) AS ips{s},
+        sum(ips_eleves) FILTER (WHERE secteur = 'public') / sum(eleves) FILTER (WHERE secteur = 'public') AS ips_public{s},
+        sum(ips_eleves) FILTER (WHERE secteur = 'prive') / sum(eleves) FILTER (WHERE secteur = 'prive') AS ips_prive{s}
+    FROM {table} GROUP BY h
+    """
+```
+
+On ne garde que les hexagones qui ont au moins une école ; leur fleur peut en compter davantage.
+Le nom d'un hexagone est celui de la commune qui y compte le plus d'élèves, et sa région celle de
+cette commune. L'écart est l'IPS du
+privé moins celui du public, quand l'hexagone (ou la fleur) a les deux.
+
+```{python}
+con.sql(f"""
+CREATE TABLE hexagones AS
+WITH seul AS ({indicateurs("par_hexagone", "")}),
+fleur AS ({indicateurs("par_fleur", "_7")}),
+noms AS (
+    SELECT h, nom_commune, region FROM (SELECT h, nom_commune, region, sum(eleves) AS eleves FROM ecoles GROUP BY ALL)
+    QUALIFY row_number() OVER (PARTITION BY h ORDER BY nom_commune IS NULL, eleves DESC) = 1
+)
+SELECT s.h.q AS q, s.h.r AS r, round(centre_x(s.h))::INTEGER AS x, round(centre_y(s.h))::INTEGER AS y,
+       n.nom_commune AS commune, n.region,
+       s.ecoles_public, s.ecoles_prive, s.eleves_public, s.eleves_prive,
+       round(s.ips, 1) AS ips, round(s.ips_public, 1) AS ips_public, round(s.ips_prive, 1) AS ips_prive,
+       round(s.ips_prive - s.ips_public, 1) AS ecart,
+       f.ecoles_public_7, f.ecoles_prive_7,
+       round(f.ips_7, 1) AS ips_7, round(f.ips_public_7, 1) AS ips_public_7, round(f.ips_prive_7, 1) AS ips_prive_7,
+       round(f.ips_prive_7 - f.ips_public_7, 1) AS ecart_7
+FROM seul s
+JOIN fleur f USING (h)
+LEFT JOIN noms n USING (h)
+""")
+con.sql("""
+SELECT count(*) AS hexagones, count(ecart) AS avec_public_et_prive, count(ecart_7) AS avec_public_et_prive_dans_la_fleur,
+       count(*) FILTER (WHERE commune IS NULL) AS sans_nom
+FROM hexagones
+""").df().style.hide(axis="index")
+```
+
+### Les chiffres
+
+Parmi les hexagones qui ont les deux secteurs : la part où le privé a l'IPS le plus élevé, celle
+où l'écart dépasse 3 points dans un sens ou dans l'autre (la marge d'erreur que donne la DEPP), et
+l'écart médian, pour l'hexagone seul et pour sa fleur.
+
+```{python}
+def bilan(s):
+    return con.sql(f"""
+    SELECT '{s or "hexagone"}' AS echelle, count(ecart{s}) AS mixtes,
+           avg((ecart{s} > 0)::INTEGER) AS part_prive_plus,
+           avg((ecart{s} > 3)::INTEGER) AS part_prive_plus_3,
+           avg((ecart{s} < -3)::INTEGER) AS part_public_plus_3,
+           avg((ecart{s} > 20)::INTEGER) AS part_ecart_20,
+           median(ecart{s}) AS ecart_median
+    FROM hexagones WHERE ecart{s} IS NOT NULL
+    """).df()
+
+
+bilans = pd.concat([bilan(""), bilan("_7")])
+bilans.style.hide(axis="index").format({c: "{:.1%}" for c in bilans.columns if c.startswith("part")})
+```
+
+Les mêmes chiffres par région, avec la part des élèves d'élémentaire scolarisés dans le privé.
+
+```{python}
+regions = con.sql("""
+WITH prive AS (
+    SELECT region, sum(eleves) FILTER (WHERE secteur = 'prive') / sum(eleves) AS part_eleves_prive
+    FROM ecoles WHERE region IS NOT NULL GROUP BY region
+)
+SELECT region, part_eleves_prive, count(ecart) AS mixtes,
+       avg((ecart > 3)::INTEGER) AS part_prive_plus_3,
+       avg((ecart < -3)::INTEGER) AS part_public_plus_3,
+       median(ecart) AS ecart_median
+FROM hexagones JOIN prive USING (region)
+WHERE ecart IS NOT NULL
+GROUP BY ALL ORDER BY ecart_median
+""").df()
+regions.style.hide(axis="index").format({c: "{:.1%}" for c in regions.columns if c.startswith("part")} | {"ecart_median": "{:.1f}"})
+```
+
+### Ce qui passe à la carte
+
+La carte reçoit un CSV d'une ligne par hexagone : ses coordonnées axiales et son centre, sa commune
+principale, et pour l'hexagone seul puis pour sa fleur (`_7`), le nombre d'écoles publiques et
+privées, leur IPS moyen et l'écart. Le navigateur redessine chaque hexagone à partir de son centre.
+Pour les vues rapprochées, on garde les écoles d'un cadre autour de six grandes villes, centré sur
+la moyenne de leurs écoles.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j20")
+SORTIE.mkdir(parents=True, exist_ok=True)
+con.sql(f"COPY (SELECT * FROM hexagones ORDER BY q, r) TO '{SORTIE / 'hexagones.csv'}' (HEADER)")
+
+VILLES = pd.DataFrame(
+    [
+        ("Marseille", "^132"),
+        ("Paris", "^751"),
+        ("Lyon", "^6938"),
+        ("Toulouse", "^31555$"),
+        ("Bordeaux", "^33063$"),
+        ("Lille", "^59350$"),
+    ],
+    columns=["nom", "communes"],
+)
+con.sql("""
+CREATE TABLE villes AS
+SELECT v.nom, avg(e.x) - 16000 AS x0, avg(e.y) - 12000 AS y0, avg(e.x) + 16000 AS x1, avg(e.y) + 12000 AS y1
+FROM VILLES v JOIN ecoles e ON regexp_matches(e.commune, v.communes)
+GROUP BY v.nom
+""")
+con.sql(f"""
+COPY (
+    SELECT v.nom AS ville, e.nom, e.secteur, round(e.ips, 1) AS ips, e.eleves::INTEGER AS eleves,
+           round(e.x)::INTEGER AS x, round(e.y)::INTEGER AS y
+    FROM villes v JOIN ecoles e ON e.x BETWEEN v.x0 AND v.x1 AND e.y BETWEEN v.y0 AND v.y1
+    ORDER BY ville, uai
+) TO '{SORTIE / 'ecoles_villes.csv'}' (HEADER)
+""")
+villes = VILLES[["nom"]].merge(con.sql("SELECT * FROM villes").df())
+
+departements = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"dep": dep}, "geometry": json.loads(geojson)}
+        for dep, geojson in con.sql("SELECT dep, ST_AsGeoJSON(geom) FROM departements").fetchall()
+    ],
+}
+
+nationaux = con.sql("SELECT any_value(ips_national_public), any_value(ips_national_prive) FROM ips").fetchone()
+seul, fleur = bilans.iloc[0], bilans.iloc[1]
+chiffres = {
+    "cote_km": COTE / 1000,
+    "surface_km2": surface_km2,
+    "hexagones": con.sql("SELECT count(*) FROM hexagones").fetchone()[0],
+    "ips_national_public": nationaux[0],
+    "ips_national_prive": nationaux[1],
+    **{cle: seul[cle] for cle in bilans.columns if cle != "echelle"},
+    **{f"{cle}_7": fleur[cle] for cle in bilans.columns if cle != "echelle"},
+}
+chiffres = {cle: float(valeur) for cle, valeur in chiffres.items()}
+ojs_define(COTE=COTE, chiffres=chiffres, departements=departements, villes_colonnes=villes, regions_colonnes=regions)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof tableau = Inputs.search(hexagones, {
+  placeholder: "Rechercher une commune…",
+  columns: ["commune"],
+  format: (n) => `${entier(n)} hexagones`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["commune", "ecoles_public", "ecoles_prive", "ips", "ips_public", "ips_prive", "ecart", "ecart_7"],
+  header: {
+    commune: "Commune principale", ecoles_public: "Écoles publiques", ecoles_prive: "Écoles privées",
+    ips: "IPS", ips_public: "IPS public", ips_prive: "IPS privé", ecart: "Écart privé − public",
+    ecart_7: "Écart, avec les voisins"
+  },
+  format: {
+    ips: (x) => x === null ? "" : virgule(x), ips_public: (x) => x === null ? "" : virgule(x),
+    ips_prive: (x) => x === null ? "" : virgule(x), ecart: (x) => x === null ? "" : signe(x),
+    ecart_7: (x) => x === null ? "" : signe(x)
+  },
+  sort: "ecart",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(hexagones)], {type: "text/csv"}),
+  "hexagones_ips_ecoles_2024.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+Les colonnes du CSV : `q` et `r` (coordonnées axiales), `x` et `y` (centre de l'hexagone, en
+mètres, `EPSG:3035`), la commune principale et sa région, puis pour l'hexagone seul le nombre d'écoles
+publiques et privées (`ecoles_public`, `ecoles_prive`) et leurs élèves d'élémentaire, l'IPS moyen
+de toutes ses écoles (`ips`), du public (`ips_public`) et du privé (`ips_prive`), l'écart entre
+les deux (`ecart`) ; les mêmes, suffixées par `_7`, pour l'hexagone et ses six voisins.
+
+## Précautions
+
+- L'IPS ne mesure pas le revenu : c'est un résumé des conditions de vie associées, en moyenne, à
+  la profession des parents. La DEPP conseille de ne pas interpréter les écarts de 3 points ou
+  moins.
+- L'IPS d'une école est celui de ses élèves de CM2 des cinq dernières années, pas de tous ses
+  élèves de la rentrée 2024. Il n'est diffusé que pour les écoles qui ont eu au moins 25 élèves de
+  CM2 en cinq ans : les petites écoles rurales en sont souvent privées, et les campagnes sont plus
+  vides sur la carte que dans la réalité. Les écoles maternelles n'ont pas d'IPS.
+- Les écoles privées hors contrat ne sont pas dans le fichier.
+- Un hexagone qui a les deux secteurs n'est pas un territoire où les familles choisissent entre
+  deux écoles : une école privée recrute souvent bien au-delà de son hexagone, et l'école publique
+  la plus proche peut être dans l'hexagone voisin. La fleur de sept hexagones atténue cet effet de
+  bord. La grille est arbitraire ; décalée de quelques kilomètres, elle donnerait des chiffres un
+  peu différents.
+- Les écoles absentes de l'annuaire, parce qu'elles ont fermé ou fusionné depuis, sont placées au
+  centre de leur commune : dans une commune étendue, elles peuvent changer d'hexagone.
+
+## Pour aller plus loin
+
+- [J6 · Vintage](06-vintage.qmd) : les évaluations de sixième de la DEPP par département, et leur
+  lien avec l'IPS moyen.
+- DEPP, [L'indice de position sociale (IPS) : un outil statistique pour décrire les inégalités sociales entre établissements](https://www.education.gouv.fr/l-indice-de-position-sociale-ips-un-outil-statistique-pour-decrire-les-inegalites-sociales-entre-379251)
+  (Note d'information n° 23.16).
+- DEPP, [Indicateurs de ségrégation sociale entre collèges dans les départements](https://data.education.gouv.fr/explore/dataset/fr-en-indicateur_segregation_sociale_colleges/) :
+  la même question au collège, mesurée par département.
+- Red Blob Games, [Hexagonal Grids](https://www.redblobgames.com/grids/hexagons/) : tout ce qu'il
+  faut savoir sur les coordonnées axiales, les voisins et les arrondis.
+- Uber, [H3](https://h3geo.org/), la grille d'hexagones mondiale : ses hexagones n'ont pas tous la
+  même surface, contrairement à ceux d'une grille posée dans une projection équivalente.

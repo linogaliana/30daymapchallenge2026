@@ -1,0 +1,600 @@
+---
+title: "J24 · Network. Loin du train"
+description: "Le réseau ferré français, ses 27 000 km de lignes exploitées et ses lignes sans trains, et la distance de chaque commune à la gare desservie la plus proche."
+image: vignettes/24-network.webp
+resources:
+  - donnees/j24/*.csv
+  - donnees/j24/*.json
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x) => `${Math.round(100 * x)} %`
+millions = (x) => `${virgule(x / 1e6)} millions`
+html`<p class="lead">
+  Le réseau ferré national compte <strong>${entier(resume.km_exploites)} km de lignes
+  exploitées</strong>, et ${entier(resume.km_sans_trains)} km de lignes qui ne voient plus
+  passer de trains : neutralisées, fermées ou déclassées. Les ${entier(resume.gares)} gares
+  où des voyageurs sont montés ou descendus en 2024 sont à moins de 5 km, à vol d'oiseau, de
+  ${pourcent(resume.part_moins_5km)} des habitants de France continentale. Mais
+  ${millions(resume.habitants_plus_10km)} de personnes vivent à 10 km ou plus de la
+  première gare : ${pourcent(premier.part_loin)} des habitants dans le département le plus
+  éloigné du train (${premier.departement}).
+</p>`
+```
+
+Pour le thème *network*, le réseau ferré, avec ses lignes et ses nœuds. Sa forme en étoile
+autour de Paris se voit au premier coup d'œil, mais il est fait aussi de trous : les lignes
+fermées depuis un siècle, les régions où le train ne passe plus. La première vue montre le
+réseau d'aujourd'hui, les lignes sans trains et les gares, avec une surface proportionnelle à
+leur fréquentation en 2024. La seconde montre, pour chaque commune, la distance à la gare
+desservie la plus proche (making of 👇).
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+premier = departementsLoin[0]
+fond = sombre ? "#222" : "#fff"
+couleurTerre = sombre ? "#2e2e2e" : "#f2efe8"
+couleurBord = sombre ? "#444" : "#d8d3c8"
+couleurLigne = sombre ? "#e8e8e8" : "#1f2a44"
+
+// Les lignes et les communes sont dans des fichiers à part, chargés après la page.
+lignes = d3.json("donnees/j24/lignes.json")
+communes = d3.csv("donnees/j24/communes.csv", (d) => ({
+  ...d, habitants: +d.habitants, km: +d.km, lon: +d.lon, lat: +d.lat
+}))
+
+// Les statuts des lignes, regroupés : une couleur pour chaque façon de ne plus voir de trains.
+statuts = [
+  {cle: "Exploitée", nom: "Exploitée"},
+  {cle: "Neutralisée", nom: "Neutralisée (voie en place, plus de trains)", clair: "#e08a1e", sombre: "#ffb04a"},
+  {cle: "Fermée", nom: "Fermée", clair: "#c0392b", sombre: "#ff6b5b"},
+  {cle: "Déclassée", nom: "Déclassée (sortie du réseau)", clair: "#8e7cc3", sombre: "#b9a6ff"}
+]
+couleurStatut = (cle) => cle === "Exploitée" ? couleurLigne : statuts.find((s) => s.cle === cle)[sombre ? "sombre" : "clair"]
+
+// Distance à la gare : du plus proche (pâle) au plus loin (foncé, ou vif en thème sombre).
+seuils = [2, 5, 10, 20, 30]
+couleursDistance = sombre
+  ? ["#1f3b4d", "#2f6b7a", "#4fa39a", "#c9c76a", "#f2a541", "#ff6b4a"]
+  : ["#e8f1f2", "#b7d7d8", "#7fb3b0", "#e6b85c", "#d9752b", "#a3271f"]
+```
+
+```{ojs}
+//| echo: false
+// Cadrages : [nom, [[ouest, sud], [est, nord]], rayon maximal des gares].
+cadrages = [
+  ["France continentale", [[-5.2, 42.3], [8.3, 51.1]], 24],
+  ["Île-de-France", [[1.4, 48.1], [3.6, 49.25]], 30],
+  ["Bretagne", [[-5.2, 47.2], [-1.0, 48.95]], 20],
+  ["Massif central", [[1.3, 44.0], [4.9, 46.6]], 20],
+  ["Gascogne", [[-1.6, 42.8], [1.9, 44.7]], 20],
+  ["Alpes du Sud", [[5.2, 43.6], [7.8, 45.3]], 20]
+]
+viewof vue = Inputs.radio(new Map([["🚆 Le réseau", "reseau"], ["📏 Loin du train", "distance"]]), {value: "reseau"})
+```
+
+```{ojs}
+//| echo: false
+viewof cadrage = Inputs.select(new Map(cadrages.map((c) => [c[0], c])), {
+  value: cadrages[0], label: "Cadrage"
+})
+```
+
+```{ojs}
+//| echo: false
+// Cadre en sens des aiguilles d'une montre : sinon, d3 prend tout le globe sauf le cadre.
+function cadreGeo([[o, s], [e, n]]) {
+  return {type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}
+}
+function dansCadre(d) {
+  const [[o, s], [e, n]] = cadrage[1]
+  return d.lon >= o && d.lon <= e && d.lat >= s && d.lat <= n
+}
+franceEntiere = cadrage[0] === "France continentale"
+exploitees = lignes.features.filter((f) => f.properties.statut === "Exploitée")
+sansTrains = lignes.features.filter((f) => f.properties.statut !== "Exploitée")
+garesVisibles = d3.sort(gares.filter(dansCadre), (d) => -d.voyageurs)
+communesVisibles = communes.filter(dansCadre)
+// Les noms des gares les plus fréquentées, sauf trop près d'une gare déjà nommée.
+etiquettes = franceEntiere ? [] : garesVisibles.reduce((gardees, g) => {
+  const ecart = (cadrage[1][1][0] - cadrage[1][0][0]) / 12
+  if (gardees.length < 8 && gardees.every((d) => Math.hypot(d.lon - g.lon, d.lat - g.lat) > ecart)) gardees.push(g)
+  return gardees
+}, [])
+echelleDistance = ({
+  type: "threshold", domain: seuils, range: couleursDistance,
+  label: "Distance à la gare desservie la plus proche (km, à vol d'oiseau)",
+  tickFormat: (x) => `${x} km`
+})
+```
+
+```{ojs}
+//| echo: false
+vue === "reseau"
+  ? Plot.legend({
+      color: {domain: statuts.map((s) => s.nom), range: statuts.map((s) => couleurStatut(s.cle))},
+      swatchWidth: 18, swatchHeight: 3
+    })
+  : Plot.legend({color: echelleDistance, width: 380, marginLeft: 16})
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: 900,
+  height: franceEntiere ? 880 : 700,
+  style: {background: fond},
+  projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0],
+               domain: cadreGeo(cadrage[1]), inset: 10},
+  // La surface des gares est calée sur la plus fréquentée du cadre, pour qu'on les voie hors de Paris.
+  r: {range: [0, cadrage[2]], domain: [0, d3.max(garesVisibles, (d) => d.voyageurs)]},
+  color: vue === "distance" ? echelleDistance : undefined,
+  marks: [
+    Plot.geo(departements, {fill: couleurTerre, stroke: couleurBord, strokeWidth: 0.6, clip: "frame"}),
+    vue === "reseau" ? [
+      // Les lignes sans trains d'abord, en pointillés, sous le réseau exploité.
+      Plot.geo(sansTrains, {
+        stroke: (f) => couleurStatut(f.properties.statut), strokeWidth: franceEntiere ? 1.3 : 1.8,
+        strokeDasharray: "2,2", clip: "frame"
+      }),
+      Plot.geo(exploitees, {stroke: couleurLigne, strokeWidth: franceEntiere ? 0.9 : 1.4, clip: "frame"}),
+      Plot.dot(garesVisibles, {
+        x: "lon", y: "lat", r: "voyageurs",
+        fill: sombre ? "#4fc3f7" : "#1e88e5", fillOpacity: 0.55,
+        stroke: fond, strokeWidth: 0.5, clip: "frame"
+      }),
+      Plot.tip(garesVisibles, Plot.pointer({
+        x: "lon", y: "lat", maxRadius: 20, fill: fond,
+        channels: {
+          "Gare": "nom",
+          "Voyageurs en 2024": (d) => entier(d.voyageurs),
+          "Voyageurs en 2015": (d) => d.voyageurs_2015 ? entier(d.voyageurs_2015) : "–"
+        },
+        format: {x: false, y: false, r: false}
+      }))
+    ] : [
+      Plot.dot(communesVisibles, {
+        x: "lon", y: "lat", fill: "km",
+        r: franceEntiere ? 1.4 : 2.6, clip: "frame"
+      }),
+      Plot.geo(exploitees, {stroke: couleurLigne, strokeWidth: 0.6, strokeOpacity: 0.6, clip: "frame"}),
+      Plot.tip(communesVisibles, Plot.pointer({
+        x: "lon", y: "lat", maxRadius: 10, fill: fond,
+        channels: {
+          "Commune": (d) => `${d.nom} (${d.departement})`,
+          "Habitants": (d) => entier(d.habitants),
+          "Gare la plus proche": "gare",
+          "Distance": (d) => `${virgule(d.km)} km`
+        },
+        format: {x: false, y: false, fill: false}
+      }))
+    ],
+    Plot.text(etiquettes, {
+      x: "lon", y: "lat", text: "nom", dy: -10, fontSize: 11, fontWeight: 600,
+      fill: "currentColor", stroke: fond, strokeWidth: 3, clip: "frame"
+    })
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  ${vue === "reseau"
+    ? `${entier(garesVisibles.length)} gares dans le cadre, avec une surface proportionnelle au nombre de voyageurs en 2024 (la plus grande est celle de la gare la plus fréquentée du cadre).`
+    : `${entier(communesVisibles.length)} communes dans le cadre, chacune réduite à un point.
+       Les lignes exploitées sont en trait fin.`}
+  Sources : SNCF Réseau, lignes du réseau ferré national par statut ; SNCF Gares & Connexions,
+  fréquentation et liste des gares de voyageurs ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.
+</small></p>`
+```
+
+Le réseau exploité dessine encore l'étoile de Legrand, avec ses transversales et ses lignes
+de grande vitesse. Les lignes sans trains en remplissent les vides : le Massif central, la
+Bretagne intérieure, la Gascogne, l'Ardèche, qui n'a plus de trains de voyageurs depuis 1973.
+Pour leurs habitants, la gare la plus proche est souvent à plus de 20 km. À l'inverse, en Île-de-France, dans le Nord et autour des grandes villes, presque
+toutes les communes ont une gare à moins de 5 km.
+
+## Les départements les plus loin du train
+
+```{ojs}
+//| echo: false
+{
+  const premiers = departementsLoin.slice(0, 20)
+  return Plot.plot({
+    width: 760,
+    height: 480,
+    marginLeft: 150,
+    style: {background: fond},
+    x: {label: "Part des habitants à 10 km ou plus d'une gare desservie", grid: true, domain: [0, 100], tickFormat: (x) => `${x} %`},
+    y: {label: null, domain: premiers.map((d) => d.departement)},
+    marks: [
+      Plot.barX(premiers, {x: (d) => 100 * d.part_loin, y: "departement", fill: sombre ? "#f2a541" : "#d9752b"}),
+      Plot.text(premiers, {
+        x: (d) => 100 * d.part_loin, y: "departement", text: (d) => pourcent(d.part_loin),
+        dx: 4, textAnchor: "start", fill: "currentColor"
+      }),
+      Plot.ruleX([0]),
+      Plot.tip(premiers, Plot.pointerY({
+        x: (d) => 100 * d.part_loin, y: "departement",
+        channels: {
+          "Habitants à 10 km ou plus": (d) => entier(d.habitants_loin),
+          "Distance moyenne": (d) => `${virgule(d.km_moyen)} km`
+        },
+        format: {x: false, y: false}
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Les 20 départements de France continentale où la plus grande part des habitants
+vit à 10 km ou plus, à vol d'oiseau, d'une gare où des voyageurs sont montés ou descendus en 2024.
+La distance moyenne est pondérée par la population des communes.</small></p>`
+```
+
+## Les données
+
+Quatre fichiers de l'open data de la SNCF et les contours de
+[cartiflette](https://github.com/InseeFrLab/cartiflette), lus avec [DuckDB](https://duckdb.org/).
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Lignes par statut](https://ressources.data.sncf.com/explore/dataset/lignes-par-statut/) | SNCF Réseau | Le tracé de chaque tronçon du réseau ferré national et son statut (exploité, neutralisé, fermé, déclassé…) | Parquet |
+| [Fréquentation en gares](https://ressources.data.sncf.com/explore/dataset/frequentation-gares/) | SNCF Gares & Connexions | Le nombre de voyageurs de chaque gare, de 2015 à 2024 | Parquet |
+| [Gares de voyageurs](https://ressources.data.sncf.com/explore/dataset/gares-de-voyageurs/) | SNCF Gares & Connexions | La position des gares, par code UIC | Parquet |
+| [Liste des gares](https://ressources.data.sncf.com/explore/dataset/liste-des-gares/) | SNCF Réseau | La position des gares absentes du fichier précédent | Parquet |
+| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | Contours des communes, population municipale, départements | GeoParquet |
+
+```{python}
+import json
+import pathlib
+import shutil
+import tempfile
+import urllib.request
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Le réseau et les gares (SNCF)
+
+Le portail open data de la SNCF exporte chaque jeu de données en Parquet, avec les géométries
+déjà lisibles par DuckDB. L'export est produit à la demande et ne répond pas aux requêtes
+partielles : on télécharge les quatre fichiers (moins de 10 Mo en tout) avant de les lire.
+
+```{python}
+SNCF_URL = "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/{jeu}/exports/parquet"
+JEUX = ["lignes-par-statut", "frequentation-gares", "gares-de-voyageurs", "liste-des-gares"]
+
+with tempfile.TemporaryDirectory() as dossier:
+    for jeu in JEUX:
+        with urllib.request.urlopen(SNCF_URL.format(jeu=jeu), timeout=300) as reponse, \
+                open(f"{dossier}/{jeu}.parquet", "wb") as f:
+            shutil.copyfileobj(reponse, f)
+        con.sql(f"CREATE TABLE \"{jeu}\" AS SELECT * FROM read_parquet('{dossier}/{jeu}.parquet')")
+
+con.sql("""
+SELECT statut, count(*) AS troncons
+FROM "lignes-par-statut" GROUP BY ALL ORDER BY troncons DESC
+""").df().style.hide(axis="index")
+```
+
+### Les communes (cartiflette)
+
+Les contours des communes de 2026 donnent leur population municipale (`POPULATION`) et leur
+département.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+```
+
+## Les traitements
+
+### Les lignes, par statut
+
+Le fichier distingue treize statuts. On les regroupe en quatre : les lignes exploitées (y
+compris une ligne en travaux), les lignes neutralisées, où la voie reste en place mais où plus
+aucun train ne circule, les lignes fermées, sous toutes leurs formes (voie déposée ou non,
+retranchée, transférée en voie de service ou mise à disposition de tiers), et les lignes
+déclassées, sorties du domaine ferroviaire, vendues ou non. Les longueurs sont mesurées en
+Lambert-93 (EPSG:2154), en mètres.
+
+```{python}
+con.sql("""
+CREATE TABLE lignes AS
+SELECT code_ligne, lib_ligne AS libelle, statut AS statut_detaille,
+       CASE
+           WHEN statut = 'Exploitée' OR statut LIKE '%travaux%' THEN 'Exploitée'
+           WHEN statut LIKE 'Neutralisée%' THEN 'Neutralisée'
+           WHEN statut LIKE 'Déclassée%' THEN 'Déclassée'
+           ELSE 'Fermée'
+       END AS statut,
+       geo_shape::GEOMETRY AS geometry,
+       ST_Length(ST_Transform(geo_shape::GEOMETRY, 'EPSG:4326', 'EPSG:2154')) / 1000 AS km
+FROM "lignes-par-statut"
+""")
+
+con.sql("""
+SELECT statut, count(*) AS troncons, round(sum(km)) AS km
+FROM lignes GROUP BY ALL ORDER BY km DESC
+""").df().style.hide(axis="index").format({"km": "{:,.0f}"})
+```
+
+### Les gares desservies
+
+La fréquentation est donnée par gare, avec son code UIC. On garde les gares où au moins un
+voyageur est monté ou descendu en 2024. Leur position vient du fichier des gares de voyageurs,
+où une gare peut avoir plusieurs codes UIC (séparés par `;`), et à défaut de la liste des gares
+de SNCF Réseau. Deux gares restent sans position : Monaco-Monte-Carlo, hors de France, et la
+halte de Fontanil – Lycée de Drap, dans les Alpes-Maritimes.
+
+```{python}
+con.sql("""
+CREATE TABLE gares AS
+WITH positions_gc AS (
+    SELECT unnest(string_split(codes_uic, ';')) AS uic,
+           position_geographique::GEOMETRY AS point
+    FROM "gares-de-voyageurs"
+),
+positions_reseau AS (
+    SELECT code_uic AS uic, any_value(geo_point_2d::GEOMETRY) AS point
+    FROM "liste-des-gares" GROUP BY ALL
+)
+SELECT f.nom_gare AS nom, f.code_uic_complet AS uic,
+       f.total_voyageurs_2024 AS voyageurs, coalesce(f.total_voyageurs_2015, 0) AS voyageurs_2015,
+       coalesce(any_value(g.point), any_value(r.point)) AS point
+FROM "frequentation-gares" f
+LEFT JOIN positions_gc g ON g.uic = f.code_uic_complet
+LEFT JOIN positions_reseau r ON r.uic = f.code_uic_complet
+WHERE f.total_voyageurs_2024 > 0
+GROUP BY ALL
+""")
+
+con.sql("""
+SELECT count(*) AS gares, count(point) AS avec_position,
+       string_agg(nom, ', ') FILTER (WHERE point IS NULL) AS sans_position
+FROM gares
+""").df().style.hide(axis="index")
+```
+
+### La distance à la gare la plus proche
+
+Chaque commune de France continentale est réduite à un point intérieur (`ST_PointOnSurface`).
+La Corse, dont le réseau ferré n'appartient pas au réseau national, et l'outre-mer, sans train,
+sont laissés de côté. Pour chaque commune, on cherche la gare desservie la plus proche, à vol
+d'oiseau, parmi les 2 900 : DuckDB compare les 34 000 communes à toutes les gares, soit 100
+millions de distances en Lambert-93, et garde la plus petite (`arg_min`).
+
+```{python}
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COM AS code, NOM AS nom, LIBELLE_DEPARTEMENT AS departement,
+       POPULATION AS habitants,
+       ST_PointOnSurface(geometry) AS point
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false)
+WHERE INSEE_DEP < '97' AND INSEE_DEP NOT IN ('2A', '2B')
+""")
+
+con.sql("""
+CREATE TABLE distances AS
+WITH c AS (
+    SELECT *, ST_Transform(point, 'EPSG:4326', 'EPSG:2154') AS p FROM communes
+),
+g AS (
+    SELECT nom, ST_X(p) AS x, ST_Y(p) AS y
+    FROM (SELECT nom, ST_Transform(point, 'EPSG:4326', 'EPSG:2154') AS p
+          FROM gares WHERE point IS NOT NULL)
+)
+SELECT c.code, c.nom, c.departement, c.habitants,
+       ST_X(c.point) AS lon, ST_Y(c.point) AS lat,
+       arg_min(g.nom, (ST_X(c.p) - g.x) ** 2 + (ST_Y(c.p) - g.y) ** 2) AS gare,
+       sqrt(min((ST_X(c.p) - g.x) ** 2 + (ST_Y(c.p) - g.y) ** 2)) / 1000 AS km
+FROM c CROSS JOIN g
+GROUP BY ALL
+""")
+
+con.sql("""
+SELECT CASE WHEN km < 2 THEN '1. moins de 2 km' WHEN km < 5 THEN '2. 2 à 5 km'
+            WHEN km < 10 THEN '3. 5 à 10 km' WHEN km < 20 THEN '4. 10 à 20 km'
+            ELSE '5. 20 km ou plus' END AS distance,
+       count(*) AS communes, sum(habitants) AS habitants,
+       round(100 * sum(habitants) / sum(sum(habitants)) OVER (), 1) AS part_habitants
+FROM distances GROUP BY ALL ORDER BY distance
+""").df().style.hide(axis="index").format({"habitants": "{:,.0f}", "part_habitants": "{:.1f}"})
+```
+
+Par département, la part des habitants à 10 km ou plus d'une gare, et la distance moyenne
+pondérée par la population.
+
+```{python}
+departements_loin = con.sql("""
+SELECT departement,
+       sum(habitants) FILTER (WHERE km >= 10) AS habitants_loin,
+       sum(habitants) FILTER (WHERE km >= 10) / sum(habitants) AS part_loin,
+       sum(km * habitants) / sum(habitants) AS km_moyen
+FROM distances GROUP BY ALL ORDER BY part_loin DESC
+""").df().fillna(0)
+departements_loin.head(10).style.hide(axis="index").format(
+    {"habitants_loin": "{:,.0f}", "part_loin": "{:.0%}", "km_moyen": "{:.1f}"}
+)
+```
+
+```{python}
+resume = con.sql("""
+SELECT (SELECT sum(km) FROM lignes WHERE statut = 'Exploitée') AS km_exploites,
+       (SELECT sum(km) FROM lignes WHERE statut <> 'Exploitée') AS km_sans_trains,
+       (SELECT count(*) FROM gares WHERE point IS NOT NULL) AS gares,
+       sum(habitants) FILTER (WHERE km < 5) / sum(habitants) AS part_moins_5km,
+       sum(habitants) FILTER (WHERE km >= 10) AS habitants_plus_10km
+FROM distances
+""").df().iloc[0]
+resume
+```
+
+### Ce qui passe à la carte
+
+Les lignes sont simplifiées à 50 m près (en Lambert-93, pour que la tolérance soit en mètres)
+et écrites en GeoJSON dans `donnees/j24/`, comme la table des communes en CSV : la page les
+charge après coup, sans s'alourdir.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j24")
+SORTIE.mkdir(parents=True, exist_ok=True)
+
+lignes = con.sql("""
+SELECT statut, libelle, statut_detaille,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Transform(ST_Simplify(
+           ST_Transform(geometry, 'EPSG:4326', 'EPSG:2154'), 50), 'EPSG:2154', 'EPSG:4326'), 0.0001)) AS geojson
+FROM lignes
+""").fetchall()
+(SORTIE / "lignes.json").write_text(json.dumps({
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature",
+         "properties": {"statut": statut, "libelle": libelle, "statut_detaille": detail},
+         "geometry": json.loads(geojson)}
+        for statut, libelle, detail, geojson in lignes
+    ],
+}))
+
+con.sql(f"""
+COPY (
+    SELECT code, nom, departement, habitants, gare, round(km, 2) AS km,
+           round(lon, 4) AS lon, round(lat, 4) AS lat
+    FROM distances ORDER BY code
+) TO '{SORTIE / "communes.csv"}' (HEADER)
+""")
+```
+
+Le fond de carte, ce sont les départements de France métropolitaine, simplifiés ensemble à
+1 km environ (`ST_CoverageSimplify`) pour rester jointifs. Les gares, peu nombreuses, passent
+directement au JavaScript de la page avec `ojs_define`, et la carte est faite avec
+[Observable Plot](https://observablehq.com/plot/).
+
+```{python}
+departements = con.sql(f"""
+WITH couverture AS (
+    SELECT list(INSEE_DEP ORDER BY INSEE_DEP) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY INSEE_DEP), 0.01) AS geom
+    FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+    WHERE INSEE_DEP < '97'
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.001)) AS geojson
+FROM morceaux GROUP BY ALL
+""").fetchall()
+departements = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"code": code}, "geometry": json.loads(geojson)}
+        for code, geojson in departements
+    ],
+}
+
+gares = con.sql("""
+SELECT nom, uic, voyageurs, voyageurs_2015,
+       round(ST_X(point), 4) AS lon, round(ST_Y(point), 4) AS lat
+FROM gares WHERE point IS NOT NULL ORDER BY voyageurs DESC
+""").df()
+
+ojs_define(
+    departements=departements,
+    gares=gares.to_dict("records"),
+    departementsLoin=departements_loin.to_dict("records"),
+    resume={k: float(resume[k]) for k in resume.index},
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof tableau = Inputs.search(communes, {
+  placeholder: "Rechercher une commune…",
+  columns: ["nom", "departement", "gare"],
+  format: (n) => `${entier(n)} communes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["code", "nom", "departement", "habitants", "gare", "km"],
+  header: {
+    code: "Code", nom: "Commune", departement: "Département", habitants: "Habitants",
+    gare: "Gare desservie la plus proche", km: "Distance (km)"
+  },
+  format: {habitants: entier, km: (x) => virgule(x)},
+  sort: "km",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "habitants", "gare", "km"])], {type: "text/csv"}),
+  "distance_gare_communes.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Les distances sont à vol d'oiseau, depuis un point à l'intérieur de la commune, pas par la
+  route : dans les vallées de montagne, le trajet réel est bien plus long. Une commune étendue
+  peut avoir des hameaux plus loin ou plus près de la gare que son point.
+- Une gare « desservie » est ici une gare où au moins un voyageur est monté ou descendu en 2024,
+  d'après les comptages de SNCF Gares & Connexions. Une halte desservie par deux trains par jour
+  compte autant qu'une gare de TGV.
+- Le fichier de fréquentation ne couvre que les gares de la SNCF : les stations de métro, de
+  tramway et du RER exploitées par la RATP n'y sont pas, ni les chemins de fer touristiques ou
+  les lignes privées comme celle de Provence (Nice – Digne).
+- Une ligne exploitée peut ne servir qu'au fret : elle figure en trait plein sur la carte même
+  si aucun voyageur ne l'emprunte.
+- Les dates de fermeture des lignes ne sont pas dans le fichier : la carte montre ce qui reste
+  du réseau d'avant, pas son histoire. Les lignes démontées et revendues avant leur entrée dans
+  le réseau ferré national de 1997 n'y figurent pas.
+
+## Pour aller plus loin
+
+- [J2 · Lines](02-lines.qmd) : les navettes domicile-travail, vues comme des flux entre bassins
+  de vie.
+- [J17 · Light & dark](17-light-dark.qmd) : la population de chaque commune le jour et la nuit.
+- Autorité de régulation des transports, [Le marché français du transport ferroviaire de voyageurs](https://www.autorite-transports.fr/observatoire-des-transports/)
+  (bilans annuels).
+- SNCF Réseau, [carte interactive du réseau](https://www.sncf-reseau.com/fr/carte/carte-interactive-du-reseau).

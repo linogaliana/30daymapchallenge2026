@@ -24,6 +24,22 @@ website:
           - jours/11-sound.qmd
           - jours/12-power.qmd
           - jours/13-interactions.qmd
+          - jours/14-borgesian-map.qmd
+      - text: "Semaine 3 · J15 à J21"
+        menu:
+          - jours/15-inside-out.qmd
+          - jours/16-collaborative-map.qmd
+          - jours/17-light-dark.qmd
+          - jours/19-smell.qmd
+          - jours/18-null.qmd
+          - jours/21-openstreetmap.qmd
+          - jours/20-hexagons.qmd
+      - text: "Semaine 4 · J22 à J28"
+        menu:
+          - jours/22-projections.qmd
+          - jours/23-taste.qmd
+          - jours/24-network.qmd
+          - jours/25-is-this-a-map.qmd
       - about.qmd
     right:
       - icon: github
@@ -40,6 +56,8 @@ format:
       dark: [darkly, theme.scss]
     respect-user-color-scheme: true
     css: styles.css
+    filters:
+      - en-cours.lua
     toc: true
     author: Lino Galiana
 

@@ -1,0 +1,604 @@
+---
+title: "J24 · Network. Le réseau des syndicats"
+description: "Écoles, eau, rivières : les 6 000 petits syndicats intercommunaux relient les communes voisines, et souvent par-dessus les limites des intercommunalités, d'après la base Banatic de la DGCL."
+resources:
+  - donnees/j24-syndicats/*.csv
+  - donnees/j24-syndicats/*.json
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x) => `${Math.round(100 * x)} %`
+html`<p class="lead">
+  Une commune française n'est pas seulement membre de son intercommunalité. Elle siège
+  aussi, en moyenne, dans <strong>${resume.syndicats_par_commune.toLocaleString("fr-FR", {maximumFractionDigits: 1})}
+  syndicats</strong> : pour l'eau, l'école, l'électricité, la rivière ou la fourrière.
+  Les ${entier(resume.petits)} syndicats qui réunissent de 2 à 50 communes dessinent un
+  réseau de voisinage, et <strong>${pourcent(resume.part_a_cheval)} d'entre eux sont à
+  cheval sur plusieurs intercommunalités</strong>.
+</p>`
+```
+
+Pour le thème *network*, le réseau des coopérations entre communes. Depuis 2017, chaque
+commune appartient à une intercommunalité à fiscalité propre (communauté de communes,
+d'agglomération, urbaine, métropole), qui découpe la France en 1 231 morceaux sans
+chevauchement. Mais en dessous, il en existe un autre, plus ancien et plus dense : les
+syndicats intercommunaux, créés à la demande pour un regroupement scolaire, une conduite
+d'eau ou une rivière à entretenir. Sur la carte, chaque syndicat est une étoile : de sa
+commune siège partent des traits vers chacune de ses communes membres (making of 👇).
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+couleurTerre = sombre ? "#2e2e2e" : "#f2efe8"
+couleurBord = sombre ? "#444" : "#d8d3c8"
+couleurEpci = sombre ? "#8a8a8a" : "#6b6558"
+
+// Trois domaines : deux teintes (palette vérifiée pour les daltoniens) et un gris pour le reste.
+domaines = ["École", "Eau et rivières", "Autres compétences"]
+couleursDomaine = sombre ? ["#cc7a26", "#4a95dc", "#8f8f8f"] : ["#d9752b", "#2166ac", "#9a948a"]
+// Vue « à cheval » : un seul accent pour les syndicats qui débordent de l'intercommunalité.
+couleurDedans = sombre ? "#5a5a5a" : "#c4bfb4"
+couleurACheval = sombre ? "#ff6b5b" : "#c0392b"
+
+// Les communes, les syndicats et les adhésions sont dans des fichiers à part, chargés après la page.
+communes = d3.csv("donnees/j24-syndicats/communes.csv", (d) => ({...d, lon: +d.lon, lat: +d.lat}))
+syndicats = d3.csv("donnees/j24-syndicats/syndicats.csv", (d) => ({
+  ...d, communes: +d.communes, intercommunalites: +d.intercommunalites, creation: d.creation ? +d.creation : null
+}))
+adhesions = d3.csv("donnees/j24-syndicats/adhesions.csv")
+intercos = d3.json("donnees/j24-syndicats/intercommunalites.json")
+```
+
+```{ojs}
+//| echo: false
+viewof vue = Inputs.radio(new Map([["🎨 Par domaine", "domaine"], ["🧩 À cheval sur les intercommunalités", "cheval"]]), {value: "domaine"})
+```
+
+```{ojs}
+//| echo: false
+viewof cadrage = Inputs.select(
+  new Map([["France métropolitaine", null], ...departements.features.map((f) => [`${f.properties.code} · ${f.properties.nom}`, f])]),
+  {label: "Cadrage", value: null}
+)
+```
+
+```{ojs}
+//| echo: false
+// Les traits : de la commune siège de chaque syndicat vers chacune de ses autres communes.
+positions = new Map(communes.map((c) => [c.code, c]))
+parSyndicat = new Map(syndicats.map((s) => [s.siren, s]))
+traits = adhesions.flatMap((a) => {
+  const s = parSyndicat.get(a.syndicat), depart = positions.get(s?.siege), arrivee = positions.get(a.commune)
+  return s && depart && arrivee && a.commune !== s.siege ? [{s, depart, arrivee}] : []
+})
+franceEntiere = cadrage === null
+codeDep = cadrage?.properties.code
+// Dans un département : les syndicats dont au moins une commune membre y est.
+syndicatsVisibles = franceEntiere ? syndicats : syndicats.filter((s) => s.departements.split(" ").includes(codeDep))
+visibles = new Set(syndicatsVisibles.map((s) => s.siren))
+traitsVisibles = traits.filter((t) => visibles.has(t.s.siren))
+couleurTrait = (s) => vue === "domaine"
+  ? couleursDomaine[domaines.indexOf(s.domaine)]
+  : (s.intercommunalites > 1 ? couleurACheval : couleurDedans)
+// Les syndicats à cheval par-dessus les autres.
+traitsOrdonnes = vue === "cheval" ? d3.sort(traitsVisibles, (t) => t.s.intercommunalites > 1) : traitsVisibles
+```
+
+```{ojs}
+//| echo: false
+vue === "domaine"
+  ? Plot.legend({color: {domain: domaines, range: couleursDomaine}, swatchWidth: 18, swatchHeight: 3})
+  : Plot.legend({
+      color: {domain: ["Toutes ses communes dans la même intercommunalité", "À cheval sur plusieurs intercommunalités"],
+              range: [couleurDedans, couleurACheval]},
+      swatchWidth: 18, swatchHeight: 3
+    })
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: 900,
+  height: franceEntiere ? 880 : 760,
+  style: {background: fond},
+  projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0],
+               domain: franceEntiere ? departements : cadrage, inset: 10},
+  marks: [
+    Plot.geo(franceEntiere ? departements : intercos, {
+      fill: couleurTerre, stroke: couleurBord, strokeWidth: 0.5, clip: "frame"
+    }),
+    Plot.link(traitsOrdonnes, {
+      x1: (t) => t.depart.lon, y1: (t) => t.depart.lat, x2: (t) => t.arrivee.lon, y2: (t) => t.arrivee.lat,
+      stroke: (t) => couleurTrait(t.s), strokeWidth: franceEntiere ? 0.5 : 1.3,
+      strokeOpacity: franceEntiere ? 0.8 : 0.9, curve: "linear", clip: "frame"
+    }),
+    // Les limites des intercommunalités, par-dessus les traits.
+    Plot.geo(intercos, {stroke: couleurEpci, strokeWidth: franceEntiere ? 0.3 : 1.6, strokeOpacity: franceEntiere ? 0.5 : 1, clip: "frame"}),
+    Plot.geo(departements, {stroke: couleurEpci, strokeWidth: franceEntiere ? 0.9 : 2.4, clip: "frame"}),
+    franceEntiere ? null : [
+      Plot.dot(syndicatsVisibles, {
+        x: (s) => positions.get(s.siege)?.lon, y: (s) => positions.get(s.siege)?.lat,
+        r: 3, fill: (s) => couleurTrait(s), stroke: fond, strokeWidth: 1, clip: "frame"
+      }),
+      Plot.tip(syndicatsVisibles, Plot.pointer({
+        x: (s) => positions.get(s.siege)?.lon, y: (s) => positions.get(s.siege)?.lat,
+        maxRadius: 15, fill: fond,
+        channels: {
+          "Syndicat": "nom",
+          "Domaine": "domaine",
+          "Siège": (s) => positions.get(s.siege)?.nom,
+          "Communes membres": "communes",
+          "Intercommunalités": "intercommunalites",
+          "Création": "creation"
+        },
+        format: {x: false, y: false}
+      }))
+    ]
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  ${franceEntiere
+    ? `Les ${entier(syndicatsVisibles.length)} syndicats de 2 à 50 communes de France métropolitaine.`
+    : `${entier(syndicatsVisibles.length)} syndicats de 2 à 50 communes ont au moins une commune membre dans ce
+       département, dont ${entier(syndicatsVisibles.filter((s) => s.intercommunalites > 1).length)} à cheval sur
+       plusieurs intercommunalités. Survolez une commune siège pour le détail.`}
+  Chaque trait relie la commune siège d'un syndicat à l'une de ses communes membres ; les
+  limites grises sont celles des intercommunalités.
+  Sources : DGCL, Banatic, octobre 2026 ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.
+</small></p>`
+```
+
+Les étoiles sont petites : la moitié des syndicats de proximité réunissent 4 communes ou
+moins. Les regroupements scolaires (en orange) sont les plus nombreux dans l'Oise, la
+Seine-Maritime, la Seine-et-Marne, l'Aisne et l'Eure, où les villages trop petits pour garder
+une école s'associent avec un ou deux voisins. Les syndicats d'eau (en bleu) sont plus
+étendus et suivent les conduites ou les vallées, en Moselle, dans l'Oise, en Haute-Saône et
+en Côte-d'Or. Dans la vue « à cheval », beaucoup d'étoiles
+enjambent les limites des intercommunalités, surtout au centre de la France : c'est le cas de
+62 % des syndicats de proximité dans la Nièvre, de plus de la moitié dans l'Indre, l'Allier
+et la Dordogne. Deux syndicats sur trois ont été créés avant 2000, bien avant la carte
+intercommunale actuelle, redessinée en 2017 : leurs communes ont été réparties ensuite dans
+des communautés différentes.
+
+## Les syndicats, domaine par domaine
+
+```{ojs}
+//| echo: false
+{
+  const parDomaine = domaines.flatMap((domaine) => {
+    const liste = syndicats.filter((s) => s.domaine === domaine)
+    const aCheval = liste.filter((s) => s.intercommunalites > 1).length
+    return [
+      {domaine, cas: "Dans une seule intercommunalité", nombre: liste.length - aCheval, total: liste.length},
+      {domaine, cas: "À cheval", nombre: aCheval, total: liste.length}
+    ]
+  })
+  return Plot.plot({
+    width: 760,
+    height: 200,
+    marginLeft: 150,
+    marginRight: 110,
+    style: {background: fond},
+    x: {label: "Nombre de syndicats de 2 à 50 communes", grid: true, tickFormat: entier},
+    y: {label: null, domain: domaines},
+    color: {domain: ["Dans une seule intercommunalité", "À cheval"], range: [couleurDedans, couleurACheval], legend: true},
+    marks: [
+      Plot.barX(parDomaine, {x: "nombre", y: "domaine", fill: "cas", inset: 1}),
+      Plot.text(parDomaine.filter((d) => d.cas === "À cheval"), {
+        x: "total", y: "domaine", text: (d) => `${pourcent(d.nombre / d.total)} à cheval`,
+        textAnchor: "start", dx: 6, fill: "currentColor"
+      }),
+      Plot.ruleX([0]),
+      Plot.tip(parDomaine, Plot.pointer(Plot.stackX({
+        x: "nombre", y: "domaine", fill: "cas",
+        channels: {"Syndicats": (d) => entier(d.nombre)},
+        format: {x: false, fill: true, y: true}
+      })))
+    ]
+  })
+}
+```
+
+Les syndicats d'eau débordent plus souvent que les syndicats scolaires : une conduite ou un
+bassin versant ignore les limites administratives, alors qu'un regroupement scolaire réunit
+des villages contigus, souvent rangés ensemble dans la même communauté de communes.
+
+## Les données
+
+Un fichier de la base nationale sur l'intercommunalité (Banatic), la correspondance entre
+numéros SIREN et codes Insee des communes, et les contours de
+[cartiflette](https://github.com/InseeFrLab/cartiflette), lus avec [DuckDB](https://duckdb.org/).
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Base nationale sur l'intercommunalité (Banatic), export France entière](https://www.data.gouv.fr/datasets/base-nationale-sur-les-intercommunalites) | DGCL (ministère de l'Intérieur) | La liste des groupements de communes (syndicats et intercommunalités), leurs membres, leur siège et leurs compétences | Excel |
+| [Correspondance code Insee – SIREN des communes](https://www.data.gouv.fr/datasets/base-nationale-sur-les-intercommunalites) | DGCL | Le code Insee de chaque commune, Banatic ne donnant que son SIREN | CSV |
+| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | Contours des communes, leur intercommunalité, départements | GeoParquet |
+
+```{python}
+import io
+import json
+import pathlib
+import urllib.request
+
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Banatic (DGCL)
+
+Le site de Banatic produit chaque jour un export de tous les groupements de France, en Excel
+(80 Mo). Il est en format long : une ligne par groupement et par membre, avec 180 colonnes,
+dont une par compétence (`OUI` ou `NON`). On le lit avec
+[calamine](https://github.com/tafia/calamine), tout en texte.
+
+```{python}
+BANATIC_URL = "https://www.banatic.interieur.gouv.fr/consultation/api/export/pregenere/telecharger/France"
+
+with urllib.request.urlopen(BANATIC_URL, timeout=600) as reponse:
+    banatic = pd.read_excel(io.BytesIO(reponse.read()), dtype=str, engine="calamine").fillna("")
+con.register("banatic_brut", banatic)
+con.sql("CREATE TABLE banatic AS SELECT * FROM banatic_brut")
+
+con.sql("""
+SELECT "Nature juridique" AS nature, count(DISTINCT "N° SIREN") AS groupements, count(*) AS lignes
+FROM banatic GROUP BY ALL ORDER BY groupements DESC
+""").df().style.hide(axis="index")
+```
+
+Les syndicats sont les SIVU (syndicats intercommunaux à vocation unique), les SIVOM (à
+vocation multiple) et les syndicats mixtes, fermés (SMF, entre communes et groupements) ou
+ouverts (SMO, avec d'autres personnes publiques : départements, chambres consulaires…). Les
+communautés de communes, d'agglomération, urbaines et les métropoles sont les
+intercommunalités à fiscalité propre ; les PETR, pôles métropolitains et établissements
+publics territoriaux du Grand Paris sont laissés de côté.
+
+### La correspondance SIREN – code Insee
+
+Banatic désigne les communes par leur numéro SIREN. La DGCL publie la table de passage au
+code Insee, encodée en Windows-1252.
+
+```{python}
+CORRESPONDANCE_URL = (
+    "https://static.data.gouv.fr/resources/base-nationale-sur-les-intercommunalites/"
+    "20250312-083024/correspondance-code-commune-siren.csv"
+)
+with urllib.request.urlopen(CORRESPONDANCE_URL, timeout=120) as reponse:
+    correspondance = pd.read_csv(io.BytesIO(reponse.read()), sep=";", dtype=str, encoding="cp1252")
+correspondance.columns = ["code", "siren", "nom"]
+con.register("correspondance", correspondance)
+len(correspondance)
+```
+
+### Les communes (cartiflette)
+
+Les contours des communes de 2026 donnent leur département et le SIREN de leur
+intercommunalité (`EPCI`). On garde la France métropolitaine.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS departement, EPCI AS epci,
+       geometry, ST_PointOnSurface(geometry) AS point
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false)
+WHERE INSEE_DEP < '97'
+""")
+con.sql("SELECT count(*) AS communes, count(DISTINCT epci) AS intercommunalites FROM communes")
+```
+
+## Les traitements
+
+### Les communes membres de chaque syndicat
+
+On garde les communes membres directes des syndicats. Quand une intercommunalité adhère à un
+syndicat mixte à la place de ses communes, celles-ci ne siègent pas au comité syndical : elles
+ne sont pas reliées. Toutes les communes membres retrouvent leur code Insee.
+
+```{python}
+con.sql("""
+CREATE TABLE adhesions AS
+SELECT DISTINCT b."N° SIREN" AS syndicat, c.code AS commune
+FROM banatic b
+LEFT JOIN correspondance c ON c.siren = b."Siren membre"
+WHERE b."Nature juridique" IN ('SIVU', 'SIVOM', 'SMF', 'SMO')
+  AND b."Catégorie des membres du groupement" = 'commune'
+""")
+con.sql("SELECT count(*) AS adhesions, count(commune) AS avec_code_insee FROM adhesions")
+```
+
+### Le domaine de chaque syndicat
+
+Banatic coche, pour chaque groupement, les compétences qu'il exerce parmi 125. On les range
+en deux familles, repérées par leur intitulé : l'école (bâtiments des écoles maternelles et
+élémentaires, cantine, garderie, activités périscolaires, transport scolaire) et l'eau (eau
+potable, assainissement, eaux pluviales, rivières et milieux aquatiques au titre du code de
+l'environnement). Un syndicat qui exerce des compétences d'une seule de ces deux familles
+prend son nom, même s'il a d'autres compétences à côté ; les autres sont rangés dans
+« Autres compétences » : électricité, voirie, forêt, fourrière, informatique, équipements
+sportifs…
+
+```{python}
+competences = list(banatic.columns[banatic.columns.get_loc("Nombre de compétences exercées") + 1:
+                                   banatic.columns.get_loc("Adhésion siren")])
+MOTS_ECOLE = ["enseignement préélémentaire", "périscolaire", "Restauration scolaire", "transports scolaires"]
+MOTS_EAU = ["Eau (production", "Assainissement", "eaux pluviales", "L. 211-7", "L.211-7", "SAGE"]
+ecole = [c for c in competences if any(m in c for m in MOTS_ECOLE)]
+eau = [c for c in competences if any(m in c for m in MOTS_EAU) and "ZFE" not in c]
+
+
+def une_parmi(colonnes):
+    return " OR ".join(f'"{c}" = \'OUI\'' for c in colonnes)
+
+
+con.sql(f"""
+CREATE TABLE domaines AS
+SELECT "N° SIREN" AS syndicat,
+       bool_or({une_parmi(ecole)}) AS ecole,
+       bool_or({une_parmi(eau)}) AS eau
+FROM banatic WHERE "Nature juridique" IN ('SIVU', 'SIVOM', 'SMF', 'SMO')
+GROUP BY ALL
+""")
+pd.Series({"compétences": len(competences), "école": len(ecole), "eau": len(eau)})
+```
+
+### Les syndicats, leur taille et leurs intercommunalités
+
+Pour chaque syndicat, on compte ses communes membres et les intercommunalités auxquelles
+elles appartiennent : un syndicat est « à cheval » quand ses communes relèvent de deux
+intercommunalités ou plus. Son siège vient du champ `Commune siège` (« SIREN - nom »).
+
+```{python}
+con.sql("""
+CREATE TABLE syndicats AS
+WITH fiches AS (
+    SELECT "N° SIREN" AS syndicat, any_value("Nom du groupement") AS nom,
+           any_value("Nature juridique") AS nature,
+           any_value(split_part("Commune siège", ' - ', 1)) AS siren_siege,
+           any_value(year(try_strptime("Date de création", '%d/%m/%Y'))) AS creation
+    FROM banatic WHERE "Nature juridique" IN ('SIVU', 'SIVOM', 'SMF', 'SMO')
+    GROUP BY ALL
+),
+membres AS (
+    SELECT a.syndicat, count(*) AS communes, count(DISTINCT c.epci) AS intercommunalites,
+           string_agg(DISTINCT c.departement, ' ' ORDER BY c.departement) AS departements,
+           bool_and(c.code IS NOT NULL) AS metropole
+    FROM adhesions a LEFT JOIN communes c ON c.code = a.commune
+    GROUP BY ALL
+)
+SELECT f.syndicat AS siren, f.nom, f.nature, f.creation, s.code AS siege,
+       CASE WHEN d.ecole AND NOT d.eau THEN 'École'
+            WHEN d.eau AND NOT d.ecole THEN 'Eau et rivières'
+            ELSE 'Autres compétences' END AS domaine,
+       coalesce(m.communes, 0) AS communes, m.intercommunalites, m.departements, m.metropole
+FROM fiches f
+JOIN domaines d USING (syndicat)
+LEFT JOIN membres m USING (syndicat)
+LEFT JOIN correspondance s ON s.siren = f.siren_siege
+""")
+
+con.sql("""
+SELECT CASE WHEN communes = 0 THEN '1. sans commune membre'
+            WHEN communes = 1 THEN '2. une seule commune'
+            WHEN communes <= 50 THEN '3. de 2 à 50 communes'
+            ELSE '4. plus de 50 communes' END AS taille,
+       count(*) AS syndicats, sum(communes)::INT AS adhesions
+FROM syndicats GROUP BY ALL ORDER BY taille
+""").df().style.hide(axis="index")
+```
+
+Deux familles se dessinent. Les syndicats de plus de 50 communes sont des agences
+départementales : énergie (le syndicat départemental d'électricité, propriétaire des réseaux
+de distribution), informatique, ingénierie, fourrière. Ils réunissent plus de la moitié des adhésions
+mais relient à peu près toutes les communes d'un département entre elles. Les syndicats de 2 à
+50 communes sont des coopérations de voisinage : ce sont eux que montre la carte.
+
+```{python}
+con.sql("""
+SELECT nom, nature, domaine, communes FROM syndicats
+ORDER BY communes DESC LIMIT 10
+""").df().style.hide(axis="index")
+```
+
+```{python}
+con.sql("""
+CREATE TABLE petits AS
+SELECT * FROM syndicats WHERE communes BETWEEN 2 AND 50 AND metropole
+""")
+con.sql("""
+SELECT domaine, count(*) AS syndicats, median(communes) AS communes_mediane,
+       round(100 * avg((intercommunalites > 1)::INT), 1) AS part_a_cheval
+FROM petits GROUP BY ALL ORDER BY syndicats DESC
+""").df().style.hide(axis="index")
+```
+
+```{python}
+resume = con.sql("""
+SELECT (SELECT count(*) FROM petits) AS petits,
+       (SELECT avg((intercommunalites > 1)::INT) FROM petits) AS part_a_cheval,
+       (SELECT count(*) / count(DISTINCT commune) FROM adhesions) AS syndicats_par_commune
+""").df().iloc[0]
+resume
+```
+
+### Ce qui passe à la carte
+
+Trois tables en CSV dans `donnees/j24-syndicats/` : les syndicats de 2 à 50 communes, leurs
+adhésions et les communes concernées, réduites à un point intérieur. Les contours des
+intercommunalités sont obtenus en réunissant les communes, après les avoir simplifiées
+ensemble (`ST_CoverageSimplify`, à 400 m environ) pour qu'elles restent jointives.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j24-syndicats")
+SORTIE.mkdir(parents=True, exist_ok=True)
+
+con.sql(f"""
+COPY (
+    SELECT siren, nom, nature, domaine, siege, communes, intercommunalites, departements, creation
+    FROM petits ORDER BY siren
+) TO '{SORTIE / "syndicats.csv"}' (HEADER)
+""")
+con.sql(f"""
+COPY (
+    SELECT a.* FROM adhesions a SEMI JOIN petits p ON p.siren = a.syndicat ORDER BY ALL
+) TO '{SORTIE / "adhesions.csv"}' (HEADER)
+""")
+con.sql(f"""
+COPY (
+    SELECT code, nom, departement, round(ST_X(point), 4) AS lon, round(ST_Y(point), 4) AS lat
+    FROM communes
+    WHERE code IN (SELECT commune FROM adhesions a SEMI JOIN petits p ON p.siren = a.syndicat)
+       OR code IN (SELECT siege FROM petits)
+    ORDER BY code
+) TO '{SORTIE / "communes.csv"}' (HEADER)
+""")
+
+intercommunalites = con.sql("""
+WITH couverture AS (
+    SELECT list(epci ORDER BY code) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY code), 0.004) AS geom
+    FROM communes
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS epci, ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.0005)) AS geojson
+FROM morceaux GROUP BY ALL
+""").fetchall()
+(SORTIE / "intercommunalites.json").write_text(json.dumps({
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"epci": epci}, "geometry": json.loads(geojson)}
+        for epci, geojson in intercommunalites
+    ],
+}))
+```
+
+Les départements, simplifiés de la même façon, servent de fond et de cadrage ; ils passent
+au JavaScript de la page avec `ojs_define`, et la carte est faite avec
+[Observable Plot](https://observablehq.com/plot/).
+
+```{python}
+departements = con.sql(f"""
+WITH couverture AS (
+    SELECT list(INSEE_DEP ORDER BY INSEE_DEP) AS codes, list(LIBELLE_DEPARTEMENT ORDER BY INSEE_DEP) AS noms,
+           ST_CoverageSimplify(list(geometry ORDER BY INSEE_DEP), 0.01) AS geom
+    FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+    WHERE INSEE_DEP < '97'
+),
+morceaux AS (SELECT codes, noms, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, noms[path[1]] AS nom,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.001)) AS geojson
+FROM morceaux GROUP BY ALL ORDER BY code
+""").fetchall()
+departements = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"code": code, "nom": nom}, "geometry": json.loads(geojson)}
+        for code, nom, geojson in departements
+    ],
+}
+
+ojs_define(
+    departements=departements,
+    resume={k: float(resume[k]) for k in resume.index},
+)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+nomCommune = (code) => positions.get(code)?.nom ?? ""
+viewof tableau = Inputs.search(syndicats, {
+  placeholder: "Rechercher un syndicat, un département…",
+  columns: ["nom", "domaine", "departements"],
+  format: (n) => `${entier(n)} syndicats`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["nom", "nature", "domaine", "siege", "departements", "communes", "intercommunalites", "creation"],
+  header: {
+    nom: "Syndicat", nature: "Nature", domaine: "Domaine", siege: "Siège",
+    departements: "Départements", communes: "Communes", intercommunalites: "Intercommunalités",
+    creation: "Création"
+  },
+  format: {siege: nomCommune, creation: (x) => x ? String(x) : "–"},
+  sort: "intercommunalites",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(syndicats.map((s) => ({...s, siege_nom: nomCommune(s.siege)})),
+    ["siren", "nom", "nature", "domaine", "siege", "siege_nom", "departements", "communes", "intercommunalites", "creation"])],
+    {type: "text/csv"}),
+  "syndicats_intercommunaux.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Banatic est alimentée par les préfectures, au fil des arrêtés de création, de modification
+  et de dissolution. Des syndicats en sommeil ou dissous dans les faits peuvent y figurer
+  encore, et la date de création est parfois celle d'une transformation plutôt que de la
+  création d'origine.
+- Seules les communes membres directes sont reliées. Quand une intercommunalité a pris la
+  compétence (l'eau, par exemple) et siège au syndicat à la place de ses communes, ces liens
+  n'apparaissent pas : la carte sous-estime l'étendue de certains syndicats mixtes.
+- Le domaine est déduit des compétences cochées, pas du nom du syndicat : un SIVOM qui gère
+  une école et la voirie est rangé dans « École ».
+- Les traits partent de la commune siège, qui n'est pas forcément au centre du syndicat ni
+  membre elle-même. Un trait ne dit rien d'un tuyau ou d'une route réels : il signale deux
+  communes qui siègent ensemble.
+- L'outre-mer est laissé de côté sur la carte.
+
+## Pour aller plus loin
+
+- [J16 · Collaborative map](16-collaborative-map.qmd) : la Base Adresse Nationale, tenue
+  commune par commune.
+- [J2 · Lines](02-lines.qmd) : un autre réseau, celui des navettes domicile-travail.
+- Cour des comptes, [La carte des syndicats intercommunaux : une rationalisation à
+  poursuivre](https://www.ccomptes.fr/fr/publications/la-carte-des-syndicats-intercommunaux-une-rationalisation-poursuivre)
+  (rapport public annuel 2016).
+- DGCL, [les collectivités locales en chiffres](https://www.collectivites-locales.gouv.fr/etudes-et-statistiques/les-collectivites-locales-en-chiffres),
+  chapitre sur l'intercommunalité.

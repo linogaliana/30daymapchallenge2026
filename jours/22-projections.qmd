@@ -1,0 +1,722 @@
+---
+title: "J22 · Projections. Quand reviendront les médecins ?"
+description: "La densité de généralistes a baissé depuis 2014. Les projections de la Drees disent quand chaque ancienne région retrouverait son niveau d'alors : entre 2026 et 2051 selon la région, et pas avant 2070 en Corse."
+image: vignettes/22-projections.webp
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 0) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+pourcent = (x) => `${virgule(100 * x)} %`
+nationalMG = series.filter((d) => d.region === "00" && d.specialite === "mg" && d.scenario === "tendanciel")
+mg = (annee) => nationalMG.find((d) => d.annee === annee)
+creuxMG = d3.least(nationalMG, (d) => d.densite)
+retourMG = retours.find((d) => d.region === "00" && d.specialite === "mg" && d.scenario === "tendanciel")
+retoursMG = retours.filter((d) => d.region !== "00" && d.specialite === "mg" && d.scenario === "tendanciel")
+// Les régions passées sous leur niveau de 2014 et qui le retrouvent avant 2070.
+remontees = retoursMG.filter((d) => !d.deja && d.retour !== null)
+effectif = (annee) => series.find((d) => d.region === "00" && d.specialite === "ensemble" &&
+  d.scenario === "tendanciel" && d.annee === annee).effectif
+html`<p class="lead">
+  En 2014, la France comptait ${virgule(mg(2014).densite)} médecins généralistes pour
+  100 000 habitants, en densité standardisée (qui tient compte de l'âge des habitants). En 2025,
+  <strong>${virgule(mg(2025).densite)}</strong>, en baisse de ${pourcent(1 - mg(2025).densite / mg(2014).densite)}.
+  Le creux ${creuxMG.annee > 2025 ? "serait atteint" : "a été touché"} en ${creuxMG.annee}. Selon le
+  scénario tendanciel de la Drees, le niveau de 2014 serait <strong>retrouvé en ${retourMG.retour}</strong>,
+  grâce à la hausse du nombre d'étudiants : ${virgule(effectif(2025))} médecins en activité en 2025,
+  ${virgule(effectif(2040))} en 2040. Mais pas partout au même rythme : de
+  ${d3.least(remontees, (d) => d.retour).retour} en ${d3.least(remontees, (d) => d.retour).nom} à
+  ${d3.greatest(remontees, (d) => d.retour).retour} en ${d3.greatest(remontees, (d) => d.retour).nom},
+  et <strong>pas avant 2070 en ${retoursMG.filter((d) => d.retour === null).map((d) => d.nom).join(", ")}</strong>.
+</p>`
+```
+
+Une carte est une projection : elle aplatit la Terre sur une feuille, ici selon la projection
+conique conforme de Lambert, celle des cartes officielles françaises. Pour ce 22^e^ jour, l'autre
+sens du mot : la projection démographique. La [Drees](https://drees.solidarites-sante.gouv.fr/),
+le service statistique des ministères sociaux, projette chaque année le nombre de médecins
+jusqu'en 2070, à partir des médecins en activité, des étudiants en formation et de leurs
+comportements observés. Le millésime 2026, publié en octobre, donne les résultats par ancienne
+région (celles d'avant 2016). La première carte dit en quelle année chaque région retrouverait sa
+densité de 2014, la seconde fait défiler les années, des données observées (jusqu'en 2025) aux
+données projetées (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+grisNeutre = sombre ? "#3a3a3a" : "#ebe8e1"
+
+specialites = new Map([
+  ["Médecine générale", "mg"], ["Autres spécialités", "autres"], ["Tous les médecins", "ensemble"]
+])
+nomsSpecialites = ({mg: "médecins généralistes", autres: "médecins d'autres spécialités", ensemble: "médecins"})
+scenarios = new Map([
+  ["Tendanciel : 12 200 étudiants par an, 2 500 diplômés à l'étranger", "tendanciel"],
+  ["Variante 1a : 15 200 étudiants par an après 2030", "v1a"],
+  ["Variante 1b : 9 200 étudiants par an après 2030", "v1b"],
+  ["Variante 2 : plus aucun diplômé à l'étranger", "v2"]
+])
+nomsScenarios = new Map([...scenarios].map(([nom, cle]) => [cle, nom.split(" :")[0]]))
+```
+
+```{ojs}
+//| echo: false
+viewof specialite = Inputs.radio(specialites, {value: "mg", label: "Médecins"})
+viewof scenario = Inputs.select(scenarios, {value: "tendanciel", label: "Scénario"})
+```
+
+```{ojs}
+//| echo: false
+// Curseur avec lecture automatique, comme pour les ophtalmologues (J5).
+viewof annee = {
+  const premiere = annees[0], derniere = annees.at(-1)
+  const form = html`<form class="lecteur">
+    <button type="button" name="lire">▶ Lire</button>
+    <input type="range" name="curseur" min="${premiere}" max="${derniere}" step="1" value="2040">
+    <output name="annee"></output>
+  </form>`
+  let minuteur = null
+  const etiquette = (a) => `${a}${a > 2025 ? " (projeté)" : " (observé)"}`
+  const choisir = (a) => {
+    form.value = a
+    form.curseur.valueAsNumber = a
+    form.annee.value = etiquette(a)
+    form.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  const arreter = () => {
+    clearInterval(minuteur)
+    minuteur = null
+    form.lire.textContent = "▶ Lire"
+  }
+  form.lire.onclick = () => {
+    if (minuteur) return arreter()
+    if (form.value === derniere) choisir(premiere)
+    form.lire.textContent = "⏸ Pause"
+    minuteur = setInterval(() => (form.value < derniere ? choisir(form.value + 1) : arreter()), 400)
+  }
+  form.curseur.oninput = (event) => {
+    event.stopPropagation()
+    arreter()
+    choisir(form.curseur.valueAsNumber)
+  }
+  form.onsubmit = (event) => event.preventDefault()
+  invalidation.then(arreter)
+  form.value = 2040
+  form.annee.value = etiquette(2040)
+  return form
+}
+```
+
+```{ojs}
+//| echo: false
+choisies = series.filter((d) => d.specialite === specialite && d.scenario === scenario)
+serieRegion = d3.group(choisies, (d) => d.region)
+cetteAnnee = new Map(choisies.filter((d) => d.annee === annee).map((d) => [d.region, d]))
+lesRetours = new Map(retours.filter((d) => d.specialite === specialite && d.scenario === scenario)
+  .map((d) => [d.region, d]))
+
+// L'année du retour au niveau de 2014, en classes. Du plus tôt (clair) au plus tard (foncé) ;
+// sur fond sombre, l'ordre s'inverse pour que les retards ressortent.
+// Attention : en JavaScript, null < 2035 est vrai ; « pas avant 2070 » est donc testé d'abord.
+classes = [
+  {nom: "Au niveau dès 2025", test: (r) => r.deja},
+  {nom: "2026 à 2034", test: (r) => r.retour < 2035},
+  {nom: "2035 à 2039", test: (r) => r.retour < 2040},
+  {nom: "2040 à 2044", test: (r) => r.retour < 2045},
+  {nom: "2045 à 2054", test: (r) => r.retour < 2055},
+  {nom: "2055 à 2070", test: () => true},
+  {nom: "Pas avant 2070", test: (r) => !r.deja && r.retour === null}
+]
+couleursRetour = sombre
+  ? ["#1f4e5a", "#3b6e6b", "#7a8a4e", "#b8913a", "#e07b39", "#ff5d4a", "#ff9fd2"]
+  : ["#cfe7e2", "#9fd1c4", "#f3dd8c", "#f2b45c", "#e07b39", "#b8361f", "#5b1036"]
+classe = (r) => (classes.at(-1).test(r) ? classes.length - 1 : classes.findIndex((c) => c.test(r)))
+
+decrireRetour = (r) => {
+  const d14 = serieRegion.get(r.region).find((d) => d.annee === 2014)
+  const d25 = serieRegion.get(r.region).find((d) => d.annee === 2025)
+  return `${r.nom}\n${virgule(d14.densite)} en 2014, ${virgule(d25.densite)} en 2025\n` +
+    `Creux : ${virgule(r.creux)} en ${r.annee_creux}\n` +
+    (r.deja ? "Déjà au niveau de 2014 en 2025" :
+     r.retour ? `Niveau de 2014 retrouvé en ${r.retour}` : "Niveau de 2014 pas retrouvé en 2070")
+}
+
+// Seuils fixes pour une spécialité : les couleurs se comparent d'une année à l'autre.
+seuils = ({mg: [110, 130, 150, 175, 200, 250], autres: [150, 180, 210, 250, 300, 400],
+           ensemble: [280, 320, 360, 420, 500, 600]})[specialite]
+bleus = ["#e3eefc", "#b9d3f5", "#86b6ef", "#4f93e0", "#2a6fc2", "#1a4e91", "#0d2f5c"]
+echelleDensite = ({
+  type: "threshold", domain: seuils, range: sombre ? [...bleus].reverse() : bleus,
+  label: `${nomsSpecialites[specialite][0].toUpperCase() + nomsSpecialites[specialite].slice(1)} pour 100 000 habitants (standardisé)`
+})
+decrireDensite = (d) => `${d.nom}\n${virgule(d.densite)} ${nomsSpecialites[specialite]} pour 100 000 habitants\n` +
+  `${virgule(d.effectif)} ${nomsSpecialites[specialite]} en activité\n` +
+  `${annee > 2025 ? `Projection, scénario ${nomsScenarios.get(scenario).toLowerCase()}` : "Observé"}`
+
+projection = ({type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: regions})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const legende = html`<div style="display: flex; flex-wrap: wrap; gap: 0.3em 1em; font-size: 0.8em; max-width: 480px; margin: 0.3em 0 0.6em">
+    ${classes.map((c, i) => html`<span><span style="display: inline-block; width: 14px; height: 14px;
+      background: ${couleursRetour[i]}; vertical-align: -2px; margin-right: 0.3em"></span>${c.nom}</span>`)}
+  </div>`
+  const retour = Plot.plot({
+    title: "L'année où la densité retrouve son niveau de 2014",
+    subtitle: legende,
+    width: 520,
+    style: stylePlot,
+    projection,
+    marks: [
+      Plot.geo(regions, {
+        fill: (f) => couleursRetour[classe(lesRetours.get(f.properties.region))],
+        stroke: fond, strokeWidth: 0.8
+      }),
+      // Étiquette au point intérieur de la plus grande partie (pas dans l'encart de Paris) ;
+      // à l'est de 8° (la Corse), calée à droite pour ne pas sortir du cadre.
+      ...[(f) => f.properties.lon <= 8, (f) => f.properties.lon > 8].map((filtre, i) =>
+        Plot.text(regions.features.filter(filtre), {
+          x: (f) => f.properties.lon, y: (f) => f.properties.lat,
+          textAnchor: i ? "end" : "middle",
+          text: (f) => {
+            const r = lesRetours.get(f.properties.region)
+            return r.deja ? "" : r.retour ? String(r.retour) : "> 2070"
+          },
+          fontSize: 10, fill: "currentColor", stroke: fond, strokeWidth: 2.5
+        })
+      ),
+      Plot.tip(regions.features, Plot.pointer(Plot.geoCentroid({
+        title: (f) => decrireRetour(lesRetours.get(f.properties.region))
+      })))
+    ]
+  })
+  const densite = Plot.plot({
+    title: `La densité en ${annee}${annee > 2025 ? " (projection)" : ""}`,
+    width: 520,
+    style: stylePlot,
+    projection,
+    color: {...echelleDensite, legend: true, width: 340, style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.geo(regions, {
+        fill: (f) => cetteAnnee.get(f.properties.region).densite,
+        stroke: fond, strokeWidth: 0.8,
+        // Les années projetées sont un peu estompées : ce ne sont pas des observations.
+        fillOpacity: annee > 2025 ? 0.8 : 1
+      }),
+      Plot.tip(regions.features, Plot.pointer(Plot.geoCentroid({
+        title: (f) => decrireDensite(cetteAnnee.get(f.properties.region))
+      })))
+    ]
+  })
+  return html`<div class="duo">
+    ${retour}
+    ${densite}
+  </div>`
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>Densité standardisée : nombre de médecins en activité de moins de 70 ans pour
+100 000 habitants, en pondérant chaque âge des habitants par sa consommation de soins en ville.
+Les anciennes régions sont celles d'avant 2016 ; la Guadeloupe, la Martinique et la Guyane, puis
+La Réunion et Mayotte, sont regroupées par la Drees. Survolez une région pour le détail.
+Sources : Drees, modèle ProMédI, millésime 2026 ; IGN, ADMIN EXPRESS COG CARTO 2026, via
+cartiflette.</small></p>`
+```
+
+Les trajectoires de toutes les régions, pour la spécialité et le scénario choisis. À gauche du
+trait, ce qui a été observé ; à droite, ce qui est projeté. La France entière est en noir, la
+région choisie en couleur.
+
+```{ojs}
+//| echo: false
+viewof regionChoisie = Inputs.select(
+  new Map(d3.sort(retours.filter((d) => d.region !== "00" && d.specialite === "mg" && d.scenario === "tendanciel"),
+    (d) => d.nom).map((d) => [d.nom, d.region])),
+  {value: "09", label: "Région"}
+)
+```
+
+```{ojs}
+//| echo: false
+{
+  const couleur = sombre ? "#ff8a6a" : "#c4553a"
+  const regionsSeules = choisies.filter((d) => d.region !== "00")
+  const france = serieRegion.get("00")
+  const choisie = serieRegion.get(regionChoisie)
+  const niveau2014 = choisie.find((d) => d.annee === 2014).densite
+  return Plot.plot({
+    width: 760,
+    height: 420,
+    style: stylePlot,
+    marginLeft: 45,
+    x: {label: null, tickFormat: (x) => String(x)},
+    y: {label: `↑ ${nomsSpecialites[specialite]} pour 100 000 habitants`, grid: true, zero: false},
+    marks: [
+      Plot.rectX([0], {x1: 2025.5, x2: annees.at(-1), fill: "currentColor", fillOpacity: 0.05}),
+      Plot.text(["observé"], {x: 2025, frameAnchor: "top", dx: -6, textAnchor: "end", fillOpacity: 0.7}),
+      Plot.text(["projeté"], {x: 2026, frameAnchor: "top", dx: 6, textAnchor: "start", fillOpacity: 0.7}),
+      Plot.ruleX([annee], {stroke: "currentColor", strokeOpacity: 0.4, strokeDasharray: "4 3"}),
+      Plot.lineY(regionsSeules, {x: "annee", y: "densite", z: "region", stroke: "currentColor", strokeOpacity: 0.15}),
+      Plot.ruleY([niveau2014], {stroke: couleur, strokeOpacity: 0.6, strokeDasharray: "2 3"}),
+      Plot.lineY(france, {x: "annee", y: "densite", stroke: "currentColor", strokeWidth: 2.5}),
+      Plot.lineY(choisie, {x: "annee", y: "densite", stroke: couleur, strokeWidth: 2.5}),
+      Plot.text(france.slice(-1), {x: "annee", y: "densite", text: () => "France", dx: 6, textAnchor: "start"}),
+      Plot.text(choisie.slice(-1), {x: "annee", y: "densite", text: "nom", dx: 6, textAnchor: "start", fill: couleur}),
+      Plot.tip(regionsSeules, Plot.pointer({
+        x: "annee", y: "densite",
+        title: (d) => `${d.nom}, ${d.annee}${d.annee > 2025 ? " (projeté)" : ""}\n${virgule(d.densite)} pour 100 000 habitants`
+      }))
+    ],
+    marginRight: 130
+  })
+}
+```
+
+Ces chiffres sont des projections, pas des prévisions : ils disent ce qui arriverait si les
+étudiants et les médecins se comportaient comme ces dernières années, avec un nombre donné
+d'étudiants admis en deuxième année de médecine. Les quatre scénarios de la Drees ne diffèrent que
+par ce nombre et par l'arrivée de médecins diplômés à l'étranger. Pour la France entière :
+
+```{ojs}
+//| echo: false
+{
+  const france = series.filter((d) => d.region === "00" && d.specialite === specialite)
+  const couleurs = sombre ? ["#e6e6e6", "#7cc0e8", "#f2b45c", "#ff8a6a"] : ["#222", "#2a6f97", "#c9900c", "#c4553a"]
+  const niveau2014 = france.find((d) => d.annee === 2014).densite
+  return Plot.plot({
+    width: 760,
+    height: 340,
+    style: stylePlot,
+    marginLeft: 45,
+    marginRight: 120,
+    x: {label: null, tickFormat: (x) => String(x)},
+    y: {label: `↑ ${nomsSpecialites[specialite]} pour 100 000 habitants`, grid: true, zero: false},
+    color: {domain: [...nomsScenarios.keys()], range: couleurs},
+    marks: [
+      Plot.rectX([0], {x1: 2025.5, x2: annees.at(-1), fill: "currentColor", fillOpacity: 0.05}),
+      Plot.ruleY([niveau2014], {stroke: "currentColor", strokeOpacity: 0.5, strokeDasharray: "2 3"}),
+      Plot.text([niveau2014], {x: annees[0], y: (d) => d, text: () => "niveau de 2014", dy: -7,
+        textAnchor: "start", fillOpacity: 0.7}),
+      Plot.lineY(france, {x: "annee", y: "densite", z: "scenario", stroke: "scenario",
+        strokeWidth: (d) => (d.scenario === scenario ? 3 : 1.5)}),
+      Plot.text(france.filter((d) => d.annee === annees.at(-1)), {
+        x: "annee", y: "densite", text: (d) => nomsScenarios.get(d.scenario), fill: "scenario",
+        dx: 6, textAnchor: "start"
+      }),
+      Plot.tip(france.filter((d) => d.annee > 2025), Plot.pointer({
+        x: "annee", y: "densite",
+        title: (d) => `${nomsScenarios.get(d.scenario)}, ${d.annee}\n${virgule(d.densite)} pour 100 000 habitants`
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const r = (s) => retours.find((d) => d.region === "00" && d.specialite === "mg" && d.scenario === s)
+  const en2070 = (s) => series.find((d) => d.region === "00" && d.specialite === "mg" &&
+    d.scenario === s && d.annee === 2070).densite
+  return html`<p>Pour les généralistes, les scénarios ne se séparent qu'à partir de 2037 : un
+  étudiant admis en deuxième année en 2031, première année où les hypothèses diffèrent, ne
+  s'installe pas avant. Le niveau de 2014 est donc retrouvé en ${r("tendanciel").retour} dans les
+  trois scénarios qui gardent les médecins diplômés à l'étranger, et en ${r("v2").retour ?? "plus de 2070"}
+  sans eux. C'est ensuite que tout se joue : en 2070, ${virgule(en2070("v1a"))} généralistes pour
+  100 000 habitants avec 15 200 étudiants par an, ${virgule(en2070("tendanciel"))} avec 12 200,
+  ${virgule(en2070("v1b"))} avec 9 200.</p>`
+}
+```
+
+--------
+
+On va maintenant décrire comment obtenir les données de ces cartes.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Projections des effectifs de médecins à l'horizon 2070](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/projections-des-effectifs-de-medecins/) | Drees, modèle ProMédI | les densités standardisées et les effectifs de médecins par ancienne région, observés (2014-2025) et projetés (2026-2070) selon quatre scénarios | Excel |
+| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque département, assemblés en anciennes régions | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import json
+import shutil
+import tempfile
+import urllib.request
+import zipfile
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL excel; LOAD excel;
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les projections (Drees, ProMédI)
+
+Le modèle ProMédI de la Drees part des médecins en activité au 1^er^ janvier, recensés dans le
+répertoire partagé des professionnels de santé (RPPS), et des étudiants en médecine. Chaque
+année, il fait avancer les étudiants dans leurs études, les installe, fait partir les médecins à
+la retraite, selon les comportements observés ces dernières années. Il ne garde que les médecins
+de moins de 70 ans. Les scénarios fixent deux hypothèses pour l'avenir :
+
+- le nombre d'étudiants admis en deuxième année de médecine : 12 200 par an de 2026 à 2030 dans
+  tous les scénarios, puis 12 200 (tendanciel et variante 2), 15 200 (variante 1a) ou 9 200
+  (variante 1b) ;
+- le nombre de médecins diplômés à l'étranger qui s'installent en France : 2 500 par an, ou
+  aucun (variante 2).
+
+Les résultats sont publiés dans un fichier Excel, un onglet par niveau de détail. Deux onglets
+nous servent, par ancienne région et par « spécialité agrégée » (médecine générale, autres
+spécialités, ensemble) : les effectifs, et les densités standardisées. Dans chaque onglet, une
+ligne par année, scénario, statut (médecins en activité, ou avec les internes), spécialité et
+région ; le tableau commence à la septième ligne, sous le titre et les notes.
+
+```{python}
+PROJECTIONS_URL = (
+    "https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/datasets/"
+    "projections-des-effectifs-de-medecins/attachments/drees_projections_medecins_2026xlsx"
+)
+
+
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+        except OSError:
+            if essai == essais - 1:
+                raise
+            continue
+        if zipfile.is_zipfile(chemin):  # un .xlsx est une archive zip
+            return
+    raise RuntimeError(f"téléchargement incomplet : {url}")
+```
+
+Les modalités sont codées `01-Médecine générale`, `13-Ile-de-France`, `02-Variante 1a` : on garde
+le numéro des régions, et on donne aux spécialités et aux scénarios une clé courte. On ne garde
+que les médecins en activité, sans les internes.
+
+```{python}
+#| output: false
+with tempfile.TemporaryDirectory() as dossier:
+    chemin = f"{dossier}/projections.xlsx"
+    telecharger(PROJECTIONS_URL, chemin)
+    for feuille, colonne, mesure in [
+        ("Effectif rég. par spé. ag. ", "Effectif", "effectif"),  # avec l'espace final
+        ("Densité stand. rég. par spé. ag", "Densité standardisée", "densite"),
+    ]:
+        con.sql(f"""
+        CREATE TABLE {mesure} AS
+        SELECT "Année"::INTEGER AS annee,
+               CASE split_part("Scénario", '-', 1)
+                   WHEN '00' THEN 'observe' WHEN '01' THEN 'tendanciel' WHEN '02' THEN 'v1a'
+                   WHEN '03' THEN 'v1b' WHEN '04' THEN 'v2' END AS scenario,
+               CASE split_part("Spécialité agrégée", '-', 1)
+                   WHEN '00' THEN 'ensemble' WHEN '01' THEN 'mg' WHEN '02' THEN 'autres' END AS specialite,
+               split_part("Région", '-', 1) AS region,
+               CASE WHEN "Région" LIKE '00-%' THEN 'France'
+                    ELSE trim(substr("Région", 4)) END AS nom,
+               "{colonne}"::DOUBLE AS {mesure}
+        FROM read_xlsx('{chemin}', sheet = '{feuille}', all_varchar = true, range = 'A7:F1000000')
+        WHERE "Statut" = '01-Médecins en activité'
+          AND regexp_matches("Année", '^\\d{{4}}$')  -- sans les lignes vides de la fin
+        """)
+```
+
+Par exemple, les généralistes de Corse dans le scénario tendanciel, tous les dix ans :
+
+```{python}
+#| echo: false
+con.sql("""
+SELECT annee, scenario, round(densite)::INTEGER AS densite, round(effectif)::INTEGER AS effectif
+FROM densite JOIN effectif USING (annee, scenario, specialite, region, nom)
+WHERE region = '09' AND specialite = 'mg' AND scenario IN ('observe', 'tendanciel') AND annee % 10 = 4
+ORDER BY annee
+""").df().style.hide(axis="index")
+```
+
+### Les anciennes régions (cartiflette)
+
+Les contours viennent de [cartiflette](https://github.com/InseeFrLab/cartiflette) : les
+départements 2026, outre-mer rapproché de la métropole et Paris et sa petite couronne agrandies
+(`layout=FRANCE_ENTIERE_DROM_RAPPROCHES`). Les anciennes régions n'y figurent plus : on les
+reconstitue en regroupant leurs départements, avec les deux groupes d'outre-mer de la Drees.
+Les départements sont simplifiés ensemble (`ST_CoverageSimplify`) pour rester jointifs, puis
+fusionnés (`ST_Union_Agg`).
+
+```{python}
+ANCIENNES_REGIONS = {
+    "01": ["67", "68"],  # Alsace
+    "02": ["24", "33", "40", "47", "64"],  # Aquitaine
+    "03": ["03", "15", "43", "63"],  # Auvergne
+    "04": ["14", "50", "61"],  # Basse-Normandie
+    "05": ["21", "58", "71", "89"],  # Bourgogne
+    "06": ["22", "29", "35", "56"],  # Bretagne
+    "07": ["18", "28", "36", "37", "41", "45"],  # Centre
+    "08": ["08", "10", "51", "52"],  # Champagne-Ardenne
+    "09": ["2A", "2B"],  # Corse
+    "10": ["25", "39", "70", "90"],  # Franche-Comté
+    "11": ["971", "972", "973"],  # Guadeloupe, Martinique, Guyane
+    "12": ["27", "76"],  # Haute-Normandie
+    "13": ["75", "77", "78", "91", "92", "93", "94", "95"],  # Île-de-France
+    "14": ["974", "976"],  # La Réunion, Mayotte
+    "15": ["11", "30", "34", "48", "66"],  # Languedoc-Roussillon
+    "16": ["19", "23", "87"],  # Limousin
+    "17": ["54", "55", "57", "88"],  # Lorraine
+    "18": ["09", "12", "31", "32", "46", "65", "81", "82"],  # Midi-Pyrénées
+    "19": ["59", "62"],  # Nord-Pas-de-Calais
+    "20": ["44", "49", "53", "72", "85"],  # Pays de la Loire
+    "21": ["02", "60", "80"],  # Picardie
+    "22": ["16", "17", "79", "86"],  # Poitou-Charentes
+    "23": ["04", "05", "06", "13", "83", "84"],  # Provence-Alpes-Côte d'Azur
+    "24": ["01", "07", "26", "38", "42", "69", "73", "74"],  # Rhône-Alpes
+}
+con.sql("CREATE TABLE passage (region VARCHAR, dep VARCHAR)")
+con.executemany(
+    "INSERT INTO passage VALUES (?, ?)",
+    [(region, dep) for region, deps in ANCIENNES_REGIONS.items() for dep in deps],
+)
+
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
+    "administrative_level=DEPARTEMENT/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE departements AS
+SELECT INSEE_DEP AS dep, geometry
+FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+""")
+
+con.sql("""
+CREATE TABLE anciennes_regions AS
+WITH couverture AS (
+    SELECT list(dep ORDER BY dep) AS deps,
+           ST_CoverageSimplify(list(geometry ORDER BY dep), 0.01) AS geom
+    FROM departements
+),
+morceaux AS (SELECT deps, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT p.region, ST_ReducePrecision(ST_Union_Agg(geom), 0.001) AS geom
+FROM morceaux m JOIN passage p ON p.dep = m.deps[m.path[1]]
+GROUP BY p.region
+""")
+
+# Le point où écrire l'année : à l'intérieur de la plus grande partie de chaque région, pour que
+# l'Île-de-France ne soit pas étiquetée entre la région et son encart agrandi.
+lignes = con.sql("""
+WITH parties AS (SELECT region, unnest(ST_Dump(geom)).geom AS partie FROM anciennes_regions)
+SELECT region, ST_AsGeoJSON(any_value(l.geom)) AS geojson,
+       ST_X(ST_PointOnSurface(arg_max(partie, ST_Area(partie)))) AS lon,
+       ST_Y(ST_PointOnSurface(arg_max(partie, ST_Area(partie)))) AS lat
+FROM parties JOIN anciennes_regions l USING (region)
+GROUP BY region
+""").fetchall()
+
+regions = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"region": region, "lon": round(lon, 3), "lat": round(lat, 3)},
+            "geometry": json.loads(geojson),
+        }
+        for region, geojson, lon, lat in lignes
+    ],
+}
+```
+
+## Les traitements
+
+### Une série par scénario
+
+Les années observées (2014 à 2025) sont communes aux quatre scénarios, qui commencent en 2026.
+Pour tracer chaque scénario d'un seul trait, on recopie les années observées devant chacun
+d'eux.
+
+```{python}
+con.sql("""
+CREATE TABLE series AS
+WITH scenarios AS (
+    SELECT DISTINCT scenario FROM densite WHERE scenario <> 'observe'
+)
+SELECT s.scenario, d.specialite, d.region, d.nom, d.annee,
+       d.densite, e.effectif, d.scenario = 'observe' AS observe
+FROM densite d
+JOIN effectif e USING (annee, scenario, specialite, region)
+JOIN scenarios s ON d.scenario IN ('observe', s.scenario)
+ORDER BY s.scenario, d.specialite, d.region, d.annee
+""")
+```
+
+### L'année du retour
+
+Pour chaque région, spécialité et scénario, on compare la densité de chaque année à celle de 2014,
+première année publiée. L'année du retour est la première année projetée où la densité atteint
+de nouveau ce niveau. Une région qui l'atteignait déjà en 2025 est mise à part ; une région qui
+ne l'atteint pas en 2070 n'a pas d'année de retour (`NULL`). On note aussi le creux : l'année où
+la densité est la plus basse.
+
+```{python}
+retours = con.sql("""
+WITH niveaux AS (
+    SELECT scenario, specialite, region,
+           any_value(densite) FILTER (WHERE annee = 2014) AS niveau_2014,
+           any_value(densite) FILTER (WHERE annee = 2025) AS niveau_2025
+    FROM series GROUP BY ALL
+)
+SELECT scenario, specialite, region, any_value(nom) AS nom,
+       any_value(niveau_2025 >= niveau_2014) AS deja,
+       min(annee) FILTER (WHERE annee > 2025 AND densite >= niveau_2014) AS retour,
+       arg_min(annee, densite) AS annee_creux,
+       min(densite) AS creux
+FROM series JOIN niveaux USING (scenario, specialite, region)
+GROUP BY ALL
+ORDER BY scenario, specialite, region
+""").df()
+retours["retour"] = retours.retour.astype("Int64")
+```
+
+Les généralistes, dans le scénario tendanciel :
+
+```{python}
+#| echo: false
+(
+    retours.query("specialite == 'mg' and scenario == 'tendanciel'")
+    .drop(columns=["scenario", "specialite"])
+    .sort_values("retour", na_position="last")
+    .style.hide(axis="index")
+    .format({"creux": "{:.0f}"}, na_rep="pas avant 2070")
+)
+```
+
+### Contrôler
+
+Chaque région de la carte doit avoir ses chiffres, chaque série ses 57 années, et le creux ne
+peut pas dépasser le niveau de 2014.
+
+```{python}
+#| output: false
+manquantes = {f["properties"]["region"] for f in regions["features"]} ^ (set(retours.region) - {"00"})
+assert not manquantes, f"régions sans correspondance : {manquantes}"
+annees = con.sql("SELECT DISTINCT annee FROM series ORDER BY annee").df().annee.tolist()
+assert annees == list(range(2014, 2071))
+assert con.sql("""
+SELECT count(*) FROM series GROUP BY scenario, specialite, region HAVING count(*) <> 57
+""").fetchall() == []
+```
+
+```{python}
+#| echo: false
+ojs_define(
+    series=con.sql("SELECT * EXCLUDE (observe) FROM series").df().to_dict("records"),
+    retours=json.loads(retours.to_json(orient="records")),  # NULL devient null, pas NaN
+    annees=annees,
+    regions=regions,
+)
+```
+
+## Les données de la carte
+
+Les régions pour l'année, la spécialité et le scénario choisis plus haut.
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+tableau = [...cetteAnnee.values()].map((d) => {
+  const r = lesRetours.get(d.region)
+  return {...d, retour: r.deja ? "dès 2025" : r.retour ?? "pas avant 2070", annee_creux: r.annee_creux}
+})
+viewof recherche = Inputs.search(tableau, {
+  placeholder: "Rechercher une région…",
+  format: (n) => `${n} lignes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["region", "nom", "annee", "densite", "effectif", "annee_creux", "retour"],
+  header: {
+    region: "Code Drees", nom: "Région", annee: "Année", densite: "Densité standardisée",
+    effectif: "Médecins en activité", annee_creux: "Année du creux", retour: "Retour au niveau de 2014"
+  },
+  format: {annee: (x) => String(x), annee_creux: (x) => String(x), densite: (x) => virgule(x),
+           effectif: (x) => virgule(x)},
+  sort: "densite",
+  rows: 26
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(series)], {type: "text/csv"}),
+  "medecins_projections_anciennes_regions_2014_2070.csv",
+  "Télécharger toutes les séries (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Une projection n'est pas une prévision. Elle prolonge les comportements récents : l'âge de
+  départ à la retraite, la part des internes qui choisissent la médecine générale, la région où
+  ils s'installent après leurs études. Une réforme de l'internat, une incitation à l'installation
+  ou un changement des départs à la retraite déplaceraient les courbes.
+- Le nombre d'étudiants admis après 2030 n'est pas encore décidé : c'est l'objet des variantes.
+- La densité standardisée rapporte les médecins à une population pondérée selon l'âge : elle
+  tient compte du vieillissement, mais pas du temps de travail. Si les médecins travaillent moins
+  d'heures que leurs aînés, la hausse des effectifs se traduit moins que proportionnellement en
+  consultations.
+- Les projections de population utilisées sont celles de l'Insee de 2021, avec une fécondité
+  basse et un solde migratoire élevé.
+- Les anciennes régions sont la maille la plus fine publiée : à l'intérieur d'une région, les
+  écarts entre départements, et plus encore entre bassins de vie, restent invisibles. Le J5 montre
+  les ophtalmologues par département.
+- La médecine générale compte les médecins qualifiés en médecine générale, quel que soit leur mode
+  d'exercice : une partie d'entre eux travaille à l'hôpital ou n'exerce pas en cabinet de ville.
+
+## Pour aller plus loin
+
+- Drees, jeu de données [« Projections des effectifs de médecins en activité et étudiants en 3e cycle à l'horizon 2070 »](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/projections-des-effectifs-de-medecins/) :
+  les treize spécialités au niveau national, les internes, et la note de lecture (onglet
+  « Lisez-moi »).
+- Drees, jeu de données [« La démographie des professionnels de santé depuis 2012 »](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) :
+  les effectifs observés par département, utilisés au [J5](05-sight.qmd).
+- Drees, l'[accessibilité potentielle localisée (APL)](https://drees.solidarites-sante.gouv.fr/la-demographie-des-professionnels-de-sante/accessibilite-potentielle-localisee-apl)
+  aux médecins généralistes, commune par commune, pour l'accès aux soins d'aujourd'hui.

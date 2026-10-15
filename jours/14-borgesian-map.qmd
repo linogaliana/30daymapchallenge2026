@@ -1,0 +1,632 @@
+---
+title: "J14 · Borgesian map. La carte à l'échelle du carreau"
+description: "De la commune au carreau de 200 m, le niveau de vie de neuf villes à six résolutions : plus la carte s'affine, plus elle est faite de carreaux estimés, que le secret statistique interdit de montrer tels quels."
+image: vignettes/14-borgesian-map.webp
+resources:
+  - donnees/j14/*.csv
+  - donnees/j14/*.json
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${virgule(100 * x, n)}\u00a0%`
+millions = (x) => `${virgule(x / 1e6)} millions`
+html`<p class="lead">
+  Dans une nouvelle de Borges, les cartographes d'un empire dressent une carte si précise qu'elle
+  a la taille de l'empire et coïncide avec lui point par point. Les générations suivantes la
+  jugent inutile et l'abandonnent. La statistique publique a aussi sa carte la plus fine :
+  <strong>${millions(totaux.carreaux)} de carreaux de 200 m</strong> de côté, qui donnent le
+  niveau de vie de ${millions(totaux.individus)} d'habitants. Mais
+  <strong>${pourcent(totaux.part_carreaux_estimes)} de ces carreaux sont estimés</strong> : presque
+  tous comptent moins de 11 ménages, et le secret statistique interdit de les montrer tels qu'ils
+  sont.
+</p>`
+```
+
+Pour ce quatorzième jour, consacré à la carte de Borges, on refait le chemin de ses cartographes :
+la même ville, de la commune au carreau de 200 m, à la recherche de la carte qui coïnciderait avec
+le territoire. Choisissez une ville, puis faites glisser le curseur, ou cliquez sur « Lire »
+(making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+gris = sombre ? "#555" : "#c8c8c8"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+// Dix couleurs, une par décile ; sur fond sombre, on retire le bas de viridis, trop proche du fond.
+couleurs = d3.quantize((t) => d3.interpolateViridis((sombre ? 0.25 : 0) + (sombre ? 0.75 : 1) * t), 10)
+
+// Les carreaux de la ville choisie, et le nom, le niveau de vie et les limites de ses communes.
+cellules = d3.csv(`donnees/j14/${zone.slug}.csv`, (d) => ({
+  x: +d.x, y: +d.y, commune: d.commune, estime: d.estime === "1", ind: +d.ind,
+  nv_8000: +d.nv_8000, nv_4000: +d.nv_4000, nv_2000: +d.nv_2000, nv_1000: +d.nv_1000, nv_200: +d.nv_200
+}))
+detail = d3.json(`donnees/j14/${zone.slug}.json`)
+
+// De la plus grossière à la plus fine : chaque étape donne à un carreau de 200 m la valeur
+// du territoire qui le contient.
+etapes = [
+  {nom: "Commune", unite: "Commune", valeur: (c) => detail.communes[c.commune]?.nv},
+  ...[8000, 4000, 2000, 1000, 200].map((taille) => ({
+    nom: taille >= 1000 ? `${taille / 1000} km` : `${taille} m`,
+    unite: `Carreau de ${taille >= 1000 ? `${taille / 1000} km` : `${taille} m`}`,
+    taille,
+    valeur: (c) => c[`nv_${taille}`]
+  })),
+  {nom: "200 m observés", unite: "Carreau de 200 m", taille: 200, masque: true, valeur: (c) => (c.estime ? null : c.nv_200)}
+]
+```
+
+```{ojs}
+//| echo: false
+viewof zone = Inputs.select(new Map(zones.map((z) => [z.nom, z])), {label: "Ville", value: zones[0]})
+```
+
+```{ojs}
+//| echo: false
+// Curseur avec lecture automatique, comme pour les maternités (J1).
+viewof indice = {
+  const dernier = etapes.length - 1
+  const form = html`<form class="lecteur">
+    <button type="button" name="lire">▶ Lire</button>
+    <input type="range" name="curseur" min="0" max="${dernier}" step="1" value="0">
+    <output name="etape"></output>
+  </form>`
+  let minuteur = null
+  const choisir = (i) => {
+    form.value = i
+    form.curseur.valueAsNumber = i
+    form.etape.value = etapes[i].nom
+    form.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  const arreter = () => {
+    clearInterval(minuteur)
+    minuteur = null
+    form.lire.textContent = "▶ Lire"
+  }
+  form.lire.onclick = () => {
+    if (minuteur) return arreter()
+    if (form.value === dernier) choisir(0)
+    form.lire.textContent = "⏸ Pause"
+    minuteur = setInterval(() => (form.value < dernier ? choisir(form.value + 1) : arreter()), 1500)
+  }
+  form.curseur.oninput = (event) => {
+    event.stopPropagation()
+    arreter()
+    choisir(form.curseur.valueAsNumber)
+  }
+  form.onsubmit = (event) => event.preventDefault()
+  invalidation.then(arreter)
+  form.value = 0
+  form.etape.value = etapes[0].nom
+  return form
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const etape = etapes[indice]
+  const {x0, y0, cote} = zone
+  // Un pixel par carreau de 200 m, quelle que soit l'étape.
+  const raster = (donnees, fill) => Plot.raster(donnees, {
+    x: (c) => c.x + 100, y: (c) => c.y + 100, fill,
+    x1: x0, x2: x0 + cote, y1: y0, y2: y0 + cote, width: cote / 200, height: cote / 200,
+    imageRendering: "pixelated"
+  })
+  const limites = detail.bordures.flatMap((ligne, k) => ligne.map(([x, y]) => ({x, y, k})))
+  return Plot.plot({
+    width: 720,
+    height: 720,
+    margin: 0,
+    style: stylePlot,
+    x: {domain: [x0, x0 + cote], axis: null},
+    y: {domain: [y0, y0 + cote], axis: null},
+    color: {
+      type: "threshold", domain: seuils, range: couleurs, legend: true, width: 360,
+      label: "Niveau de vie annuel moyen (milliers d'euros)", tickFormat: (d) => entier(d / 1000),
+      style: {background: "transparent", color: "inherit"}
+    },
+    marks: [
+      etape.masque ? raster(cellules.filter((c) => c.estime), gris) : null,
+      raster(cellules, etape.valeur),
+      Plot.line(limites, {x: "x", y: "y", z: "k", stroke: fond, strokeWidth: 0.6, strokeOpacity: 0.8}),
+      Plot.tip(cellules, Plot.pointer({
+        x: (c) => c.x + 100, y: (c) => c.y + 100, maxRadius: 8,
+        title: (c) => {
+          const valeur = etape.valeur(c)
+          return `${detail.communes[c.commune]?.nom ?? "Hors commune"}\n${etape.unite} : ` +
+            (valeur == null ? "carreau estimé, non montré" : `${entier(valeur)} € par an et par personne`) +
+            (etape.taille === 200 && c.estime ? "\nCarreau estimé (secret statistique)" : "")
+        }
+      }))
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const estimes = cellules.filter((c) => c.estime)
+  const habitants = d3.sum(cellules, (c) => c.ind)
+  return html`<p><small>Un cadre de ${entier(zone.cote / 1000)} km de côté autour de
+    ${zone.nom}, en Lambert azimutal (EPSG:3035) : ${entier(cellules.length)} carreaux habités,
+    dont ${pourcent(estimes.length / cellules.length)} estimés, où vivent
+    ${pourcent(d3.sum(estimes, (c) => c.ind) / habitants)} des habitants du cadre. Les couleurs
+    sont les déciles des habitants de France métropolitaine selon le niveau de vie moyen de leur
+    carreau de 200 m. Survolez un carreau pour le détail. Source : Insee, Filosofi 2019, données
+    carroyées ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.</small></p>`
+}
+```
+
+### Plus on zoome, moins on voit
+
+À chaque pas, la carte gagne en détail : la commune efface les écarts entre ses quartiers, le
+carreau de 1 km les fait apparaître. Mais au dernier pas, le détail est en partie un trompe-l'œil.
+Un carreau de 200 m qui compte moins de 11 ménages ne peut pas être diffusé tel quel : son niveau
+de vie est estimé à partir des carreaux voisins, comme celui de quelques carreaux plus peuplés. Dans un même carreau de 1 km, tous les carreaux
+estimés ont exactement le même niveau de vie moyen. Retirez-les (dernière étape du curseur) : il
+reste les quartiers denses ; les faubourgs, les villages et les écarts disparaissent.
+
+```{ojs}
+//| echo: false
+html`<p>Les carreaux estimés sont les plus nombreux, mais pas les plus peuplés : en France
+métropolitaine, ils regroupent ${pourcent(totaux.part_individus_estimes)} des habitants. Et les
+carreaux habités, estimés ou non, ne couvrent que ${pourcent(totaux.part_territoire)} du
+territoire : à 200 m, la carte est surtout faite de vide.</p>`
+```
+
+```{ojs}
+//| echo: false
+{
+  const lignes = resume.flatMap((r) => [
+    {nom: r.nom, mesure: "des carreaux", part: r.part_carreaux_estimes},
+    {nom: r.nom, mesure: "des habitants", part: r.part_individus_estimes}
+  ])
+  const couleurs = sombre ? ["#7ea3d1", "#f0a35e"] : ["#3a6aa8", "#e07b39"]
+  return Plot.plot({
+    width: 720,
+    height: 40 + 26 * resume.length,
+    marginLeft: 130,
+    style: stylePlot,
+    x: {label: "Part estimée (%) →", domain: [0, 100], grid: true},
+    y: {label: null, domain: resume.map((r) => r.nom)},
+    color: {domain: ["des carreaux", "des habitants"], range: couleurs, legend: true,
+            style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.ruleY(resume, {y: "nom", x1: (r) => 100 * r.part_individus_estimes,
+                          x2: (r) => 100 * r.part_carreaux_estimes, stroke: gris, strokeWidth: 2}),
+      Plot.dot(lignes, {
+        y: "nom", x: (d) => 100 * d.part, fill: "mesure", r: 5,
+        title: (d) => `${d.nom}\n${pourcent(d.part)} ${d.mesure} sont dans des carreaux estimés`
+      })
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Part des carreaux de 200 m estimés, et part des habitants qui y vivent, dans le cadre
+de chaque ville et en France métropolitaine.</small></p>`
+```
+
+--------
+
+On va maintenant décrire comment obtenir les données de cette carte.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Revenus, pauvreté et niveau de vie en 2019, données carroyées](https://www.insee.fr/fr/statistiques/7655475) (Filosofi) | Insee | pour chaque carreau habité de 200 m : nombre d'habitants, somme de leurs niveaux de vie, indicateur d'estimation | CSV, dans une archive 7z dans un zip |
+| [Communes et arrondissements municipaux 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour et le nom de chaque commune, et des arrondissements de Paris, Lyon et Marseille | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+L'archive de l'Insee est compressée au format 7z, que lit le paquet `py7zr`.
+
+```{python}
+#| output: false
+import json
+import pathlib
+import shutil
+import tempfile
+import urllib.request
+import zipfile
+
+import duckdb
+import py7zr
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude), ou (x, y)
+SET enable_progress_bar = false
+""")
+```
+
+### Les carreaux de 200 m (Insee)
+
+Le [dispositif Filosofi](https://www.insee.fr/fr/metadonnees/source/serie/s1172) rapproche les
+déclarations de revenus et les prestations sociales de chaque ménage fiscal. L'Insee en tire des
+[données carroyées](https://www.insee.fr/fr/statistiques/7655475) : la France est découpée en
+carreaux de 200 m de côté, dans la projection européenne de Lambert azimutale (EPSG:3035), et
+chaque carreau habité reçoit le nombre de ses habitants (`ind`), de ses ménages (`men`) et la
+somme de leurs niveaux de vie (`ind_snv`). Le niveau de vie est le revenu disponible du ménage
+divisé par le nombre d'unités de consommation.
+
+Le secret statistique interdit de diffuser des informations sur moins de 11 ménages. Pour ces
+carreaux, l'Insee estime les valeurs à partir d'un ensemble plus large de carreaux voisins, et le
+signale par l'indicateur `i_est_200`. Quelques carreaux plus peuplés sont estimés eux aussi : sans
+cela, on pourrait retrouver les valeurs d'un petit carreau par différence avec le total d'un
+ensemble (c'est le secret dit « secondaire »).
+
+L'identifiant du carreau (`idcar_200m`, par exemple `CRS3035RES200mN2029800E4252400`) donne les
+coordonnées de son coin sud-ouest, en mètres : `N` pour le nord (y), `E` pour l'est (x). On ne
+garde que la métropole : la Martinique et La Réunion ont leurs propres fichiers, dans d'autres
+projections.
+
+```{python}
+FILOSOFI_URL = "https://www.insee.fr/fr/statistiques/fichier/7655475/Filosofi2019_carreaux_200m_csv.zip"
+
+
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with urllib.request.urlopen(url, timeout=900) as reponse, open(chemin, "wb") as f:
+                shutil.copyfileobj(reponse, f)
+        except OSError:
+            if essai == essais - 1:
+                raise
+            continue
+        if zipfile.is_zipfile(chemin):
+            return
+    raise RuntimeError(f"téléchargement incomplet : {url}")
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    telecharger(FILOSOFI_URL, f"{dossier}/filosofi.zip")
+    with zipfile.ZipFile(f"{dossier}/filosofi.zip") as archive:
+        archive.extractall(dossier)
+    with py7zr.SevenZipFile(f"{dossier}/Filosofi2019_carreaux_200m_csv.7z") as archive:
+        archive.extract(path=dossier, targets=["carreaux_200m_met.csv"])
+    con.sql(rf"""
+    CREATE TABLE carreaux AS
+    SELECT regexp_extract(idcar_200m, 'E(\d+)$', 1)::INTEGER AS x,
+           regexp_extract(idcar_200m, 'N(\d+)E', 1)::INTEGER AS y,
+           i_est_200 = 1 AS estime, ind, men, ind_snv
+    FROM read_csv('{dossier}/carreaux_200m_met.csv')
+    """)
+con.sql("""
+SELECT estime, men < 11 AS moins_de_11_menages, count(*) AS carreaux, sum(ind) AS habitants
+FROM carreaux GROUP BY ALL ORDER BY ALL
+""").df().style.hide(axis="index")
+```
+
+### Les communes (cartiflette)
+
+On prend les communes de 2025 au niveau des arrondissements municipaux
+(`COMMUNE_ARRONDISSEMENT`), pour que Paris, Lyon et Marseille soient découpées en arrondissements,
+puis on les projette en Lambert azimutal, comme les carreaux. Cette projection conserve les
+surfaces.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
+    "administrative_level=COMMUNE_ARRONDISSEMENT/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=0/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COG AS code, INSEE_COM AS code_commune, NOM AS nom,
+       ST_Transform(geometry, 'EPSG:4326', 'EPSG:3035') AS geom
+FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+WHERE INSEE_DEP NOT IN ('971', '972', '973', '974', '976')
+""")
+doublons = con.sql("SELECT count(*) - count(DISTINCT code) FROM communes").fetchone()[0]
+assert doublons == 0, f"{doublons} codes de commune en double"
+surface = con.sql("SELECT sum(ST_Area(geom)) / 1e6 FROM communes").fetchone()[0]
+f"{len(con.table('communes'))} communes et arrondissements, {surface:,.0f} km²"
+```
+
+## Les traitements
+
+### Le niveau de vie à chaque résolution
+
+Le niveau de vie moyen d'un territoire est la somme des niveaux de vie de ses habitants, divisée
+par leur nombre. Pour un carreau de 1 km, de 2 km, de 4 km ou de 8 km, il suffit d'additionner les
+carreaux de 200 m qu'il contient : la division entière des coordonnées par la taille du carreau
+(`x // 1000`) donne le carreau qui contient chaque carreau de 200 m. Les carreaux de l'Insee sont
+alignés sur ces multiples : un carreau de 200 m est toujours entier dans un carreau de 1 km.
+
+Chaque carreau de 200 m garde ainsi, dans une colonne par taille, le niveau de vie du carreau plus
+grand qui le contient. Sur la carte, chaque étape colore les mêmes carreaux de 200 m, avec la
+valeur de l'étape.
+
+```{python}
+TAILLES = [8000, 4000, 2000, 1000, 200]
+
+colonnes = ",\n".join(
+    f"round(sum(ind_snv) OVER (PARTITION BY x // {t}, y // {t})"
+    f" / sum(ind) OVER (PARTITION BY x // {t}, y // {t}))::INTEGER AS nv_{t}"
+    for t in TAILLES
+)
+con.sql(f"CREATE TABLE niveaux AS SELECT x, y, estime, ind, ind_snv, {colonnes} FROM carreaux")
+con.sql("FROM niveaux LIMIT 5").df().style.hide(axis="index")
+```
+
+### Les carreaux estimés
+
+Dans un même carreau de 1 km, les carreaux de 200 m estimés ont tous le même niveau de vie moyen
+(à l'euro près, après arrondi) : l'estimation leur donne la moyenne de leur groupe. Le zoom
+n'apporte donc rien de plus, pour eux, que le carreau de 1 km. On le vérifie :
+
+```{python}
+ecarts = con.sql("""
+SELECT count(*) FROM (
+    SELECT x // 1000, y // 1000 FROM niveaux WHERE estime
+    GROUP BY ALL HAVING max(nv_200) - min(nv_200) > 1
+)
+""").fetchone()[0]
+assert ecarts == 0, f"{ecarts} carreaux de 1 km où les carreaux estimés diffèrent"
+
+totaux = con.sql(f"""
+SELECT count(*) AS carreaux, sum(ind) AS individus,
+       count(*) FILTER (estime) / count(*) AS part_carreaux_estimes,
+       sum(ind) FILTER (estime) / sum(ind) AS part_individus_estimes,
+       count(*) * 0.04 / {surface} AS part_territoire
+FROM niveaux
+""").df().to_dict("records")[0]
+totaux
+```
+
+### Le niveau de vie des communes
+
+Chaque carreau est rattaché à la commune (ou à l'arrondissement) qui contient son centre. Le
+niveau de vie de la commune est calculé de la même façon, à partir de ses carreaux : c'est une
+approximation, car un carreau à cheval sur deux communes est compté en entier dans l'une. Les
+contours sont ceux de 2025, les revenus ceux de 2019 : les communes fusionnées entre-temps sont
+traitées comme une seule.
+
+```{python}
+con.sql("""
+CREATE TABLE rattachement AS
+SELECT n.x, n.y, m.code
+FROM niveaux n JOIN communes m ON ST_Contains(m.geom, ST_Point(n.x + 100, n.y + 100))
+""")
+con.sql("""
+CREATE TABLE niveaux_communes AS
+SELECT r.code, m.nom, round(sum(n.ind_snv) / sum(n.ind))::INTEGER AS nv
+FROM rattachement r JOIN niveaux n USING (x, y) JOIN communes m USING (code)
+GROUP BY ALL
+""")
+con.sql("""
+SELECT count(*) AS carreaux, count(r.code) AS rattaches,
+       count(*) - count(r.code) AS hors_commune
+FROM niveaux n LEFT JOIN rattachement r USING (x, y)
+""").df().style.hide(axis="index")
+```
+
+Les carreaux sans commune ont leur centre en mer ou de l'autre côté d'une frontière ; la carte les
+montre, sans niveau de vie communal.
+
+### L'échelle de couleurs
+
+Les couleurs sont les déciles des habitants de métropole, rangés selon le niveau de vie moyen de
+leur carreau de 200 m : chaque couleur réunit un dixième de la population. Les mêmes seuils servent
+pour toutes les villes et toutes les étapes.
+
+```{python}
+seuils = [
+    s for (s,) in con.sql("""
+    WITH cumul AS (
+        SELECT nv_200, sum(ind) OVER (ORDER BY nv_200) / sum(ind) OVER () AS part FROM niveaux
+    )
+    SELECT min(nv_200) FROM cumul, range(1, 10) AS d(decile)
+    WHERE part >= decile / 10 GROUP BY decile ORDER BY decile
+    """).fetchall()
+]
+seuils
+```
+
+### Les neuf villes
+
+Pour chaque ville, on trace un cadre de 40 km de côté, centré sur la commune (ses arrondissements
+réunis pour Paris, Lyon et Marseille) et aligné sur la grille de 200 m. Aux huit plus grandes
+villes de province s'ajoute Aurillac, préfecture d'un département rural : les carreaux estimés y
+sont la règle.
+
+Les carreaux de 8 km, ou les communes, débordent parfois du cadre : leur niveau de vie est calculé
+sur tous leurs carreaux, puis la carte les coupe au bord.
+
+```{python}
+COTE = 40_000
+VILLES = [
+    ("paris", "Paris", "75056"),
+    ("lyon", "Lyon", "69123"),
+    ("marseille", "Marseille", "13055"),
+    ("toulouse", "Toulouse", "31555"),
+    ("lille", "Lille", "59350"),
+    ("bordeaux", "Bordeaux", "33063"),
+    ("nantes", "Nantes", "44109"),
+    ("strasbourg", "Strasbourg", "67482"),
+    ("aurillac", "Aurillac", "15014"),
+]
+
+zones = []
+for slug, nom, code in VILLES:
+    cx, cy = con.sql(f"""
+    SELECT ST_X(c), ST_Y(c)
+    FROM (SELECT ST_Centroid(ST_Union_Agg(geom)) AS c FROM communes WHERE code_commune = '{code}')
+    """).fetchone()
+    x0 = round((cx - COTE / 2) / 200) * 200
+    y0 = round((cy - COTE / 2) / 200) * 200
+    zones.append({"slug": slug, "nom": nom, "x0": x0, "y0": y0, "cote": COTE})
+zones
+```
+
+### Ce qui part dans les fichiers
+
+Pour chaque ville, on écrit dans `donnees/j14/` deux fichiers, que la page charge quand on
+choisit la ville :
+
+- un CSV de ses carreaux de 200 m, avec leurs coordonnées, leur commune, leur nombre d'habitants,
+  l'indicateur d'estimation et le niveau de vie à chaque résolution ;
+- un JSON avec le nom et le niveau de vie de ses communes, et leurs limites, coupées au cadre et
+  simplifiées à 25 m (un pixel de la carte fait environ 55 m).
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j14")
+SORTIE.mkdir(parents=True, exist_ok=True)
+
+
+def lignes(geometrie):
+    """Les lignes d'une géométrie GeoJSON, en coordonnées arrondies au mètre."""
+    if geometrie["type"] == "LineString":
+        return [[[round(x), round(y)] for x, y in geometrie["coordinates"]]]
+    if geometrie["type"] == "MultiLineString":
+        return [[[round(x), round(y)] for x, y in ligne] for ligne in geometrie["coordinates"]]
+    if geometrie["type"] == "GeometryCollection":
+        return [l for g in geometrie["geometries"] for l in lignes(g)]
+    return []  # points isolés
+
+
+for zone in zones:
+    x0, y0 = zone["x0"], zone["y0"]
+    filtre = f"x >= {x0} AND x < {x0 + COTE} AND y >= {y0} AND y < {y0 + COTE}"
+    cadre = f"ST_MakeEnvelope({x0}, {y0}, {x0 + COTE}, {y0 + COTE})"
+    con.sql(f"""
+    COPY (
+        SELECT x, y, coalesce(r.code, '') AS commune, estime::INTEGER AS estime, round(ind, 1) AS ind,
+               {", ".join(f"nv_{t}" for t in TAILLES)}
+        FROM niveaux n LEFT JOIN rattachement r USING (x, y)
+        WHERE {filtre} ORDER BY y, x
+    ) TO '{SORTIE / zone["slug"]}.csv' (HEADER)
+    """)
+    communes_zone = {
+        code: {"nom": nom, "nv": nv}
+        for code, nom, nv in con.sql(f"""
+        SELECT DISTINCT c.code, c.nom, c.nv
+        FROM rattachement r JOIN niveaux_communes c USING (code) WHERE {filtre}
+        """).fetchall()
+    }
+    (bordures,) = con.sql(f"""
+    SELECT ST_AsGeoJSON(ST_Intersection(ST_Simplify(ST_LineMerge(ST_Union_Agg(ST_Boundary(geom))), 25), {cadre}))
+    FROM communes WHERE ST_Intersects(geom, {cadre})
+    """).fetchone()
+    with open(SORTIE / f"{zone['slug']}.json", "w") as f:
+        json.dump({"communes": communes_zone, "bordures": lignes(json.loads(bordures))}, f)
+```
+
+Enfin, un résumé par ville pour le graphique des carreaux estimés, avec la métropole entière en
+dernière ligne.
+
+```{python}
+resume = []
+for zone in zones:
+    x0, y0 = zone["x0"], zone["y0"]
+    resume.append(con.sql(f"""
+    SELECT '{zone["nom"]}' AS nom,
+           count(*) FILTER (estime) / count(*) AS part_carreaux_estimes,
+           sum(ind) FILTER (estime) / sum(ind) AS part_individus_estimes
+    FROM niveaux WHERE x >= {x0} AND x < {x0 + COTE} AND y >= {y0} AND y < {y0 + COTE}
+    """).df().to_dict("records")[0])
+resume.append({"nom": "France métropolitaine", **{k: totaux[k] for k in ["part_carreaux_estimes", "part_individus_estimes"]}})
+```
+
+### Ce qui passe à la carte
+
+```{python}
+ojs_define(zones=zones, totaux=totaux, seuils=seuils, resume=resume)
+```
+
+## Les données de la carte
+
+Les carreaux de la ville choisie plus haut. Les coordonnées sont celles du coin sud-ouest, en
+Lambert azimutal (EPSG:3035).
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+tableCellules = cellules.map((c) => ({...c, nom: detail.communes[c.commune]?.nom ?? ""}))
+viewof recherche = Inputs.search(tableCellules, {
+  placeholder: "Rechercher une commune…",
+  format: (n) => `${entier(n)} carreaux`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["x", "y", "nom", "ind", "estime", "nv_200", "nv_1000", "nv_8000"],
+  header: {
+    x: "x (m)", y: "y (m)", nom: "Commune", ind: "Habitants", estime: "Estimé",
+    nv_200: "Niveau de vie, 200 m (€)", nv_1000: "1 km (€)", nv_8000: "8 km (€)"
+  },
+  format: {
+    x: (x) => String(x), y: (y) => String(y), ind: (n) => virgule(n),
+    estime: (b) => (b ? "oui" : "non"), nv_200: entier, nv_1000: entier, nv_8000: entier
+  },
+  sort: "ind",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(tableCellules.map((c) => ({...c, estime: c.estime ? 1 : 0})),
+    ["x", "y", "commune", "nom", "ind", "estime", "nv_8000", "nv_4000", "nv_2000", "nv_1000", "nv_200"])],
+    {type: "text/csv"}),
+  `carreaux_filosofi_2019_${zone.slug}.csv`,
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Les revenus sont ceux de 2019, avant la crise sanitaire. Le champ est celui des ménages
+  fiscaux : les personnes en communauté (maisons de retraite, foyers, prisons) et les sans-abri
+  n'y sont pas.
+- L'Insee ne publie pas le niveau de vie moyen d'un carreau, mais la somme des niveaux de vie
+  de ses habitants : la moyenne se calcule en divisant par leur nombre. Ce n'est pas le niveau de
+  vie médian, plus courant dans les publications.
+- Les valeurs des carreaux estimés ne sont pas des observations : elles servent à agréger les
+  carreaux en zones plus grandes, pas à décrire un carreau isolé. La carte de 200 m est donc à lire
+  avec la dernière étape du curseur, qui ne garde que les carreaux observés.
+- Le rattachement des carreaux aux communes se fait par leur centre, sur les contours de 2025 :
+  le niveau de vie communal est approché, et peut différer de celui que publie l'Insee pour la
+  commune.
+
+## Pour aller plus loin
+
+- Insee, [Revenus, pauvreté et niveau de vie en 2019 - Données carroyées](https://www.insee.fr/fr/statistiques/7655475?sommaire=7655515),
+  et la documentation des fichiers (méthode d'estimation, liste des variables).
+- Insee, [Filosofi](https://www.insee.fr/fr/metadonnees/source/serie/s1172), le dispositif sur
+  les revenus localisés sociaux et fiscaux.
+- Jorge Luis Borges, « De la rigueur de la science », un texte d'un paragraphe paru en 1946, repris
+  dans *L'Auteur et autres textes* (*El hacedor*, 1960). Lewis Carroll avait déjà imaginé, dans
+  *Sylvie et Bruno* (1893), une carte « à l'échelle d'un mille pour un mille ».

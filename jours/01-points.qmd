@@ -87,14 +87,17 @@ anneeData = annees[indice]
 //| echo: false
 ouvertes = points.filter((d) => d.annee === anneeData)
 perdues = pertes.filter((d) => d.derniere < anneeData)
-couleurOuverte = "#2a6f97"
-couleurPerdue = "#c8553d"
+// Les trois couleurs des barres du logo de la Drees.
+couleurOuverte = "#009099"
+couleurPerdue = "#ce614a"
+couleurAnnee = "#3558a2"
 // Pour le texte et la courbe, une teinte plus claire sur fond sombre.
-texteOuverte = sombre ? "#7cc0e8" : couleurOuverte
+texteOuverte = sombre ? "#3fc1c9" : couleurOuverte
 texteCouleurPerdue = sombre ? "#ec8a74" : couleurPerdue
+texteAnnee = sombre ? "#8ea8e6" : couleurAnnee
 
 html`<p style="font-size: 1.1em">
-  <strong>${anneeData}</strong> :
+  <strong style="color:${texteAnnee}">${anneeData}</strong> :
   <span style="color:${texteOuverte}">● ${ouvertes.length} maternités</span>
   &nbsp;·&nbsp;
   <span style="color:${texteCouleurPerdue}">✕ ${perdues.length} communes
@@ -133,6 +136,8 @@ viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]
 //| echo: false
 conteneur = html`<div style="height: min(75vh, 680px); border-radius: 4px"></div>`
 ```
+
+<small>Source : DREES, [liste des maternités de France depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) (statistique annuelle des établissements de santé) ; ministère de la Santé et ANS, FINESS ; IGN, ADMIN EXPRESS et Géoplateforme. Fond de carte : Plan IGN.</small>
 
 ```{ojs}
 //| echo: false
@@ -321,16 +326,33 @@ cadrage = carte.fitBounds(territoire, {padding: 20})
 
 ```{ojs}
 //| echo: false
-Plot.plot({
-  height: 220,
-  marginLeft: 50,
-  x: {label: null, tickFormat: "d"},
-  y: {label: "Maternités", grid: true, zero: true},
-  marks: [
-    Plot.lineY(controle, {x: "annee", y: "carte", stroke: texteOuverte, marker: "circle-stroke"}),
-    Plot.ruleX([anneeData], {stroke: "currentColor", strokeOpacity: 0.3})
-  ]
-})
+// Pas de données entre 2001 et 2007 : ce segment est en pointillés.
+{
+  const fond = sombre ? "#222" : "white"
+  const choisie = controle.filter((d) => d.annee === anneeData)
+  const ancre = anneeData === annees[0] ? "start" : anneeData === annees.at(-1) ? "end" : "middle"
+  return Plot.plot({
+    height: 240,
+    marginLeft: 44,
+    marginTop: 30,
+    x: {label: null, tickFormat: "d", ticks: [2000, 2004, 2008, 2012, 2016, 2020, 2024]},
+    y: {label: "↑ Maternités", grid: true, zero: true, ticks: 4, tickFormat: (n) => n.toLocaleString("fr-FR")},
+    marks: [
+      Plot.areaY(controle, {x: "annee", y: "carte", fill: texteOuverte, fillOpacity: sombre ? 0.2 : 0.12}),
+      Plot.lineY(controle.slice(0, 2), {x: "annee", y: "carte", stroke: texteOuverte,
+        strokeWidth: 2, strokeDasharray: "4,4"}),
+      Plot.lineY(controle.slice(1), {x: "annee", y: "carte", stroke: texteOuverte, strokeWidth: 2.5}),
+      Plot.ruleX([anneeData], {stroke: texteAnnee, strokeWidth: 1.5, strokeDasharray: "2,3"}),
+      Plot.dot(controle, {x: "annee", y: "carte", r: 2.5, fill: fond, stroke: texteOuverte, strokeWidth: 1.5}),
+      Plot.dot(choisie, {x: "annee", y: "carte", r: 6, fill: texteAnnee, stroke: fond, strokeWidth: 2}),
+      Plot.text(choisie, {
+        x: "annee", y: "carte", dy: -16, textAnchor: ancre,
+        text: (d) => `${d.carte} maternités en ${d.annee}`,
+        fill: texteAnnee, fontWeight: "bold", fontSize: 12, stroke: fond, strokeWidth: 4
+      })
+    ]
+  })
+}
 ```
 
 --------
@@ -353,6 +375,7 @@ En résumé, le code utilisé pour récupérer ces données s'appuie sur `Python
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import time
 import urllib.error
@@ -373,9 +396,7 @@ SET geometry_always_xy = true  -- coordonnées en (longitude, latitude)
 
 ### La liste des maternités (DREES)
 
-La DREES publie la [liste des maternités de France depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) sur son portail de données [data.drees/](data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/).
-
-En l'occurrence, ces données sont issues de la statistique annuelle des établissements de santé (SAE). 
+La DREES publie la [liste des maternités de France depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) sur son portail de données [data.drees/](data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/). En l'occurrence, ces données sont issues de la **statistique annuelle des établissements de santé (SAE)**. 
 
 ```{ojs}
 //| echo: false
@@ -403,6 +424,7 @@ On construit d'abord la requête : une lecture par feuille annuelle (l'en-tête 
 empilées les unes sur les autres.
 
 ```{python}
+#| filename: "Requête de lecture des maternités (DREES)"
 MATERNITES_URL = (
     "https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/"
     "datasets/fichier_maternites_112021/attachments/fichier_maternites_122025_mad_xlsx"
@@ -435,6 +457,7 @@ Puis on l'exécute, et on lit le tableau de synthèse :
 
 ```{python}
 #| output: false
+#| filename: "Lecture des maternités et du tableau de synthèse"
 con.sql(requete_maternites)
 
 # Tableau de synthèse : une ligne d'années, puis le nombre de maternités.
@@ -464,6 +487,7 @@ Deux publications :
 - le flux [FINESS - Structures](https://www.data.gouv.fr/fr/datasets/finess-structures-1/) de l'Agence du numérique en santé, en JSON, qui garde aussi **les établissements fermés et leur dernière position**, en longitude et latitude.
 
 ```{python}
+#| filename: "Requête de lecture du FINESS géolocalisé"
 FINESS_URL = (
     "https://static.data.gouv.fr/resources/finess-extraction-du-fichier-des-etablissements/"
     "20260512-091152/etalab-cs1100507-stock-20260512-0339.csv"
@@ -502,6 +526,7 @@ print(f"```sql\n{requete_finess}\n```")
 
 ```{python}
 #| output: false
+#| filename: "Lecture du FINESS géolocalisé"
 con.sql(requete_finess)
 ```
 
@@ -532,6 +557,7 @@ Inputs.table(finess_apercu, {
 ```
 
 ```{python}
+#| filename: "Requête de lecture du flux FINESS de l'ANS"
 FINESS_ANS_URL = (
     "https://static.data.gouv.fr/resources/finess-structures-1/"
     "20261001-021940/finess-structures-mensuel-202609.json.gz"
@@ -571,6 +597,7 @@ print(f"```sql\n{requete_finess_ans}\n```")
 
 ```{python}
 #| output: false
+#| filename: "Lecture du flux FINESS de l'ANS"
 con.sql(requete_finess_ans)
 ```
 
@@ -611,6 +638,7 @@ Pour rattacher chaque maternité à sa commune actuelle et compter les communes 
 Paris, Lyon et Marseille sont lus par arrondissement, et aussi en entier : la DREES code certaines maternités de ces villes par la commune (`75056`), d'autres par l'arrondissement.
 
 ```{python}
+#| filename: "Requête de lecture des communes (cartiflette)"
 CARTIFLETTE_URL = (
     "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
     "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
@@ -641,6 +669,7 @@ print(f"```sql\n{requete_communes}\n```")
 
 ```{python}
 #| output: false
+#| filename: "Lecture des communes"
 con.sql(requete_communes)
 ```
 
@@ -701,6 +730,7 @@ connue avec le [service de géocodage de la Géoplateforme](https://geoservices.
 
 ```{python}
 #| output: false
+#| filename: "Fonction de géocodage"
 GEOCODAGE_URL = "https://data.geopf.fr/geocodage/search"
 
 
@@ -733,6 +763,7 @@ dernière adresse connue.
 
 ```{python}
 #| output: false
+#| filename: "Harmonisation des codes communes"
 con.sql("""
 CREATE OR REPLACE TABLE maternites AS
 SELECT *,
@@ -772,6 +803,7 @@ commune : ces maternités passeront au point 4.
 
 ```{python}
 #| output: false
+#| filename: "Géocodage des adresses manquantes"
 a_geocoder = con.sql("""
 SELECT finess, adresse || ' ' || nomcom FROM sites
 WHERE finess NOT IN (SELECT finess FROM finess UNION SELECT finess FROM finess_ans)
@@ -793,6 +825,7 @@ chaque maternité, la position de plus petit rang (`QUALIFY row_number() ... = 1
 
 ```{python}
 #| output: false
+#| filename: "Choix d'une position par maternité"
 con.sql("""
 CREATE TABLE positions AS
 -- Toutes les positions possibles de chaque maternité, numérotées de la plus sûre (1)
@@ -832,6 +865,7 @@ Enfin, chaque ligne du fichier de la DREES (une maternité, une année) reçoit 
 
 ```{python}
 #| output: false
+#| filename: "Position de chaque ligne et sources utilisées"
 con.sql("""
 CREATE TABLE points AS
 SELECT m.annee, m.NOM_MAT AS nom, m.TYPE AS type, m.STATUT AS statut,
@@ -864,6 +898,7 @@ Comme ce n'est pas une notion présente de manière directement dans les donnée
 
 ```{python}
 #| output: false
+#| filename: "Communes qui ont perdu leur maternité"
 con.sql(f"""
 CREATE TABLE pertes AS
 WITH derniere AS (
@@ -889,6 +924,7 @@ par année.
 
 ```{python}
 #| output: false
+#| filename: "Contrôle du comptage"
 
 points = con.sql("""
 SELECT annee, nom, type, statut, accouchements, commune, nom_commune, territoire, source,
