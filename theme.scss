@@ -62,6 +62,52 @@ div.sourceCode pre.sourceCode {
   line-height: 1.55;
 }
 
+// Blocs de code sombres dans les deux thèmes (couleurs arrow-dark, voir
+// _quarto.yml) : le fond est celui de darkly.
+$fond-code: #373737;
+$texte-code: #f8f8f2;
+
+div.sourceCode,
+div.sourceCode pre.sourceCode {
+  background-color: $fond-code;
+  border-color: $fond-code;
+  color: $texte-code;
+}
+
+div.sourceCode {
+  border-radius: 0.375rem;
+}
+
+// Titre des blocs (`#| filename:`), collé au bloc.
+.code-with-filename {
+  margin: 1.5rem 0;
+
+  .code-with-filename-file {
+    background-color: #2a2a2a;
+    border-color: #2a2a2a;
+    color: $texte-code;
+    border-radius: 0.375rem 0.375rem 0 0;
+    padding: 0.4rem 1.25rem;
+
+    pre {
+      color: inherit;
+      font-weight: 600;
+    }
+  }
+
+  div.sourceCode {
+    margin-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+}
+
+// Bouton de copie, lisible sur le fond sombre (en thème clair, son icône
+// est foncée).
+body.quarto-light .code-copy-button > .bi::before {
+  filter: invert(1);
+}
+
 // Blocs repliables (fiche Drees, requête SQL générée, légende).
 #quarto-document-content details:not(.maplibregl-ctrl) {
   margin: 1.25rem 0 1.75rem;
@@ -90,6 +136,11 @@ div.sourceCode pre.sourceCode {
   > a[download] {
     display: inline-block;
     margin-top: 1rem;
+  }
+
+  // Tableaux (Inputs.table) : de l'air avant le texte qui suit.
+  > form[class*="-table"] {
+    margin-bottom: 2.5rem;
   }
 }
 

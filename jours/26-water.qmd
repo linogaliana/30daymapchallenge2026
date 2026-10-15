@@ -1,0 +1,590 @@
+---
+title: "J26 · Water. La taxe qui monte avec les eaux"
+description: "Depuis 2018, les intercommunalités peuvent lever une taxe pour entretenir les rivières et se protéger des crues et de la mer : la taxe Gemapi, intercommunalité par intercommunalité, d'après le recensement des éléments d'imposition de la DGFiP."
+image: vignettes/26-water.webp
+resources:
+  - donnees/j26/*.geojson
+execute:
+  echo: true
+code-overflow: wrap
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+euros = (x) => `${virgule(x, x < 10 ? 1 : 0)} €`
+millions = (x) => `${entier(x / 1e6)} millions d'euros`
+html`<p class="lead">
+  En 2025, en France métropolitaine, <strong>${entier(chiffres.epci_taxe)} intercommunalités</strong>
+  sur ${entier(chiffres.epci)} lèvent la taxe Gemapi, pour la gestion des milieux aquatiques et la
+  prévention des inondations : <strong>${millions(chiffres.montant)}</strong>, soit
+  ${euros(chiffres.par_hab)} par habitant là où elle existe. En 2021, elle touchait
+  ${entier(chiffres.communes_2021)} communes ; elles sont ${entier(chiffres.communes_2025)}
+  en 2025.
+</p>`
+```
+
+L'eau, ici, est vue par l'impôt. Depuis le 1<sup>er</sup> janvier 2018, les intercommunalités
+ont la charge des rivières et des digues : entretenir les berges, restaurer les zones humides,
+construire et surveiller les ouvrages contre les crues et la submersion marine. Pour payer, elles
+peuvent créer une taxe dédiée, la taxe Gemapi. Elle s'ajoute aux taxes foncières, à la taxe
+d'habitation sur les résidences secondaires et à la cotisation foncière des entreprises, et la
+DGFiP en recense le produit commune par commune. La carte montre où l'on paie pour l'eau, et
+depuis quand (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+grisNeutre = sombre ? "#3a3a3a" : "#ebe8e1"
+
+// Les intercommunalités, avec le produit de la taxe, et les grands cours d'eau.
+zones = d3.json("donnees/j26/zones.geojson")
+fleuves = d3.json("donnees/j26/fleuves.geojson")
+
+// Des bleus d'eau : du plus clair au plus profond.
+bleus = (n) => d3.quantize(sombre ? d3.interpolateRgb("#2f6690", "#b5e6ff") : d3.interpolateRgb("#cfe8f3", "#08306b"), n)
+```
+
+```{ojs}
+//| echo: false
+vues = [
+  {cle: "par_hab", nom: "Combien par habitant ?", unite: "taxe Gemapi en 2025, en euros par habitant",
+   seuils: [5, 10, 15, 20, 30, 40]},
+  {cle: "premiere", nom: "Depuis quand ?", unite: "première année où la majorité des habitants paie la taxe",
+   annees: [2021, 2022, 2023, 2024, 2025]}
+]
+viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const montant = vue.cle === "par_hab"
+  const gamme = montant ? bleus(vue.seuils.length + 1) : bleus(vue.annees.length).reverse()
+  const couleur = (p) => {
+    if (!p.montant) return grisNeutre
+    if (montant) return gamme[d3.bisectRight(vue.seuils, p.par_hab)]
+    return p.premiere ? gamme[vue.annees.indexOf(p.premiere)] : grisNeutre
+  }
+  const carte = Plot.plot({
+    width: 820,
+    height: 780,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: zones, inset: 6},
+    marks: [
+      Plot.geo(zones, {fill: (f) => couleur(f.properties), stroke: fond, strokeWidth: 0.25}),
+      Plot.geo(departements, {stroke: fond, strokeWidth: 0.8, strokeOpacity: 0.7}),
+      // Les fleuves en creux, couleur du fond : on les lit comme des rivières sur une carte ancienne.
+      Plot.geo(fleuves, {stroke: fond, strokeWidth: 1.8, strokeLinecap: "round"}),
+      Plot.tip(zones.features, Plot.pointer(Plot.geoCentroid({
+        title: (f) => {
+          const p = f.properties
+          return `${p.nom}\n` + (p.montant
+            ? `${euros(p.par_hab)} par habitant en 2025\n${entier(p.montant)} € pour ${entier(p.population)} habitants` +
+              (p.premiere ? `\nLevée depuis ${p.premiere === 2021 ? "2021 au moins" : p.premiere}` : "")
+            : "Pas de taxe Gemapi en 2025")
+        }
+      })))
+    ]
+  })
+  const legende = Plot.legend({
+    color: montant
+      ? {type: "threshold", domain: vue.seuils, range: gamme, label: vue.unite, tickFormat: (x) => `${x} €`}
+      : {type: "ordinal", domain: vue.annees.map((a) => a === 2021 ? "2021 ou avant" : String(a)), range: gamme, label: vue.unite},
+    width: 440, style: {background: "transparent", color: "inherit"}
+  })
+  const sansTaxe = html`<span style="font-size: 0.85em"><span style="display: inline-block; width: 14px; height: 14px; background: ${grisNeutre}; vertical-align: -2px; margin-right: 0.3em"></span>Pas de taxe Gemapi en 2025</span>`
+  return html`<div><div style="display: flex; flex-wrap: wrap; align-items: end; gap: 0.2em 1.6em; margin-bottom: 0.4em">${legende}${sansTaxe}</div>${carte}</div>`
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  ${vue.cle === "par_hab"
+    ? html`Produit de la taxe Gemapi en 2025, toutes taxes confondues (foncier bâti et non bâti,
+      taxe d'habitation, cotisation foncière des entreprises), divisé par la population
+      municipale.`
+    : html`Première année où les communes qui lèvent la taxe rassemblent au moins la moitié des
+      habitants de l'intercommunalité. Les données commencent en 2021 : « 2021 ou avant ».`}
+  En creux, les principaux fleuves et rivières. France métropolitaine, intercommunalités au
+  1<sup>er</sup> janvier 2025. Sources : DGFiP, recensement des éléments d'imposition 2025 et
+  fiscalité locale des particuliers 2021-2025 ; IGN, BD CARTO et ADMIN EXPRESS COG CARTO 2025,
+  via cartiflette.
+</small></p>`
+```
+
+```{ojs}
+//| echo: false
+html`<p>La taxe dessine deux géographies de l'eau. La première est celle de la montagne : dans
+les Hautes-Alpes, en Savoie, dans les Alpes-de-Haute-Provence, les torrents charrient pierres et
+boue à chaque orage, et les intercommunalités du Queyras, de la Tarentaise ou de la Maurienne
+sont celles qui demandent le plus à chaque habitant, jusqu'à ${euros(chiffres.max_par_hab)} dans
+${chiffres.max_nom}. La seconde est celle du littoral, menacé par la submersion : l'île de Ré,
+le Médoc, la Côte d'Azur, le littoral languedocien. Les grandes métropoles, elles, lèvent les
+plus grosses sommes pour une charge modeste par habitant :
+${millions(chiffres.montant_mgp)} pour la Métropole du Grand Paris, soit
+${euros(chiffres.par_hab_mgp)} par habitant.</p>`
+```
+
+## Qui paie le plus ?
+
+```{ojs}
+//| echo: false
+{
+  const premieres = zones.features.map((f) => f.properties).filter((p) => p.montant)
+    .sort((a, b) => b.par_hab - a.par_hab).slice(0, 15)
+  return Plot.plot({
+    width: 820,
+    height: 420,
+    marginLeft: 300,
+    style: stylePlot,
+    x: {label: "euros par habitant, en 2025", grid: true},
+    y: {label: null, domain: premieres.map((p) => p.nom)},
+    marks: [
+      Plot.barX(premieres, {x: "par_hab", y: "nom", fill: bleus(7)[6]}),
+      Plot.ruleX([40], {stroke: "currentColor", strokeDasharray: "4 3"}),
+      Plot.text([40], {x: (d) => d, frameAnchor: "top", dy: -2, text: () => "plafond légal, 40 € par habitant DGF", textAnchor: "start", dx: 4, fill: "currentColor"}),
+      Plot.ruleX([0]),
+      Plot.tip(premieres, Plot.pointerY({
+        x: "par_hab", y: "nom",
+        title: (p) => `${p.nom}\n${euros(p.par_hab)} par habitant\n${entier(p.montant)} € pour ${entier(p.population)} habitants`
+      }))
+    ]
+  })
+}
+```
+
+<small>Les quinze intercommunalités où la taxe Gemapi rapporte le plus par habitant en 2025.
+Source : DGFiP, recensement des éléments d'imposition 2025.</small>
+
+Plusieurs dépassent 40 € par habitant, le plafond fixé par la loi. Elles ne sont pas hors la
+loi : le plafond se calcule sur la population « DGF », qui ajoute aux habitants un habitant par
+résidence secondaire. Dans les stations de ski et sur les îles, où les résidences secondaires
+sont nombreuses, la population DGF est bien plus forte que la population municipale, et le
+montant par habitant permanent dépasse le plafond.
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Recensement des éléments d'imposition à la fiscalité directe locale (REI) 2025](https://data.economie.gouv.fr/explore/dataset/impots-locaux-fichier-de-recensement-des-elements-dimposition-a-la-fiscalite-dir/) | DGFiP | le produit de la taxe Gemapi dans chaque commune, sur chaque taxe, et l'intercommunalité qui la lève | CSV |
+| [Fiscalité locale des particuliers](https://data.economie.gouv.fr/explore/dataset/fiscalite-locale-des-particuliers/) | DGFiP | les taux de la taxe Gemapi de chaque commune, de 2021 à 2025 | CSV (API) |
+| [BD CARTO, cours d'eau](https://geoservices.ign.fr/bdcarto) | IGN | le tracé des principaux fleuves et rivières | GeoJSON (WFS) |
+| [Communes 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour, la population et l'intercommunalité de chaque commune | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+import json
+import pathlib
+import tempfile
+import urllib.parse
+import urllib.request
+import zipfile
+
+import duckdb
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Le produit de la taxe (DGFiP, REI 2025)
+
+Le recensement des éléments d'imposition (REI) détaille, pour chaque commune, les bases, les
+taux et les montants de chaque impôt local, collectivité par collectivité : plus de mille
+colonnes. La taxe Gemapi y apparaît quatre fois, une par impôt auquel elle s'ajoute :
+
+- `E53gGEMAPI` : sur la taxe foncière des propriétés bâties ;
+- `B53gGEMAPI` : sur la taxe foncière des propriétés non bâties ;
+- `H53gGEMAPITHS` et `H53gGEMAPILV` : sur la taxe d'habitation des résidences secondaires et
+  des logements vacants ;
+- `P53gGEMAPI` : sur la cotisation foncière des entreprises.
+
+On les additionne. Chaque ligne donne aussi l'intercommunalité qui lève la taxe (`SIREPCI`) et
+son nom (`Q03`). Le fichier est en Latin-1, avec des virgules décimales.
+
+```{python}
+REI_URL = (
+    "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/"
+    "impots-locaux-fichier-de-recensement-des-elements-dimposition-a-la-fiscalite-dir/"
+    "attachments/rei_2025_fichier_notice_tracezip"
+)
+MONTANTS = {
+    "foncier_bati": ["E53gGEMAPI"],
+    "foncier_non_bati": ["B53gGEMAPI"],
+    "habitation": ["H53gGEMAPITHS", "H53gGEMAPILV"],
+    "entreprises": ["P53gGEMAPI"],
+}
+
+
+def nombre(colonne):
+    return f"coalesce(TRY_CAST(replace({colonne}, ',', '.') AS DOUBLE), 0)"
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    archive = pathlib.Path(dossier) / "rei.zip"
+    urllib.request.urlretrieve(REI_URL, archive)
+    with zipfile.ZipFile(archive) as z:
+        csv = next(n for n in z.namelist() if n.endswith(".csv"))
+        z.extract(csv, dossier)
+    con.sql(f"""
+    CREATE TABLE rei AS
+    SELECT IDCOM AS commune, DEP AS dep, SIREPCI AS epci, Q03 AS nom_epci,
+           {", ".join(f"{' + '.join(nombre(c) for c in colonnes)} AS {taxe}"
+                      for taxe, colonnes in MONTANTS.items())}
+    FROM read_csv('{dossier}/{csv}', delim = ';', all_varchar = true, encoding = 'latin-1')
+    """)
+
+con.sql(f"""
+ALTER TABLE rei ADD COLUMN montant DOUBLE;
+UPDATE rei SET montant = {" + ".join(MONTANTS)};
+""")
+con.sql(f"""
+SELECT count(*) AS communes, count(*) FILTER (WHERE montant > 0) AS communes_taxees,
+       {", ".join(f"round(sum({taxe}) / 1e6, 1) AS {taxe}_meur" for taxe in MONTANTS)},
+       round(sum(montant) / 1e6, 1) AS total_meur
+FROM rei
+""").df()
+```
+
+### Depuis quand (DGFiP, fiscalité locale des particuliers)
+
+Les REI des années précédentes sont lourds (plus de 100 Mo par an avant 2023). Pour savoir
+depuis quand chaque commune paie la taxe, on interroge plutôt le jeu « fiscalité locale des
+particuliers » de la DGFiP, qui reprend les taux du REI depuis 2021 : une commune lève la taxe
+Gemapi une année donnée si l'un de ses taux Gemapi (foncier bâti, non bâti, habitation) n'est
+pas nul. L'API permet de ne télécharger que ces colonnes.
+
+```{python}
+HISTORIQUE_URL = (
+    "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/"
+    "fiscalite-locale-des-particuliers/exports/csv?"
+    + urllib.parse.urlencode({
+        "select": "exercice,insee_com,b52ggemapi,e52ggemapi,h52ggemapi",
+        "delimiter": ";",
+    })
+)
+
+with tempfile.TemporaryDirectory() as dossier:
+    urllib.request.urlretrieve(HISTORIQUE_URL, f"{dossier}/historique.csv")
+    con.sql(f"""
+    CREATE TABLE historique AS
+    SELECT exercice::INTEGER AS annee, lpad(insee_com::VARCHAR, 5, '0') AS commune,
+           coalesce(b52ggemapi, 0) + coalesce(e52ggemapi, 0) + coalesce(h52ggemapi, 0) > 0 AS taxee
+    FROM read_csv('{dossier}/historique.csv', delim = ';')
+    """)
+
+con.sql("""
+SELECT annee, count(*) AS communes, count(*) FILTER (WHERE taxee) AS communes_taxees
+FROM historique GROUP BY annee ORDER BY annee
+""").df()
+```
+
+### Les communes et leurs intercommunalités (cartiflette)
+
+Les contours des communes viennent de cartiflette, en géographie 2025, celle du REI 2025. On y
+trouve aussi la population municipale et l'intercommunalité de chaque commune. On se limite à
+la France métropolitaine.
+
+```{python}
+CARTIFLETTE_URL = (
+    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
+    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
+    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
+    "vectorfile_format=parquet/simplification=50/raw.parquet"
+)
+
+con.sql(f"""
+CREATE TABLE communes AS
+SELECT INSEE_COM AS commune, NOM AS nom, INSEE_DEP AS dep, EPCI AS epci,
+       POPULATION AS population, geometry
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false)
+WHERE INSEE_DEP < '97'
+""")
+
+con.sql("""
+CREATE TABLE zones AS
+SELECT epci, ST_Union_Agg(geometry) AS geom, sum(population) AS population
+FROM communes
+WHERE epci IN (SELECT epci FROM rei)
+GROUP BY epci
+""")
+con.sql("""
+SELECT (SELECT count(*) FROM zones) AS intercommunalites,
+       (SELECT count(*) FROM communes WHERE epci NOT IN (SELECT epci FROM rei)) AS communes_sans_epci,
+       (SELECT count(*) FROM rei WHERE dep < '97' AND commune NOT IN (SELECT commune FROM communes)) AS lignes_rei_sans_contour
+""").df()
+```
+
+Une trentaine de lignes du REI n'ont pas de contour : ce sont d'anciennes communes, fusionnées
+au 1<sup>er</sup> janvier 2025, que la DGFiP suit encore à part. Leur taxe est bien comptée,
+puisqu'on additionne les montants par intercommunalité et non par commune.
+
+### Les fleuves (IGN, BD CARTO)
+
+Pour le fond, les grands cours d'eau de la BD CARTO, demandés par leur nom au service WFS de
+l'IGN. Certains noms sont portés par de petits ruisseaux homonymes : on ne garde que les tronçons
+de plus de 20 km.
+
+```{python}
+FLEUVES = [
+    "la Loire", "la Seine", "le Rhône", "la Garonne", "la Gironde", "la Dordogne", "le Lot",
+    "le Tarn", "la Meuse", "la Moselle", "le Rhin", "la Somme", "la Charente", "l'Adour",
+    "la Vilaine", "l'Allier", "le Cher", "la Vienne", "la Creuse", "la Sarthe", "la Mayenne",
+    "la Marne", "l'Oise", "l'Aisne", "l'Yonne", "la Saône", "le Doubs", "l'Ain", "l'Isère",
+    "la Durance", "le Var", "l'Ardèche", "le Gard", "l'Hérault", "l'Orb", "l'Aude",
+]
+parametres = {
+    "SERVICE": "WFS", "VERSION": "2.0.0", "REQUEST": "GetFeature",
+    "TYPENAMES": "BDCARTO_V5:cours_d_eau", "OUTPUTFORMAT": "application/json", "COUNT": 1000,
+    "CQL_FILTER": "toponyme IN ({})".format(",".join("'" + f.replace("'", "''") + "'" for f in FLEUVES)),
+}
+with tempfile.TemporaryDirectory() as dossier:
+    urllib.request.urlretrieve(f"https://data.geopf.fr/wfs/ows?{urllib.parse.urlencode(parametres)}",
+                               f"{dossier}/fleuves.geojson")
+    con.sql(f"""
+    CREATE TABLE fleuves AS
+    SELECT toponyme AS nom, geom FROM ST_Read('{dossier}/fleuves.geojson')
+    WHERE ST_Length_Spheroid(geom) > 20000
+    """)
+
+con.sql("SELECT nom, count(*) AS troncons FROM fleuves GROUP BY nom ORDER BY nom").df().T
+```
+
+## Les traitements
+
+### Montant par habitant et première année
+
+Pour chaque intercommunalité, on additionne la taxe levée dans ses communes et on la divise par
+sa population municipale. Pour la première année, on regarde chaque année la part des habitants
+qui vivent dans une commune où la taxe est levée, et on retient la première année où cette part
+atteint la moitié. Les communes qui ont fusionné depuis 2021 n'ont plus le même code : on ne
+retrouve que celles dont le code existe encore en 2025.
+
+```{python}
+con.sql(f"""
+CREATE TABLE gemapi AS
+WITH montants AS (
+    SELECT epci, any_value(nom_epci) AS nom,
+           {", ".join(f"sum({taxe}) AS {taxe}" for taxe in MONTANTS)}, sum(montant) AS montant
+    FROM rei GROUP BY epci
+),
+parts AS (
+    SELECT c.epci, h.annee,
+           sum(c.population) FILTER (WHERE h.taxee) / sum(c.population) AS part
+    FROM historique h JOIN communes c USING (commune)
+    GROUP BY ALL
+),
+premieres AS (
+    SELECT epci, min(annee) FILTER (WHERE part >= 0.5) AS premiere FROM parts GROUP BY epci
+)
+SELECT z.epci, m.* EXCLUDE (epci), z.population,
+       m.montant / z.population AS par_hab,
+       CASE WHEN m.montant > 0 THEN coalesce(p.premiere, 2025) END AS premiere
+FROM zones z JOIN montants m USING (epci) LEFT JOIN premieres p USING (epci)
+""")
+
+con.sql("""
+SELECT premiere, count(*) AS intercommunalites, sum(population) AS habitants,
+       round(sum(montant) / 1e6, 1) AS millions_euros,
+       round(sum(montant) / sum(population), 1) AS euros_par_habitant
+FROM gemapi GROUP BY premiere ORDER BY premiere
+""").df()
+```
+
+Les intercommunalités qui demandent le plus par habitant, et celles qui lèvent le plus :
+
+```{python}
+con.sql("""
+SELECT nom, population, round(montant) AS montant, round(par_hab, 1) AS euros_par_habitant
+FROM gemapi ORDER BY par_hab DESC LIMIT 10
+""").df()
+```
+
+```{python}
+con.sql("""
+SELECT nom, population, round(montant) AS montant, round(par_hab, 1) AS euros_par_habitant
+FROM gemapi ORDER BY montant DESC LIMIT 10
+""").df()
+```
+
+### Les chiffres de l'accroche
+
+```{python}
+def valeur(requete):
+    return con.sql(requete).fetchone()[0]
+
+
+plus_chere = con.sql("SELECT nom, par_hab FROM gemapi ORDER BY par_hab DESC LIMIT 1").fetchone()
+grand_paris = con.sql("SELECT montant, par_hab FROM gemapi WHERE nom = 'Métropole du Grand Paris'").fetchone()
+chiffres = {
+    "epci": valeur("SELECT count(*) FROM gemapi"),
+    "epci_taxe": valeur("SELECT count(*) FROM gemapi WHERE montant > 0"),
+    "montant": valeur("SELECT sum(montant) FROM gemapi"),
+    "par_hab": valeur("SELECT sum(montant) / sum(population) FROM gemapi WHERE montant > 0"),
+    "communes_2021": valeur("SELECT count(*) FROM historique WHERE annee = 2021 AND taxee AND commune < '97'"),
+    "communes_2025": valeur("SELECT count(*) FROM historique WHERE annee = 2025 AND taxee AND commune < '97'"),
+    "max_par_hab": plus_chere[1],
+    "montant_mgp": grand_paris[0],
+    "par_hab_mgp": grand_paris[1],
+}
+chiffres = {cle: float(v) for cle, v in chiffres.items()}
+chiffres["max_nom"] = plus_chere[0]
+chiffres
+```
+
+### Ce qui passe à la carte
+
+Les contours des intercommunalités sont simplifiés ensemble (`ST_CoverageSimplify`, à 500 m
+environ) pour rester jointifs, et écrits avec leurs montants dans `donnees/j26/zones.geojson`.
+Les fleuves, simplifiés eux aussi, vont dans `donnees/j26/fleuves.geojson`, et le fond des
+départements passe directement au JavaScript.
+
+```{python}
+#| output: false
+SORTIE = pathlib.Path("donnees/j26")
+SORTIE.mkdir(parents=True, exist_ok=True)
+
+
+def couverture_simplifiee(requete, tolerance):
+    """Simplifie ensemble des contours jointifs ; renvoie (code, GeoJSON) par contour."""
+    return con.sql(f"""
+    WITH contours AS ({requete}),
+    couverture AS (
+        SELECT list(code ORDER BY code) AS codes,
+               ST_CoverageSimplify(list(geom ORDER BY code), {tolerance}) AS geom
+        FROM contours
+    ),
+    morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+    SELECT codes[path[1]] AS code, ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.0005))
+    FROM morceaux GROUP BY ALL
+    """).fetchall()
+
+
+def collection(lignes, proprietes=lambda code: {"code": code}):
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": proprietes(code), "geometry": json.loads(geojson)}
+            for code, geojson in lignes
+        ],
+    }
+
+
+proprietes = con.sql(f"""
+SELECT epci AS code, nom, population, round(montant) AS montant, round(par_hab, 2) AS par_hab,
+       premiere, {", ".join(f"round({taxe}) AS {taxe}" for taxe in MONTANTS)}
+FROM gemapi
+""").df().set_index("code")
+proprietes = proprietes.astype(object).where(proprietes.notna(), None)
+zones = couverture_simplifiee("SELECT epci AS code, geom FROM zones", 0.005)
+(SORTIE / "zones.geojson").write_text(json.dumps(
+    collection(zones, lambda code: {"code": code, **proprietes.loc[code].to_dict()})
+))
+
+fleuves = con.sql("""
+SELECT nom, ST_AsGeoJSON(ST_ReducePrecision(ST_Simplify(ST_Union_Agg(geom), 0.003), 0.0005))
+FROM fleuves GROUP BY nom
+""").fetchall()
+(SORTIE / "fleuves.geojson").write_text(json.dumps(collection(fleuves, lambda nom: {"nom": nom})))
+
+departements = collection(couverture_simplifiee(f"""
+    SELECT INSEE_DEP AS code, geometry AS geom
+    FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+    WHERE INSEE_DEP < '97'
+""", 0.005))
+ojs_define(departements=departements, chiffres=chiffres)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+lignes = zones.features.map((f) => f.properties)
+viewof tableau = Inputs.search(lignes, {
+  placeholder: "Rechercher une intercommunalité…",
+  columns: ["nom"],
+  format: (n) => `${entier(n)} intercommunalités`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["nom", "population", "montant", "par_hab", "premiere", "foncier_bati", "foncier_non_bati", "habitation", "entreprises"],
+  header: {
+    nom: "Intercommunalité", population: "Habitants", montant: "Taxe Gemapi 2025 (€)",
+    par_hab: "€ par habitant", premiere: "Depuis", foncier_bati: "dont foncier bâti",
+    foncier_non_bati: "dont foncier non bâti", habitation: "dont habitation", entreprises: "dont entreprises (CFE)"
+  },
+  format: {
+    population: entier, montant: entier, par_hab: (x) => virgule(x, 2),
+    premiere: (x) => x === null ? "" : x === 2021 ? "2021 ou avant" : String(x),
+    foncier_bati: entier, foncier_non_bati: entier, habitation: entier, entreprises: entier
+  },
+  sort: "par_hab",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(lignes, ["code", "nom", "population", "montant", "par_hab", "premiere", "foncier_bati", "foncier_non_bati", "habitation", "entreprises"])], {type: "text/csv"}),
+  "gemapi_intercommunalites_2025.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- La carte montre où l'on paie pour l'eau, pas où le risque est le plus fort. Une
+  intercommunalité exposée peut financer ses digues sur son budget général, sans taxe dédiée, ou
+  s'appuyer sur un syndicat de rivière financé autrement.
+- Le montant par habitant rapporte la taxe à la population municipale. Le plafond légal de 40 €
+  se calcule sur la population DGF, qui compte en plus les résidences secondaires : dans les
+  territoires touristiques, le montant par habitant dépasse ce plafond sans l'enfreindre.
+- La taxe n'est pas payée que par les habitants : une partie vient des entreprises (cotisation
+  foncière des entreprises) et des propriétaires de résidences secondaires, qui n'habitent pas
+  forcément sur place.
+- Les années de première levée commencent en 2021, premier millésime de la série des taux de la
+  DGFiP : « 2021 ou avant » regroupe toutes les intercommunalités qui la levaient déjà. Les communes qui ont fusionné
+  depuis 2021 n'y sont pas suivies.
+- Les départements et régions d'outre-mer lèvent aussi la taxe, mais ne sont pas sur la carte.
+
+## Pour aller plus loin
+
+- [J18 · NULL](18-null.qmd) : les valeurs foncières, une autre source de la DGFiP.
+- [J19 · Smell](19-smell.qmd) : une autre carte par intercommunalité.
+- DGFiP, [la notice du REI](https://data.economie.gouv.fr/explore/dataset/impots-locaux-fichier-de-recensement-des-elements-dimposition-a-la-fiscalite-dir/information/) :
+  la définition des plus de mille colonnes du fichier.
+- Ministère de la Transition écologique, [la compétence Gemapi](https://www.ecologie.gouv.fr/politiques-publiques/gestion-milieux-aquatiques-prevention-inondations-gemapi) :
+  ce que les intercommunalités doivent faire, et comment la taxe est encadrée.

@@ -40,6 +40,8 @@ website:
           - jours/23-taste.qmd
           - jours/24-network.qmd
           - jours/25-is-this-a-map.qmd
+          - jours/26-water.qmd
+          - jours/28-feeling.qmd
       - about.qmd
     right:
       - icon: github
@@ -56,8 +58,14 @@ format:
       dark: [darkly, theme.scss]
     respect-user-color-scheme: true
     css: styles.css
+    # Le même thème de code, sombre, en clair et en sombre (voir theme.scss).
+    highlight-style:
+      light: arrow-dark
+      dark: arrow-dark
     filters:
       - en-cours.lua
+      - approche.lua
+      - charte.lua
     toc: true
     author: Lino Galiana
 

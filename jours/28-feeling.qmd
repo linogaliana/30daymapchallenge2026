@@ -1,0 +1,619 @@
+---
+title: "J28 · Feeling. Avoir froid chez soi"
+description: "3,9 millions de résidences principales sont des passoires thermiques, classées F ou G au diagnostic de performance énergétique : de 4 % dans l'Hérault à 34 % dans la Creuse, et d'autant plus que l'hiver est froid, d'après les estimations du SDES."
+image: vignettes/28-feeling.webp
+execute:
+  echo: true
+code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#d7221f"
+  sombre: "#ff7b6b"
+---
+
+```{ojs}
+//| echo: false
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+pourcent = (x, n = 1) => `${virgule(100 * x, n)} %`
+points = (x) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${virgule(Math.abs(100 * x))} point${Math.abs(100 * x) >= 2 ? "s" : ""}`
+millions = (x) => `${virgule(x / 1e6)} millions`
+html`<p class="lead">
+  Au 1<sup>er</sup> janvier 2025, <strong>${millions(chiffres.passoires)}</strong> de résidences
+  principales de France métropolitaine sont des passoires thermiques, classées F ou G au
+  diagnostic de performance énergétique : <strong>${pourcent(chiffres.taux)}</strong> du parc.
+  Pas partout autant : ${pourcent(chiffres.taux_min)} ${chiffres.nom_min_article}, mais
+  <strong>${pourcent(chiffres.taux_max)} ${chiffres.nom_max_article}</strong>. Là où l'hiver est
+  froid, en zone climatique H1, la part est de ${pourcent(chiffres.taux_h1)} ; sur le pourtour
+  méditerranéen, en zone H3, de ${pourcent(chiffres.taux_h3)}.
+</p>`
+```
+
+Le toucher, c'est aussi le chaud et le froid. Aucune statistique publique ne compte les
+frissons, mais le diagnostic de performance énergétique (DPE) dit combien d'énergie il faut à
+un logement pour rester chaud, et l'étiquette de A à G est devenue l'échelle la plus connue
+du confort d'hiver. Le service statistique du ministère de la Transition écologique (SDES),
+pour l'Observatoire national de la rénovation énergétique, en tire chaque année une estimation
+de l'état de tout le parc, département par département. La carte montre où l'on a le plus de
+chances d'avoir froid chez soi, ou de payer cher pour ne pas avoir froid (making of 👇).
+
+--------
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+grisNeutre = sombre ? "#3a3a3a" : "#ebe8e1"
+
+// Les couleurs officielles des étiquettes du DPE, de A à G.
+classes = ["A", "B", "C", "D", "E", "F", "G"]
+couleursDPE = ["#009c6d", "#52b153", "#78bd76", "#f4e70f", "#f0b50f", "#eb8235", "#d7221f"]
+
+// Du jaune pâle au rouge des étiquettes F et G : plus c'est rouge, plus il y a de passoires.
+chauds = (n) => d3.quantize(sombre ? d3.interpolateRgb("#4d4426", "#ff7b6b") : d3.interpolateRgb("#fdf1c4", "#a50f15"), n)
+lignes = departements.features.map((f) => f.properties)
+```
+
+```{ojs}
+//| echo: false
+vues = [
+  {cle: "taux_2025", nom: "Combien de passoires ?", unite: "part des résidences principales classées F ou G, au 1er janvier 2025",
+   seuils: [0.06, 0.09, 0.12, 0.15, 0.2, 0.25]},
+  {cle: "evolution", nom: "En un an ?", unite: "évolution de cette part entre le 1er janvier 2024 et le 1er janvier 2025",
+   seuils: [-0.03, -0.015, -0.005, 0.005, 0.015]}
+]
+viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const taux = vue.cle === "taux_2025"
+  // Pour l'évolution, du vert des bonnes étiquettes (baisse) au rouge des mauvaises (hausse).
+  const gamme = taux ? chauds(vue.seuils.length + 1)
+    : (sombre ? ["#3fae7a", "#2f7d59", "#28513f", grisNeutre, "#8a4a2c", "#e0663a"]
+              : ["#1a7f5a", "#6cbf84", "#c7e6c9", grisNeutre, "#f6b48a", "#d7221f"])
+  const couleur = (p) => gamme[d3.bisectRight(vue.seuils, p[vue.cle])]
+  const etiquettes = [
+    {texte: "H1 · hivers froids", lon: 4.4, lat: 48.6},
+    {texte: "H2 · hivers tempérés", lon: -0.6, lat: 45.6},
+    {texte: "H3 · hivers doux", lon: 6.3, lat: 43.45}
+  ]
+  const carte = Plot.plot({
+    width: 820,
+    height: 780,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 6},
+    marks: [
+      Plot.geo(departements, {fill: (f) => couleur(f.properties), stroke: fond, strokeWidth: 0.7}),
+      // Les limites entre zones climatiques, en tirets : le thermomètre de l'hiver.
+      Plot.geo(limites, {stroke: "currentColor", strokeWidth: 1.8, strokeDasharray: "6 3", strokeLinecap: "round"}),
+      Plot.text(etiquettes, {
+        x: "lon", y: "lat", text: "texte", fontSize: 13, fontWeight: 600, fill: "currentColor",
+        stroke: fond, strokeWidth: 4, paintOrder: "stroke"
+      }),
+      Plot.tip(departements.features, Plot.pointer(Plot.geoCentroid({
+        title: (f) => {
+          const p = f.properties
+          return `${p.nom} (${p.code})\n${pourcent(p.taux_2025)} de passoires en 2025\n` +
+            `${entier(p.passoires_2025)} résidences principales classées F ou G\n` +
+            `${points(p.evolution)} depuis 2024 (${pourcent(p.taux_2024)})\nZone climatique ${p.zone}`
+        }
+      })))
+    ]
+  })
+  const legende = Plot.legend({
+    color: {type: "threshold", domain: vue.seuils, range: gamme, label: vue.unite,
+            tickFormat: taux ? (x) => `${virgule(100 * x, 0)} %` : (x) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${virgule(Math.abs(100 * x))}`},
+    width: 440, style: {background: "transparent", color: "inherit"}
+  })
+  const zones = html`<span style="font-size: 0.85em"><svg width="28" height="10" style="vertical-align: 1px; margin-right: 0.3em"><line x1="0" y1="5" x2="28" y2="5" stroke="currentColor" stroke-width="1.8" stroke-dasharray="6 3"/></svg>Limite entre zones climatiques</span>`
+  return html`<div><div style="display: flex; flex-wrap: wrap; align-items: end; gap: 0.2em 1.6em; margin-bottom: 0.4em">${legende}${zones}</div>${carte}</div>`
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  ${vue.cle === "taux_2025"
+    ? html`Part des résidences principales classées F ou G au diagnostic de performance
+      énergétique, au 1<sup>er</sup> janvier 2025.`
+    : html`Évolution, en points de pourcentage, de la part des résidences principales classées
+      F ou G entre le 1<sup>er</sup> janvier 2024 et le 1<sup>er</sup> janvier 2025. Une partie de la
+      baisse vient du nouveau calcul du DPE des petits logements, au 1<sup>er</sup> juillet 2024.`}
+  Les tirets séparent les trois zones climatiques du DPE. France métropolitaine. Sources : SDES,
+  le parc de logements par classe de performance énergétique au 1<sup>er</sup> janvier 2024 et 2025 ;
+  Ademe, base des DPE (zones climatiques) ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.
+</small></p>`
+```
+
+```{ojs}
+//| echo: false
+{
+  const premiers = [...lignes].sort((a, b) => b.taux_2025 - a.taux_2025).slice(0, 4)
+  const paris = lignes.find((p) => p.code === "75")
+  return html`<p>Les passoires se concentrent au centre de la France, du Massif central au
+  Morvan : ${premiers.map((p) => `${p.nom} (${pourcent(p.taux_2025)})`).join(", ")}. Ce sont des
+  départements froids, de moyenne montagne, avec beaucoup de maisons anciennes, souvent chauffées
+  au fioul ou au bois, et peu de constructions récentes. À l'autre bout de l'échelle, le
+  pourtour méditerranéen et le Sud-Ouest, où l'hiver est doux et où le parc s'est beaucoup
+  renouvelé. Paris fait exception : ${pourcent(paris.taux_2025)} de passoires, le chiffre d'un
+  département rural du centre, dans un climat bien moins rude. C'est le DPE des petits
+  appartements anciens, nombreux à Paris, qui pèse ; il a été corrigé en juillet 2024, et Paris a
+  perdu ${points(-paris.evolution).replace("+", "")} en un an.</p>`
+}
+```
+
+## Le froid dehors, le froid dedans
+
+Le DPE ne mesure pas seulement la qualité d'un logement : il calcule l'énergie qu'il faut pour
+le chauffer, dans le climat où il se trouve. La réglementation découpe la France en zones
+climatiques, de H1 (hivers froids) à H3 (hivers doux), elles-mêmes divisées en sous-zones. Le
+même logement, avec les mêmes murs et la même chaudière, consomme plus à Guéret qu'à Perpignan,
+et peut changer d'étiquette. Rangés par sous-zone, les départements montrent ce gradient.
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const sousZones = ["H1a", "H1b", "H1c", "H2a", "H2b", "H2c", "H2d", "H3"]
+  const parZone = d3.rollups(lignes, (v) => d3.sum(v, (p) => p.passoires_2025) / d3.sum(v, (p) => p.passoires_2025 / p.taux_2025), (p) => p.zone)
+    .map(([zone, taux]) => ({zone, taux}))
+  // Le département le plus touché de chaque sous-zone, nommé sur le graphique.
+  const extremes = d3.rollups(lignes, (v) => d3.greatest(v, (p) => p.taux_2025), (p) => p.zone).map(([, p]) => p)
+  const gamme = chauds(7)
+  const seuils = vues[0].seuils
+  // Une rangée par sous-zone ; dans chaque rangée, les points s'écartent pour ne pas se chevaucher.
+  const points = (options) => Plot.dodgeY("middle", {x: "taux_2025", fy: "zone", r: 5.5, ...options})
+  return Plot.plot({
+    width: 820,
+    height: 560,
+    marginLeft: 50,
+    marginRight: 30,
+    style: stylePlot,
+    x: {label: "part des résidences principales classées F ou G, au 1er janvier 2025", tickFormat: (x) => `${virgule(100 * x, 0)} %`, grid: true, domain: [0, 0.36]},
+    fy: {label: "zone climatique", domain: sousZones},
+    marks: [
+      Plot.tickX(parZone, {x: "taux", fy: "zone", stroke: "currentColor", strokeWidth: 2.5}),
+      Plot.dot(lignes, points({fill: (p) => gamme[d3.bisectRight(seuils, p.taux_2025)], stroke: fond, strokeWidth: 0.8})),
+      Plot.text(extremes, {x: "taux_2025", fy: "zone", text: "nom", dx: 10, textAnchor: "start", fill: "currentColor", fontSize: 11,
+                           stroke: fond, strokeWidth: 3, paintOrder: "stroke"}),
+      Plot.tip(lignes, Plot.pointer(points({
+        title: (p) => `${p.nom} (${p.code})\n${pourcent(p.taux_2025)} de passoires\nZone climatique ${p.zone}`
+      })))
+    ]
+  })
+}
+```
+
+:::
+
+<small>Un point par département, placé selon sa part de passoires thermiques en 2025 ; le trait
+vertical donne la part pour l'ensemble de la sous-zone. Les sous-zones vont, pour l'hiver, des
+plus froides (H1) aux plus douces (H3). Sources : SDES, le parc de logements par classe de
+performance énergétique au 1<sup>er</sup> janvier 2025 ; Ademe, base des DPE.</small>
+
+```{ojs}
+//| echo: false
+html`<p>Dans la zone la plus froide, H1, ${pourcent(chiffres.taux_h1)} des résidences
+principales sont des passoires ; ${pourcent(chiffres.taux_h2)} en zone H2 et
+${pourcent(chiffres.taux_h3)} en zone H3. Le climat n'explique pas tout : à l'intérieur d'une
+même sous-zone, l'écart va du simple au triple, selon l'âge des logements, la part des maisons
+et le mode de chauffage. Mais il donne la pente : on a d'autant plus de chances d'habiter une
+passoire que l'hiver est rude, c'est-à-dire précisément là où l'on en souffre le plus.</p>`
+```
+
+## Toute l'échelle, région par région
+
+Les passoires ne sont que le bas de l'échelle. Pour chaque région, le SDES estime la
+répartition complète des résidences principales entre les sept étiquettes.
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const ordre = d3.sort(regions.filter((r) => r.classe === "F" || r.classe === "G")
+    .reduce((m, r) => m.set(r.region, (m.get(r.region) ?? 0) + r.part), new Map()), ([, p]) => -p).map(([r]) => r)
+  return Plot.plot({
+    width: 820,
+    height: 470,
+    marginLeft: 200,
+    style: stylePlot,
+    x: {label: "part des résidences principales, au 1er janvier 2025", tickFormat: (x) => `${virgule(100 * x, 0)} %`, domain: [0, 1]},
+    y: {label: null, domain: ordre},
+    color: {domain: classes, range: couleursDPE, legend: true, label: "étiquette DPE", style: {background: "transparent", color: "inherit"}},
+    marks: [
+      Plot.barX(regions, Plot.stackX({x: "part", y: "region", fill: "classe", order: classes, reverse: true, stroke: fond, strokeWidth: 0.5})),
+      Plot.tip(regions, Plot.pointer(Plot.stackX({
+        x: "part", y: "region", z: "classe", order: classes, reverse: true,
+        title: (r) => `${r.region}\nÉtiquette ${r.classe} : ${pourcent(r.part)}\n${entier(r.logements)} résidences principales`
+      })))
+    ]
+  })
+}
+```
+
+:::
+
+<small>Répartition des résidences principales par étiquette DPE, de G (à gauche) à A, au
+1<sup>er</sup> janvier 2025 ; régions rangées par part de passoires (F et G). France
+métropolitaine. Source : SDES, le parc de logements par classe de performance énergétique au
+1<sup>er</sup> janvier 2025.</small>
+
+## Les données
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Le parc de logements par classe de performance énergétique au 1^er^ janvier 2025](https://www.statistiques.developpement-durable.gouv.fr/le-parc-de-logements-par-classe-de-performance-energetique-au-1er-janvier-2025) | SDES (ONRE) | le nombre et la part de passoires par département, et la répartition A à G par région, en 2025 | Excel |
+| [Le parc de logements par classe de performance énergétique au 1^er^ janvier 2024](https://www.statistiques.developpement-durable.gouv.fr/le-parc-de-logements-par-classe-de-performance-energetique-au-1er-janvier-2024) | SDES (ONRE) | la part de passoires par département en 2024 | Excel |
+| [DPE logements existants (depuis juillet 2021)](https://data.ademe.fr/datasets/dpe03existant) | Ademe | la zone climatique de chaque département | JSON (API) |
+| [Départements 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour et le nom de chaque département | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+
+```{python}
+#| output: false
+#| filename: "Connexion DuckDB"
+import io
+import json
+import re
+import urllib.parse
+import urllib.request
+
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+### Les passoires par département (SDES)
+
+Chaque automne, le SDES publie l'état du parc de logements par étiquette DPE au
+1<sup>er</sup> janvier. Il part des DPE transmis à l'Ademe, qui ne couvrent que les logements
+vendus, loués ou rénovés depuis peu, et les redresse sur l'ensemble des résidences principales
+du fichier démographique sur les logements et les individus (Fidéli). Le classeur des « données
+complémentaires » a une feuille `PassoiresDepartement` : le nombre de passoires (en milliers)
+et leur part, pour chaque département. On la lit pour 2024 et 2025.
+
+```{python}
+#| filename: "Passoires par département, 2024 et 2025"
+SDES_URL = "https://www.statistiques.developpement-durable.gouv.fr/media/{}/download?inline"
+# Le classeur des données complémentaires de chaque publication.
+CLASSEURS = {2024: 7941, 2025: 8810}
+
+
+def classeur(annee):
+    requete = urllib.request.Request(SDES_URL.format(CLASSEURS[annee]), headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(requete) as reponse:
+        return io.BytesIO(reponse.read())
+
+
+classeurs = {annee: classeur(annee) for annee in CLASSEURS}
+
+# Les lignes de départements commencent par leur code : « 23 - Creuse - Guéret ».
+CODE = re.compile(r"^(\d\d|2A|2B) - ")
+lignes = []
+for annee, fichier in classeurs.items():
+    feuille = pd.read_excel(fichier, sheet_name="PassoiresDepartement", header=None, engine="calamine")
+    for libelle, nombre, taux in feuille.dropna(axis=1, how="all").iloc[:, :3].itertuples(index=False):
+        if isinstance(libelle, str) and CODE.match(libelle):
+            lignes.append({"dep": CODE.match(libelle).group(1), "annee": annee,
+                           "passoires": 1000 * nombre, "taux": taux})
+passoires_sdes = pd.DataFrame(lignes)
+
+con.sql("CREATE TABLE passoires AS SELECT * FROM passoires_sdes")
+con.sql("""
+SELECT annee, count(*) AS departements, round(sum(passoires)) AS passoires,
+       round(100 * sum(passoires) / sum(passoires / taux), 1) AS taux_pct
+FROM passoires GROUP BY annee ORDER BY annee
+""").df()
+```
+
+### Les étiquettes par région (SDES)
+
+La feuille `RégionRésidencesPrincipales` donne, pour chaque région, le nombre de résidences
+principales (en milliers) de chaque étiquette. Chaque région y occupe trois lignes : les
+effectifs, puis deux lignes de parts ; on ne garde que la première, celle qui porte le nom.
+
+```{python}
+#| filename: "Étiquettes par région, 2025"
+feuille = pd.read_excel(classeurs[2025], sheet_name="RégionRésidencesPrincipales", header=None, engine="calamine")
+feuille = feuille.dropna(axis=1, how="all")
+entete = feuille.index[feuille.iloc[:, 0].eq("Région")][0]
+feuille.columns = [str(c).strip() for c in feuille.loc[entete]]
+etiquettes_sdes = feuille.loc[entete + 1:]
+etiquettes_sdes = etiquettes_sdes[
+    etiquettes_sdes["Région"].map(lambda x: isinstance(x, str) and not x.startswith(("Note", "Champ", "Sources")))
+    & etiquettes_sdes["A"].map(lambda x: isinstance(x, float))
+][["Région", "A", "B", "C", "D", "E", "F", "G"]]
+
+con.sql("""
+CREATE TABLE etiquettes AS
+UNPIVOT etiquettes_sdes ON A, B, C, D, E, F, G INTO NAME classe VALUE milliers
+""")
+con.sql("""
+CREATE TABLE regions AS
+SELECT "Région" AS region, classe, 1000 * milliers AS logements,
+       milliers / sum(milliers) OVER (PARTITION BY "Région") AS part
+FROM etiquettes WHERE "Région" <> 'Ensemble'
+""")
+con.sql("""
+PIVOT (SELECT region, classe, round(100 * part, 1) AS part FROM regions)
+ON classe USING any_value(part) ORDER BY F + G DESC
+""").df()
+```
+
+### Les zones climatiques (Ademe)
+
+Chaque DPE de la base de l'Ademe indique la zone climatique du logement, que la réglementation
+fixe par département. Plutôt que de télécharger les 15 millions de DPE, on demande à l'API de
+l'Ademe de les compter par département et par zone, et on garde pour chaque département la
+zone la plus fréquente. Quelques DPE portent une autre zone : ce sont des erreurs de saisie ou
+de géocodage, une poignée sur des dizaines de milliers.
+
+```{python}
+#| filename: "Zone climatique de chaque département"
+ADEME_URL = (
+    "https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/values_agg?"
+    + urllib.parse.urlencode({"field": "code_departement_ban;zone_climatique", "agg_size": "120;3", "size": 0})
+)
+with urllib.request.urlopen(ADEME_URL) as reponse:
+    agregats = json.load(reponse)["aggs"]
+comptes_dpe = pd.DataFrame([
+    {"dep": dep["value"], "zone": zone["value"], "dpe": zone["total"]}
+    for dep in agregats for zone in dep["aggs"]
+])
+
+con.sql("""
+CREATE TABLE zones_dep AS
+SELECT dep, arg_max(zone, dpe) AS zone, max(dpe) / sum(dpe) AS part_zone, sum(dpe) AS dpe
+FROM comptes_dpe GROUP BY dep
+""")
+con.sql("""
+SELECT zone, count(*) AS departements, min(round(100 * part_zone, 1)) AS part_zone_min_pct
+FROM zones_dep WHERE dep IN (SELECT dep FROM passoires)
+GROUP BY zone ORDER BY zone
+""").df()
+```
+
+### Les départements (cartiflette)
+
+Les contours des départements viennent de cartiflette, en géographie 2025.
+
+```{python}
+#| output: false
+#| filename: "Contours des départements"
+from cartiflette import carti_download
+
+departements_ign = carti_download(
+    values="France",
+    borders="DEPARTEMENT",
+    filter_by="FRANCE_ENTIERE",
+    year=2025,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
+    where="INSEE_DEP < '97'",
+)
+```
+
+## Les traitements
+
+### Passoires, évolution et zone de chaque département
+
+On réunit les deux années et la zone climatique. L'évolution est la différence des parts, en
+points : les deux estimations reposent sur des DPE différents (ceux reçus d'octobre à mars de
+chaque hiver), et une partie de l'écart vient de la réforme du DPE des petits logements.
+
+```{python}
+#| filename: "Table des départements"
+con.sql("""
+CREATE TABLE departements AS
+SELECT d.INSEE_DEP AS code, d.LIBELLE_DEPARTEMENT AS nom, z.zone,
+       p25.passoires AS passoires_2025, p25.taux AS taux_2025, p24.taux AS taux_2024,
+       p25.taux - p24.taux AS evolution, d.geometry AS geom
+FROM departements_ign d
+JOIN passoires p25 ON p25.dep = d.INSEE_DEP AND p25.annee = 2025
+JOIN passoires p24 ON p24.dep = d.INSEE_DEP AND p24.annee = 2024
+JOIN zones_dep z ON z.dep = d.INSEE_DEP
+""")
+con.sql("""
+SELECT code, nom, zone, round(100 * taux_2024, 1) AS taux_2024_pct, round(100 * taux_2025, 1) AS taux_2025_pct,
+       round(100 * evolution, 1) AS evolution_points
+FROM departements ORDER BY taux_2025 DESC LIMIT 10
+""").df()
+```
+
+La part de passoires par grande zone climatique, en rapportant le nombre de passoires au nombre
+de résidences principales qu'il suppose (passoires divisées par leur part) :
+
+```{python}
+#| filename: "Passoires par zone climatique"
+con.sql("""
+SELECT left(zone, 2) AS zone, count(*) AS departements, round(sum(passoires_2025)) AS passoires,
+       round(100 * sum(passoires_2025) / sum(passoires_2025 / taux_2025), 1) AS taux_pct
+FROM departements GROUP BY ALL ORDER BY zone
+""").df()
+```
+
+### Les chiffres de l'accroche
+
+```{python}
+#| filename: "Chiffres de l'accroche"
+def valeur(requete):
+    return con.sql(requete).fetchone()[0]
+
+
+def taux_zone(zone):
+    return valeur(f"""
+    SELECT sum(passoires_2025) / sum(passoires_2025 / taux_2025) FROM departements
+    WHERE left(zone, 2) = '{zone}'
+    """)
+
+
+minimum = con.sql("SELECT nom, taux_2025 FROM departements ORDER BY taux_2025 LIMIT 1").fetchone()
+maximum = con.sql("SELECT nom, taux_2025 FROM departements ORDER BY taux_2025 DESC LIMIT 1").fetchone()
+chiffres = {
+    "passoires": valeur("SELECT sum(passoires_2025) FROM departements"),
+    "taux": valeur("SELECT sum(passoires_2025) / sum(passoires_2025 / taux_2025) FROM departements"),
+    "taux_min": minimum[1],
+    "taux_max": maximum[1],
+    "taux_h1": taux_zone("H1"),
+    "taux_h2": taux_zone("H2"),
+    "taux_h3": taux_zone("H3"),
+}
+chiffres = {cle: float(v) for cle, v in chiffres.items()}
+# « dans l'Hérault », « dans la Creuse » : l'article vient du nom officiel des départements.
+ARTICLES = {"Hérault": "dans l'Hérault", "Creuse": "dans la Creuse"}
+chiffres["nom_min_article"] = ARTICLES.get(minimum[0], f"en {minimum[0]}")
+chiffres["nom_max_article"] = ARTICLES.get(maximum[0], f"en {maximum[0]}")
+chiffres
+```
+
+### Ce qui passe à la carte
+
+Les contours des départements sont simplifiés ensemble (`ST_CoverageSimplify`, à 500 m
+environ) pour rester jointifs. Les limites entre zones climatiques sont les frontières communes
+aux départements de zones différentes : on réunit les départements de chaque zone (H1, H2, H3),
+puis on garde l'intersection des contours de deux zones voisines.
+
+```{python}
+#| output: false
+#| filename: "Contours simplifiés et limites des zones"
+con.sql("""
+CREATE TABLE contours AS
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.005) AS geom
+    FROM departements
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, ST_ReducePrecision(ST_Union_Agg(geom), 0.0005) AS geom
+FROM morceaux GROUP BY ALL
+""")
+con.sql("""
+CREATE TABLE limites AS
+WITH zones AS (
+    SELECT left(d.zone, 2) AS zone, ST_Union_Agg(c.geom) AS geom
+    FROM contours c JOIN departements d USING (code) GROUP BY ALL
+)
+SELECT a.zone || '-' || b.zone AS code,
+       ST_LineMerge(ST_CollectionExtract(ST_Intersection(ST_Boundary(a.geom), ST_Boundary(b.geom)), 2)) AS geom
+FROM zones a JOIN zones b ON a.zone < b.zone
+WHERE ST_Intersects(a.geom, b.geom)
+""")
+
+
+def collection(requete):
+    lignes = con.sql(requete).fetchall()
+    noms = [c[0] for c in con.sql(requete).description][:-1]
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": dict(zip(noms, ligne[:-1])), "geometry": json.loads(ligne[-1])}
+            for ligne in lignes
+        ],
+    }
+
+
+departements = collection("""
+SELECT d.code, d.nom, d.zone, round(d.passoires_2025) AS passoires_2025, round(d.taux_2025, 4) AS taux_2025,
+       round(d.taux_2024, 4) AS taux_2024, round(d.evolution, 4) AS evolution, ST_AsGeoJSON(c.geom)
+FROM departements d JOIN contours c USING (code) ORDER BY code
+""")
+limites = collection("SELECT code, ST_AsGeoJSON(geom) FROM limites")
+regions = con.sql("SELECT region, classe, round(logements) AS logements, part FROM regions").df().to_dict("records")
+ojs_define(departements=departements, limites=limites, regions=regions, chiffres=chiffres)
+```
+
+## Les données de la carte
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+viewof tableau = Inputs.search(lignes, {
+  placeholder: "Rechercher un département…",
+  columns: ["nom", "code"],
+  format: (n) => `${entier(n)} départements`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(tableau, {
+  columns: ["code", "nom", "zone", "passoires_2025", "taux_2025", "taux_2024", "evolution"],
+  header: {
+    code: "Code", nom: "Département", zone: "Zone climatique", passoires_2025: "Passoires en 2025",
+    taux_2025: "Part en 2025", taux_2024: "Part en 2024", evolution: "Évolution (points)"
+  },
+  format: {
+    passoires_2025: entier, taux_2025: (x) => pourcent(x), taux_2024: (x) => pourcent(x),
+    evolution: (x) => virgule(100 * x)
+  },
+  sort: "taux_2025",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(lignes, ["code", "nom", "zone", "passoires_2025", "taux_2025", "taux_2024", "evolution"])], {type: "text/csv"}),
+  "passoires_thermiques_departements_2024_2025.csv",
+  "Télécharger (CSV)"
+)
+```
+
+:::
+
+## Précautions
+
+- Le DPE ne mesure pas le froid ressenti. Il calcule une consommation conventionnelle, pour un
+  usage standard du logement : un ménage peut avoir froid dans un logement classé C, faute de
+  pouvoir payer le chauffage, et avoir chaud dans une passoire en dépensant beaucoup.
+- Une passoire est un logement classé F ou G. Depuis juillet 2021, l'étiquette tient compte à
+  la fois de l'énergie consommée et des gaz à effet de serre émis : un logement chauffé au fioul
+  peut être classé F pour ses émissions.
+- Les chiffres départementaux sont des estimations tirées de modèles nationaux. Le SDES prévient
+  qu'ils servent surtout à comparer les départements entre eux, et que leur précision diminue
+  avec la taille du département.
+- L'évolution entre 2024 et 2025 mêle des rénovations réelles et un changement de mesure : au
+  1<sup>er</sup> juillet 2024, le calcul du DPE a été corrigé pour les logements de moins de
+  40 m², que l'ancienne méthode pénalisait. Selon le SDES, environ 40 % de la baisse nationale
+  du nombre de passoires vient de ce recalcul. Paris, où les petits appartements sont nombreux,
+  en profite le plus.
+- Le champ est celui des résidences principales de France métropolitaine. Les résidences
+  secondaires et les logements vacants, plus souvent mal classés, n'y sont pas, ni les
+  départements d'outre-mer, où le DPE s'applique depuis peu.
+
+## Pour aller plus loin
+
+- [J26 · Water](26-water.qmd) : une autre carte faite avec les données d'un service statistique
+  ministériel, la DGFiP.
+- SDES, [le parc de logements par classe de performance énergétique au 1^er^ janvier 2025](https://www.statistiques.developpement-durable.gouv.fr/le-parc-de-logements-par-classe-de-performance-energetique-au-1er-janvier-2025) :
+  la publication, sa notice méthodologique et les résultats pour le parc locatif privé.
+- Ademe, [l'observatoire DPE-Audit](https://observatoire-dpe-audit.ademe.fr/) : les DPE
+  eux-mêmes, consultables par commune.
+- Ministère de la Transition écologique, [le diagnostic de performance énergétique](https://www.ecologie.gouv.fr/politiques-publiques/diagnostic-performance-energetique-dpe) :
+  comment l'étiquette est calculée, et ce qu'elle implique pour les propriétaires bailleurs.

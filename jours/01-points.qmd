@@ -1,41 +1,29 @@
 ---
 title: "J1 · Points. Les maternités"
-description: "Un point par maternité, de 2000 à 2024 : 721 maternités en 2000, 445 en 2024."
+description: "Les maternités en France entre 2000 et 2024"
 image: vignettes/01-points.webp
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#009099"
+  sombre: "#3fc1c9"
 ---
 
-Comme tout commence par la naissance, pour la première journée du [*30 day map challenge*](https://30daymapchallenge.com/), on va représenter la localisation des maternités françaises en 2024 et celles qui ont fermées depuis 2000. 
+Comme tout commence par la naissance 👶, pour la première journée du [*30 day map challenge*](https://30daymapchallenge.com/), on va représenter la localisation des [maternités françaises en 2024]{.underline} et [celles qui ont fermé depuis 2000]{.underline color="#ce614a"}. 
 
-Cette carte (making of 👇) illustre l'évolution, depuis 2000, de la politique d'aménagement du territoire appliquée au domaine sanitaire. Le sujet des fermetures de maternité est régulièrement discuté dans les médias, par exemple [sur Radio France](https://www.radiofrance.fr/franceinter/podcasts/affaires-sensibles/affaires-sensibles-du-mardi-04-mars-2025-7447211).
-
-Comme pour l'ensemble des cartes de ce *challenge* sur ce site, **on va s'appuyer, de manière reproductible sur les données de la [Drees](https://drees.solidarites-sante.gouv.fr/)**, le service statistique du ministère de la Santé (voir @tip-pour-aller-plus-loin pour quelques publications sur ce sujet).
-
-<details>
-<summary>
-Lire la dernière fiche sur les maternités dans la panorama des établissements de santé en 2024 de la Drees
-</summary>
-
-
-```{=html}
-<embed title="Fiche n°19, les établissements de santé en 2024" src="https://drees.solidarites-sante.gouv.fr/sites/default/files/2026-05/ES2026%20-%20Fiche%2019%20-%20Les%20maternit%C3%A9s_0.pdf" width="100%" height="480" />
-```
-
-</details>
-
---------
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
 premiere = controle[0]
 derniere = controle.at(-1)
 html`<p class="lead">
-  En ${premiere.annee}, la France comptait <strong>${premiere.drees} maternités</strong>.
-  Fin ${derniere.annee}, il en reste <strong>${derniere.drees}</strong>,
-  soit ${premiere.drees - derniere.drees} de moins.
-  <strong>${pertes.length} communes</strong> ont perdu la leur.
+  En ${premiere.annee}, la France comptait <span class="souligne">${premiere.drees} maternités</span>.
+  Fin ${derniere.annee}, il en reste <span class="souligne">${derniere.drees}</span>,
+  soit <span class="souligne" style="--souligne: #ce614a">${premiere.drees - derniere.drees} de moins</span>.
+  <span class="souligne" style="--souligne: #ce614a">${pertes.length} communes</span> ont perdu la leur.
   Lancez la lecture pour voir les fermetures année après année.
 </p>`
 ```
@@ -137,7 +125,11 @@ viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]
 conteneur = html`<div style="height: min(75vh, 680px); border-radius: 4px"></div>`
 ```
 
+:::
+
 <small>Source : DREES, [liste des maternités de France depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) (statistique annuelle des établissements de santé) ; ministère de la Santé et ANS, FINESS ; IGN, ADMIN EXPRESS et Géoplateforme. Fond de carte : Plan IGN.</small>
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -163,13 +155,13 @@ legende = {
     <div class="legende-contenu">
       <div>
         <svg width="${largeur}" height="${hauteur + 16}">${cercles.join("")}</svg>
-        <div>Une maternité ouverte dans l'année ; surface proportionnelle au nombre d'accouchements</div>
+        <div>UMaternité ouverte: surface proportionnelle au nombre d'accouchements</div>
       </div>
       <div>
         <svg width="16" height="16" viewBox="0 0 16 16">
           <path d="M3 3L13 13M13 3L3 13" stroke="${couleurPerdue}" stroke-width="2.5"/>
         </svg>
-        <div>Une commune qui avait une maternité et n'en a plus, placée sur sa dernière maternité</div>
+        <div>Maternité fermée</div>
       </div>
     </div>
     <p><small>Survolez un symbole pour le détail. Les boutons au-dessus de la carte mènent
@@ -355,9 +347,24 @@ cadrage = carte.fitBounds(territoire, {padding: 20})
 }
 ```
 
---------
+:::
 
-On va maintenant s'atteler à décrire comment obtenir les données nécessaires à reproduire cette carte.
+Cette carte (making of 👇) illustre l'évolution, depuis 2000, de la politique d'aménagement du territoire appliquée au domaine sanitaire. Le sujet des fermetures de maternité est régulièrement discuté dans les médias, par exemple [sur Radio France](https://www.radiofrance.fr/franceinter/podcasts/affaires-sensibles/affaires-sensibles-du-mardi-04-mars-2025-7447211).
+
+**On s'appuie pour le J1 sur les [données de la [Drees](https://drees.solidarites-sante.gouv.fr/)]{.underline}**, le service statistique du ministère de la Santé (voir @tip-pour-aller-plus-loin pour quelques publications sur ce sujet).
+
+<details>
+<summary>
+Lire la dernière fiche sur les maternités dans la panorama des établissements de santé en 2024 de la Drees
+</summary>
+
+```{=html}
+<embed title="Fiche n°19, les établissements de santé en 2024" src="https://drees.solidarites-sante.gouv.fr/sites/default/files/2026-05/ES2026%20-%20Fiche%2019%20-%20Les%20maternit%C3%A9s_0.pdf" width="100%" height="480" />
+```
+
+</details>
+
+# Making of
 
 ## Les données
 
@@ -377,12 +384,11 @@ En résumé, le code utilisé pour récupérer ces données s'appuie sur `Python
 #| output: false
 #| filename: "Configuration de l'environnement"
 import json
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
 
 import duckdb
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 ANNEES = [2000, *range(2008, 2025)]
 
@@ -396,7 +402,9 @@ SET geometry_always_xy = true  -- coordonnées en (longitude, latitude)
 
 ### La liste des maternités (DREES)
 
-La DREES publie la [liste des maternités de France depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) sur son portail de données [data.drees/](data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/). En l'occurrence, ces données sont issues de la **statistique annuelle des établissements de santé (SAE)**. 
+La DREES publie la [[liste des maternités de France depuis 2000]{.underline color="#ce614a"}](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) sur son portail de données [data.drees/](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/). En l'occurrence, ces données sont issues de la **statistique annuelle des établissements de santé (SAE)**. 
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -415,10 +423,12 @@ Inputs.table(rechercheDrees, {
 })
 ```
 
-Les données sont diffusées sous forme d'Excel: une feuille par année, plus un tableau de
-synthèse[^explorateur]. Il faut un peu de travail pour les transformer en données utilisables :
+:::
 
-[^explorateur]: L'explorateur ne couvrant que 2013-2024, on privilégie l'Excel pour disposer d'un recul temporel plus important. 
+Les données sont diffusées sous forme d'Excel: une feuille par année, plus un tableau de
+synthèse[^explorateur]. Il faut un peu de travail pour les transformer en données utilisables.
+
+[^explorateur]: L'explorateur de [data.drees/](https://data.drees.solidarites-sante.gouv.fr/explore/?sort=modified) ne couvrant que 2013-2024, on privilégie l'Excel pour disposer d'un recul temporel plus important. 
 
 On construit d'abord la requête : une lecture par feuille annuelle (l'en-tête est en ligne 6),
 empilées les unes sur les autres.
@@ -468,6 +478,8 @@ FROM read_xlsx('{MATERNITES_URL}', sheet = 'Tableau de synthèse', header = fals
 synthese = {int(a): int(n) for a, n in zip(*lignes) if a and n}
 ```
 
+::: {.content-visible when-format="html"}
+
 ```{python}
 #| echo: false
 ojs_define(
@@ -475,13 +487,14 @@ ojs_define(
 )
 ```
 
+:::
+
 ### Les coordonnées des établissements (FINESS)
 
-La liste de la DREES donne une adresse mais pas de coordonnées. Le répertoire FINESS
-(Fichier national des établissements sanitaires et sociaux) en donne, et la DREES y identifie
-chaque maternité par son numéro d'établissement géographique (`FI_ET`). 
+Le [répertoire FINESS]{.underline}
+(Fichier national des établissements sanitaires et sociaux) permet de récupérer les coordonnées des établissements. Chaque maternité est identifiée par son numéro d'établissement géographique (`FI_ET`). 
 
-Deux publications :
+On va avoir besoin de deux jeux de données :
 
 - l'[extraction géolocalisée](https://www.data.gouv.fr/fr/datasets/finess-extraction-du-fichier-des-etablissements/) du ministère de la Santé, en Lambert 93 en métropole et dans une projection UTM propre à chaque DROM, mais **seulement pour les établissements ouverts** ;
 - le flux [FINESS - Structures](https://www.data.gouv.fr/fr/datasets/finess-structures-1/) de l'Agence du numérique en santé, en JSON, qui garde aussi **les établissements fermés et leur dernière position**, en longitude et latitude.
@@ -530,6 +543,8 @@ print(f"```sql\n{requete_finess}\n```")
 con.sql(requete_finess)
 ```
 
+::: {.content-visible when-format="html"}
+
 ```{python}
 #| echo: false
 def apercu_finess(table, colonnes):
@@ -555,6 +570,8 @@ Inputs.table(finess_apercu, {
   rows: 8
 })
 ```
+
+:::
 
 ```{python}
 #| filename: "Requête de lecture du flux FINESS de l'ANS"
@@ -601,6 +618,8 @@ print(f"```sql\n{requete_finess_ans}\n```")
 con.sql(requete_finess_ans)
 ```
 
+::: {.content-visible when-format="html"}
+
 ```{python}
 #| echo: false
 ojs_define(finess_ans_apercu=apercu_finess("finess_ans", ""))
@@ -628,53 +647,61 @@ SELECT (SELECT count(DISTINCT FI_ET) FROM maternites) AS maternites,
 //| echo: false
 html`<p>Sur les <strong>${couverture_finess.maternites}</strong> établissements de la liste de la
 DREES, <strong>${couverture_finess.ouverts}</strong> sont dans l'extraction géolocalisée et
-<strong>${couverture_finess.ans}</strong> dans le flux de l'ANS.</p>`
+<strong>${couverture_finess.ans}</strong> dans le flux de l'ANS. On récupèrera la géolocalisation de ces établissements par la suite</p>`
 ```
+
+:::
 
 ### Les fonds de carte des communes avec `cartiflette`
 
-Pour rattacher chaque maternité à sa commune actuelle et compter les communes qui ont perdu la leur, on lit les contours des communes 2026 publiés par [cartiflette](https://github.com/InseeFrLab/cartiflette) en `Parquet` (voir [la documentation](https://inseefrlab.github.io/cartiflette/) pour les niveaux disponibles, les années et les autres façons de les récupérer).
+Pour rattacher chaque maternité à sa commune actuelle et compter les communes qui ont perdu la leur, on récupère les contours des communes 2026 avec le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) (voir [la documentation](https://inseefrlab.github.io/cartiflette/) pour les niveaux disponibles, les années et les autres façons de les récupérer).
 
-Paris, Lyon et Marseille sont lus par arrondissement, et aussi en entier : la DREES code certaines maternités de ces villes par la commune (`75056`), d'autres par l'arrondissement.
+Paris, Lyon et Marseille sont lus par arrondissement et aussi en entier car la DREES code certaines maternités de ces villes par la commune (`75056`) d'autres par l'arrondissement.
 
 ```{python}
-#| filename: "Requête de lecture des communes (cartiflette)"
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
-    "administrative_level={level}/crs=4326/layout=FRANCE_ENTIERE/"
-    "vectorfile_format=parquet/simplification=50/raw.parquet"
+#| filename: "Lecture des communes (cartiflette)"
+from cartiflette import carti_download
+
+parametres = dict(
+    values="France",
+    filter_by="FRANCE_ENTIERE",
+    year=2026,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
 )
 
-requete_communes = f"""CREATE TABLE communes AS
-SELECT INSEE_COG AS code, INSEE_COM AS commune, NOM AS nom, AREA AS territoire, geometry
-FROM read_parquet('{CARTIFLETTE_URL.format(level="COMMUNE_ARRONDISSEMENT")}',
-                  hive_partitioning = false)
-UNION ALL
-SELECT INSEE_COM, INSEE_COM, NOM, AREA, geometry
-FROM read_parquet('{CARTIFLETTE_URL.format(level="COMMUNE")}', hive_partitioning = false)
-WHERE INSEE_COM IN ('75056', '69123', '13055')"""
+communes_arrondissements = carti_download(
+  borders="COMMUNE_ARRONDISSEMENT",
+  **parametres
+  )
+
+paris_lyon_marseille = carti_download(
+    borders="COMMUNE",
+    where="INSEE_COM IN ('75056', '69123', '13055')",
+    **parametres
+)
 ```
 
-<details>
-<summary>La requête SQL générée</summary>
-
-```{python}
-#| echo: false
-#| output: asis
-print(f"```sql\n{requete_communes}\n```")
-```
-
-</details>
+Avec l'argument `engine="duckdb"` de `cartiflette`, on a créé une connexion à un jeu de contours spatiaux sans le télécharger. On peut l'utiliser pour créer d'autres objets `DuckDB` à utiliser ultérieurement.
 
 ```{python}
 #| output: false
-#| filename: "Lecture des communes"
-con.sql(requete_communes)
+#| filename: "Table des communes"
+con.sql("""
+CREATE TABLE communes AS
+  SELECT INSEE_COG AS code, INSEE_COM AS commune, NOM AS nom, AREA AS territoire, geometry
+  FROM communes_arrondissements
+  UNION ALL
+  SELECT INSEE_COM, INSEE_COM, NOM, AREA, geometry
+  FROM paris_lyon_marseille
+""")
 ```
 
-Le niveau `COMMUNE_ARRONDISSEMENT` mêle les deux : dans les Bouches-du-Rhône, Marseille y est
-découpée en ses 16 arrondissements, les autres communes restent entières.
+Le niveau `COMMUNE_ARRONDISSEMENT` de `cartiflette` permet le mélange de communes et d'arrondissements: dans les Bouches-du-Rhône, Marseille est découpée en ses 16 arrondissements, les autres communes restent entières.
+
+::: {.content-visible when-format="html"}
 
 ```{python}
 #| echo: false
@@ -683,6 +710,7 @@ SELECT code, nom, code <> commune AS arrondissement,
        ST_AsGeoJSON(ST_ReducePrecision(ST_Transform(geometry, 'EPSG:4326', 'EPSG:2154'), 1)) AS geometrie
 FROM communes WHERE code LIKE '13%' AND code <> '13055'
 """).fetchall()
+
 ojs_define(bouches_du_rhone={
     "type": "FeatureCollection",
     "features": [
@@ -723,10 +751,14 @@ html`<p><small><span style="color:${texteOuverte}">■</span> arrondissements de
 COG CARTO 2026, via cartiflette.</small></p>`
 ```
 
+:::
+
 ### Le géocodage des adresses (Géoplateforme)
 
 Pour les quelques maternités absentes des deux fichiers FINESS, on géocode leur dernière adresse
-connue avec le [service de géocodage de la Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) de l'IGN, qui s'appuie sur la Base adresse nationale. Plus de détails sur cette API et son utilisation avec `Python` dans mon cours de [Python pour la *data* (pythonds.linogaliana.fr/)(https://pythonds.linogaliana.fr/content/manipulation/04c_API_TP.html)].
+connue avec le [service de géocodage de la Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) de l'IGN, qui s'appuie sur la Base adresse nationale [^geoplatf].
+
+[^geoplatf]: Plus de détails sur cette API et son utilisation avec `Python` dans mon cours de [Python pour la *data* (pythonds.linogaliana.fr/)](https://pythonds.linogaliana.fr/content/manipulation/04c_API_TP.html).
 
 ```{python}
 #| output: false
@@ -734,19 +766,18 @@ connue avec le [service de géocodage de la Géoplateforme](https://geoservices.
 GEOCODAGE_URL = "https://data.geopf.fr/geocodage/search"
 
 
-def geocode(adresse, essais=6):
+# Si l'API refuse (trop de requêtes) ou tombe en panne, on réessaie en attendant de plus en plus
+session = requests.Session()
+session.mount("https://", HTTPAdapter(max_retries=Retry(
+    total=6, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504]
+)))
+
+
+def geocode(adresse):
     """Coordonnées (lon, lat) d'une adresse, ou None si seule la commune est trouvée."""
-    url = GEOCODAGE_URL + "?" + urllib.parse.urlencode({"q": adresse, "limit": 1})
-    for essai in range(essais):
-        try:
-            with urllib.request.urlopen(url, timeout=30) as reponse:
-                resultats = json.load(reponse)["features"]
-            break
-        except urllib.error.HTTPError as erreur:
-            if (erreur.code != 429 and erreur.code < 500) or essai == essais - 1:
-                raise
-            time.sleep(2**essai)
-    time.sleep(0.25)
+    reponse = session.get(GEOCODAGE_URL, params={"q": adresse, "limit": 1}, timeout=30)
+    reponse.raise_for_status()
+    resultats = reponse.json()["features"]
     if not resultats or resultats[0]["properties"]["type"] == "municipality":
         return None
     return resultats[0]["geometry"]["coordinates"]
@@ -808,12 +839,15 @@ a_geocoder = con.sql("""
 SELECT finess, adresse || ' ' || nomcom FROM sites
 WHERE finess NOT IN (SELECT finess FROM finess UNION SELECT finess FROM finess_ans)
 """).fetchall()
+
 geocodes = [
     (finess, *coords)
     for finess, adresse in a_geocoder
     if (coords := geocode(" ".join(adresse.split())))  # espaces en trop retirés
 ]
+
 con.sql("CREATE TABLE geocodage (finess VARCHAR, lon DOUBLE, lat DOUBLE)")
+
 con.executemany("INSERT INTO geocodage VALUES (?, ?, ?)", geocodes)
 ```
 
@@ -879,6 +913,8 @@ FROM positions GROUP BY source ORDER BY min(rang)
 """).df()
 ```
 
+::: {.content-visible when-format="html"}
+
 ```{python}
 #| echo: false
 ojs_define(sources=sources.to_dict("records"))
@@ -892,7 +928,9 @@ Inputs.table(sources, {
 })
 ```
 
-Comme ce n'est pas une notion présente de manière directement dans les données, on va dire qu'une commune perd sa maternité l'année qui suit la dernière où elle en avait une. La croix est placée sur sa dernière maternité[^cog].
+:::
+
+Comme ce n'est pas une notion présente de manière directe dans les données, on va dire qu'une commune perd sa maternité l'année qui suit la dernière où elle en avait une. La croix est placée sur sa dernière maternité[^cog].
 
 [^cog]: Pour se simplifier la vie, on est ici en géographie 2026 du code officiel géographiques. Les communes fusionnées depuis 2000 comptent pour une seule: cela peut expliquer des différences par rapport aux chiffres de la Drees (qui font foi ! L'exercice ici est expérimental).
 
@@ -945,6 +983,8 @@ en 2000 à `{python} controle[-1]["carte"]` en 2024. C'est aussi le chiffre de l
 panorama 2026 (voir plus bas), qui compte, comme ici, Saint-Martin, Saint-Barthélemy et le
 service de santé des armées.
 
+::: {.content-visible when-format="html"}
+
 ```{python}
 #| echo: false
 ojs_define(
@@ -955,11 +995,17 @@ ojs_define(
 )
 ```
 
+:::
+
 ## Les données de la carte
 
-*In fine*, on aboutit avec les données suivantes pour produire la carte. Celle-ci est construite en `Javascript` pour permettre une interactivité. Le code source, assez verbeux, est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+Lorsqu'on fait toutes ces étapes, on obtient les données ci-dessous pour produire la carte. Cette dernière est construite en `Javascript` pour permettre une interactivité. Le code source, assez verbeux et très *ad hoc*, est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
 
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -996,7 +1042,9 @@ DOM.download(
 
 :::
 
-## Références
+:::
+
+## Références {.unnumbered}
 
 ::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
@@ -1004,9 +1052,7 @@ DOM.download(
 Plusieurs publications de la Drees reviennent sur les enjeux des fermetures de maternité. Voici quelques unes:
 
 - DREES, [*Les établissements de santé en 2024*, édition 2026](https://drees.solidarites-sante.gouv.fr/publications-communique-de-presse-documents-de-reference/panoramas-de-la-drees/260520-Etablissements-de-sant%C3%A9-en-2024),
-  fiche 19 [« La naissance : les maternités »](https://drees.solidarites-sante.gouv.fr/sites/default/files/2026-07/ES%202026%20-%20Fiche%2019%20-%20La%20naissance%20-%20les%20maternit%C3%A9s.pdf) :
-  445 maternités en France fin 2024 (Saint-Martin et Saint-Barthélemy compris, service de santé
-  des armées compris), 88 de moins qu'en 2014.
+  fiche 19 [« La naissance : les maternités »](https://drees.solidarites-sante.gouv.fr/sites/default/files/2026-07/ES%202026%20-%20Fiche%2019%20-%20La%20naissance%20-%20les%20maternit%C3%A9s.pdf).
 - DREES, Études et résultats n° 1353, novembre 2025, [« Dans les établissements de santé en 2024, la baisse du nombre de lits ralentit et les alternatives à l'hospitalisation complète poursuivent leur progression »](https://drees.solidarites-sante.gouv.fr/publications-communique-de-presse/etudes-et-resultats/251113_ER_etablissements-de-sante).
 - DREES, Études et résultats n° 1201, juillet 2021, [« La part des femmes en âge de procréer résidant à plus de 45 minutes d'une maternité augmente entre 2000 et 2017 »](https://drees.solidarites-sante.gouv.fr/sites/default/files/2021-07/ER1201.pdf).
 - DREES, jeu de données [« Liste des maternités de France au 31 décembre 2024 »](https://drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/liste-des-maternites-de-france-au-31-decembre).
