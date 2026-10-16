@@ -634,23 +634,20 @@ Inputs.table(finess_ans_apercu, {
 })
 ```
 
+:::
+
 ```{python}
 #| echo: false
-ojs_define(couverture_finess=con.sql("""
-SELECT (SELECT count(DISTINCT FI_ET) FROM maternites) AS maternites,
-       (SELECT count(*) FROM finess) AS ouverts,
-       (SELECT count(*) FROM finess_ans) AS ans
-""").df().to_dict("records")[0])
+nb_maternites, nb_finess, nb_finess_ans = con.sql("""
+SELECT (SELECT count(DISTINCT FI_ET) FROM maternites),
+       (SELECT count(*) FROM finess),
+       (SELECT count(*) FROM finess_ans)
+""").fetchone()
 ```
 
-```{ojs}
-//| echo: false
-html`<p>Sur les <strong>${couverture_finess.maternites}</strong> établissements de la liste de la
-DREES, <strong>${couverture_finess.ouverts}</strong> sont dans l'extraction géolocalisée et
-<strong>${couverture_finess.ans}</strong> dans le flux de l'ANS. On récupèrera la géolocalisation de ces établissements par la suite</p>`
-```
-
-:::
+Sur les **`{python} nb_maternites`** établissements de la liste de la DREES,
+**`{python} nb_finess`** sont dans l'extraction géolocalisée et **`{python} nb_finess_ans`**
+dans le flux de l'ANS. On récupérera la géolocalisation du reliquat par la suite.
 
 ### Les fonds de carte des communes avec `cartiflette`
 
