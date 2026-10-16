@@ -5,33 +5,33 @@ image: vignettes/05-sight.webp
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#1c5cab"
+  sombre: "#86b6ef"
 ---
+
+Pour la cinquième journée du [*30 day map challenge*](https://30daymapchallenge.com/), on regarde ceux qui nous aident à voir 👓. Les [ophtalmologues]{.underline} sont peu nombreux, inégalement répartis, et une bonne part d'entre eux [approche de l'âge de la retraite]{.underline color="#eb6834"}. Les deux cartes croisent ces deux dimensions, département par département.
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
-pourcent = d3.format(".0%")
-virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
 debut = national[0]
 fin = national.at(-1)
 pic = d3.greatest(national, (d) => d.part_60)
 derniere = departements.filter((d) => d.annee === fin.annee && d.effectif > 0)
 html`<p class="lead">
   Au 1<sup>er</sup> janvier ${fin.annee}, la France compte
-  <strong>${fin.effectif.toLocaleString("fr-FR")} ophtalmologues</strong> en activité, soit
+  <span class="souligne">${fin.effectif.toLocaleString("fr-FR")} ophtalmologues</span> en activité, soit
   ${virgule(fin.densite)} pour 100 000 habitants (${virgule(debut.densite)} en ${debut.annee}).
-  <strong>${pourcent(fin.part_60)} ont 60 ans ou plus</strong> : ${pourcent(debut.part_60)}
-  en ${debut.annee}, jusqu'à ${pourcent(pic.part_60)} en ${pic.annee}. D'un département à l'autre, la densité va de
+  <span class="souligne" style="--souligne: ${couleurAge}">${pourcent(fin.part_60)} ont 60 ans ou plus</span> :
+  ${pourcent(debut.part_60)} en ${debut.annee}, jusqu'à ${pourcent(pic.part_60)} en ${pic.annee}.
+  D'un département à l'autre, la densité va de
   ${virgule(d3.min(derniere, (d) => d.densite))} à ${virgule(d3.max(derniere, (d) => d.densite))}
-  pour 100 000 habitants.
+  pour 100 000 habitants. Lancez la lecture pour voir les années défiler.
 </p>`
 ```
-
-Pour ce cinquième jour, on regarde ceux qui nous aident à voir. Les ophtalmologues sont peu
-nombreux, inégalement répartis, et une bonne part d'entre eux approche de l'âge de la retraite.
-Les deux cartes croisent ces deux dimensions, département par département, avec les données de
-la [Drees](https://drees.solidarites-sante.gouv.fr/) (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -75,6 +75,102 @@ viewof indice = {
 annee = annees[indice]
 ```
 
+:::
+
+::: {.column-page}
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+html`<div class="duo">
+  ${carte("densite", echelleDensite, `Densité en ${annee}`)}
+  ${carte("part_60", echellePart, `Part des 60 ans ou plus en ${annee}`)}
+</div>`
+```
+
+:::
+
+:::
+
+<small>Source : DREES, [la démographie des professionnels de santé depuis 2012](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) (RPPS) ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette. Paris et la petite couronne sont agrandies à gauche, les départements d'outre-mer rapprochés. Survolez un département pour le détail.</small>
+
+Les deux dimensions se cumulent : en haut à gauche du graphique, les départements où les ophtalmologues sont à la fois rares et âgés.
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+{
+  const points = [...lignes.values()].filter((d) => d.effectif > 0)
+  const nat = national.find((d) => d.annee === annee)
+  // Noms : les départements les plus éloignés du point national.
+  const ecart = (d) => Math.hypot(Math.log(d.densite / nat.densite) / 0.4, (d.part_60 - nat.part_60) / 0.12)
+  const noms = d3.sort(points, (d) => -ecart(d)).slice(0, 12)
+  return Plot.plot({
+    width: 760,
+    height: 480,
+    style: stylePlot,
+    marginLeft: 50,
+    x: {label: "Ophtalmologues pour 100 000 habitants →", type: "log", grid: true,
+        tickFormat: (x) => x.toLocaleString("fr-FR")},
+    y: {label: "↑ Part des 60 ans ou plus", tickFormat: pourcent, grid: true, domain: [0, 0.85]},
+    r: {range: [0, 22], domain: [0, d3.max(points, (d) => d.effectif)]},
+    marks: [
+      Plot.ruleX([nat.densite], {stroke: "currentColor", strokeOpacity: 0.4, strokeDasharray: "4 3"}),
+      Plot.ruleY([nat.part_60], {stroke: "currentColor", strokeOpacity: 0.4, strokeDasharray: "4 3"}),
+      Plot.text([nat], {x: "densite", y: 0.83, text: () => "France", dx: 4, textAnchor: "start",
+        fill: "currentColor", fillOpacity: 0.7}),
+      Plot.dot(points, {
+        x: "densite", y: "part_60", r: "effectif", fill: couleurPoint,
+        fillOpacity: 0.6, stroke: fond, strokeWidth: 1
+      }),
+      Plot.text(noms, {
+        x: "densite", y: "part_60", text: "nom", dy: -10, fontSize: 11,
+        stroke: fond, strokeWidth: 3, fill: "currentColor"
+      }),
+      Plot.tip(points, Plot.pointer({x: "densite", y: "part_60", title: decrire}))
+    ]
+  })
+}
+```
+
+<small>Un cercle par département, de surface proportionnelle au nombre d'ophtalmologues ; échelle logarithmique en abscisse. Les pointillés marquent la France entière. Un département sans ophtalmologue (Mayotte en 2012 et 2013) n'est pas placé.</small>
+
+:::
+
+À l'échelle nationale, la part des 60 ans ou plus a culminé vers 2020 et recule depuis : les jeunes ophtalmologues arrivent plus nombreux. Mais le milieu de la pyramide des âges reste creux, et les praticiens de 60 à 75 ans partiront dans les dix prochaines années. Faites défiler les années pour voir la vague de départs avancer.
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+{
+  const choisie = ages.filter((d) => d.annee === annee)
+  const reference = new Map(ages.filter((d) => d.annee === annees[0]).map((d) => [d.tranche, d.effectif]))
+  return Plot.plot({
+    width: 760,
+    height: 260,
+    style: stylePlot,
+    marginBottom: 40,
+    x: {label: "Âge", labelAnchor: "right", domain: tranches},
+    y: {label: "Ophtalmologues", grid: true},
+    color: {domain: [String(annee), String(annees[0])], range: [couleurAge, "currentColor"], legend: true},
+    marks: [
+      Plot.barY(choisie, {x: "tranche", y: "effectif", fill: () => String(annee), fillOpacity: 0.8,
+        insetLeft: 4, insetRight: 4}),
+      Plot.tickY([...reference], {x: "0", y: "1", stroke: () => String(annees[0]), strokeWidth: 2}),
+      Plot.ruleY([0]),
+      Plot.tip(choisie, Plot.pointerX({
+        x: "tranche", y: "effectif",
+        title: (d) => `${d.tranche}\n${annee} : ${d.effectif.toLocaleString("fr-FR")}\n` +
+          `${annees[0]} : ${(reference.get(d.tranche) ?? 0).toLocaleString("fr-FR")}`
+      }))
+    ]
+  })
+}
+```
+
 ```{ojs}
 //| echo: false
 // Thème du site (clair/sombre), suivi quand l'utilisateur le change.
@@ -88,12 +184,16 @@ sombre = Generators.observe((notifier) => {
 fond = sombre ? "#222" : "#fff"
 // Plot dessine sur fond blanc par défaut : on prend celui du thème (cartes et bulles).
 stylePlot = `--plot-background: ${fond}; background: transparent`
+pourcent = (x) => `${Math.round(100 * x)} %`
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
 
 // Deux gammes d'une seule teinte, du clair au foncé. Sur fond sombre, l'ordre est
 // inversé : les petites valeurs se fondent dans le fond.
 bleus = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]
 oranges = ["#fde0c5", "#f6b083", "#eb6834", "#b8461c", "#7a2c0e"]
 gamme = (g) => (sombre ? [...g].reverse() : g)
+couleurPoint = sombre ? "#86b6ef" : "#1c5cab"
+couleurAge = sombre ? "#f6b083" : "#eb6834"
 
 // Seuils fixes : les couleurs se comparent d'une année à l'autre.
 echelleDensite = ({
@@ -128,109 +228,11 @@ carte = (variable, echelle, titre) => Plot.plot({
 })
 ```
 
-::: {.column-page}
-
-```{ojs}
-//| echo: false
-html`<div class="duo">
-  ${carte("densite", echelleDensite, `Densité en ${annee}`)}
-  ${carte("part_60", echellePart, `Part des 60 ans ou plus en ${annee}`)}
-</div>`
-```
-
 :::
 
-```{ojs}
-//| echo: false
-html`<p><small>Paris et la petite couronne sont agrandies à gauche, les départements d'outre-mer
-rapprochés. Survolez un département pour le détail. Source : DREES, RPPS ; IGN, ADMIN EXPRESS
-COG CARTO 2026, via cartiflette.</small></p>`
-```
+**On s'appuie pour le J5 sur [les données de la [Drees](https://drees.solidarites-sante.gouv.fr/)]{.underline}**, tirées du répertoire où sont inscrits tous les médecins (voir @tip-pour-aller-plus-loin pour aller plus loin).
 
-Les deux dimensions se cumulent : en haut à gauche du graphique, les départements où les
-ophtalmologues sont à la fois rares et âgés.
-
-```{ojs}
-//| echo: false
-{
-  const points = [...lignes.values()].filter((d) => d.effectif > 0)
-  const nat = national.find((d) => d.annee === annee)
-  const couleur = sombre ? "#7cc0e8" : "#2a6f97"
-  // Noms : les départements les plus éloignés du point national.
-  const ecart = (d) => Math.hypot(Math.log(d.densite / nat.densite) / 0.4, (d.part_60 - nat.part_60) / 0.12)
-  const noms = d3.sort(points, (d) => -ecart(d)).slice(0, 12)
-  return Plot.plot({
-    width: 760,
-    height: 480,
-    style: stylePlot,
-    marginLeft: 50,
-    x: {label: "Ophtalmologues pour 100 000 habitants →", type: "log", grid: true,
-        tickFormat: (x) => x.toLocaleString("fr-FR")},
-    y: {label: "↑ Part des 60 ans ou plus", tickFormat: pourcent, grid: true, domain: [0, 0.85]},
-    r: {range: [0, 22], domain: [0, d3.max(points, (d) => d.effectif)]},
-    marks: [
-      Plot.ruleX([nat.densite], {stroke: "currentColor", strokeOpacity: 0.4, strokeDasharray: "4 3"}),
-      Plot.ruleY([nat.part_60], {stroke: "currentColor", strokeOpacity: 0.4, strokeDasharray: "4 3"}),
-      Plot.text([nat], {x: "densite", y: 0.83, text: () => "France", dx: 4, textAnchor: "start",
-        fill: "currentColor", fillOpacity: 0.7}),
-      Plot.dot(points, {
-        x: "densite", y: "part_60", r: "effectif", fill: couleur,
-        fillOpacity: 0.6, stroke: fond, strokeWidth: 1
-      }),
-      Plot.text(noms, {
-        x: "densite", y: "part_60", text: "nom", dy: -10, fontSize: 11,
-        stroke: fond, strokeWidth: 3, fill: "currentColor"
-      }),
-      Plot.tip(points, Plot.pointer({x: "densite", y: "part_60", title: decrire}))
-    ]
-  })
-}
-```
-
-```{ojs}
-//| echo: false
-html`<p><small>Un cercle par département, de surface proportionnelle au nombre
-d'ophtalmologues ; échelle logarithmique en abscisse. Les pointillés marquent la France entière.
-Un département sans ophtalmologue (Mayotte en 2012 et 2013) n'est pas placé.</small></p>`
-```
-
-À l'échelle nationale, la part des 60 ans ou plus a culminé vers 2020 et recule depuis : les
-jeunes ophtalmologues arrivent plus nombreux. Mais le milieu de la pyramide des âges reste creux,
-et les praticiens de 60 à 75 ans partiront dans les dix prochaines années. Faites défiler les
-années pour voir la vague de départs avancer.
-
-```{ojs}
-//| echo: false
-{
-  const couleur = sombre ? "#ec8a74" : "#c8553d"
-  const choisie = ages.filter((d) => d.annee === annee)
-  const reference = new Map(ages.filter((d) => d.annee === annees[0]).map((d) => [d.tranche, d.effectif]))
-  return Plot.plot({
-    width: 760,
-    height: 260,
-    style: stylePlot,
-    marginBottom: 40,
-    x: {label: "Âge", labelAnchor: "right", domain: tranches},
-    y: {label: "Ophtalmologues", grid: true},
-    color: {domain: [String(annee), String(annees[0])], range: [couleur, "currentColor"], legend: true},
-    marks: [
-      Plot.barY(choisie, {x: "tranche", y: "effectif", fill: () => String(annee), fillOpacity: 0.8,
-        insetLeft: 4, insetRight: 4}),
-      Plot.tickY([...reference], {x: "0", y: "1", stroke: () => String(annees[0]), strokeWidth: 2}),
-      Plot.ruleY([0]),
-      Plot.tip(choisie, Plot.pointerX({
-        x: "tranche", y: "effectif",
-        title: (d) => `${d.tranche}\n${annee} : ${d.effectif.toLocaleString("fr-FR")}\n` +
-          `${annees[0]} : ${(reference.get(d.tranche) ?? 0).toLocaleString("fr-FR")}`
-      }))
-    ]
-  })
-}
-```
-
---------
-
-On va maintenant décrire comment obtenir les données de ces cartes.
+# Making of
 
 ## Les données
 
@@ -241,10 +243,11 @@ La carte croise deux sources publiques :
 | [La démographie des professionnels de santé depuis 2012](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) | DREES, à partir du RPPS | les ophtalmologues de chaque département, par âge, et leur densité | Excel |
 | [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque département, outre-mer rapproché | GeoParquet |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import shutil
 import tempfile
@@ -264,18 +267,15 @@ SET enable_progress_bar = false
 
 ### Les médecins (DREES, RPPS)
 
-Les médecins sont inscrits au répertoire partagé des professionnels de santé (RPPS). La DREES en
-tire chaque année le nombre de médecins en activité au 1^er^ janvier, publié sur son
-[portail de données](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/)
-dans un fichier Excel par profession. Celui des médecins a une ligne par territoire (France,
-région, département), spécialité, mode d'exercice, tranche d'âge et sexe, et une colonne par
-année depuis 2012. Deux feuilles nous intéressent : les effectifs et les densités (pour 100 000
-habitants).
+Les médecins sont inscrits au répertoire partagé des professionnels de santé (RPPS). La DREES en tire chaque année le nombre de médecins en activité au 1^er^ janvier, publié sur son [[portail de données]{.underline}](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) dans un fichier Excel par profession.
 
-Le fichier pèse 73 Mo : on le télécharge une fois, en vérifiant qu'il est complet (un `.xlsx`
-est une archive zip), plutôt que de le relire à distance pour chaque feuille.
+Celui des médecins a une ligne par territoire (France, région, département), spécialité, mode d'exercice, tranche d'âge et sexe, et une colonne par année depuis 2012. Deux feuilles nous intéressent : les effectifs et les densités (pour 100 000 habitants).
+
+Le fichier pèse 73 Mo : on le télécharge une fois, en vérifiant qu'il est complet (un `.xlsx` est une archive zip), plutôt que de le relire à distance pour chaque feuille.
 
 ```{python}
+#| output: false
+#| filename: "Fonction de téléchargement"
 MEDECINS_URL = (
     "https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/datasets/"
     "la-demographie-des-professionnels-de-sante-depuis-2012/attachments/medecins_rpps_2012_2026_xlsx"
@@ -296,14 +296,11 @@ def telecharger(url, chemin, essais=5):
     raise RuntimeError(f"téléchargement incomplet : {url}")
 ```
 
-Chaque feuille est lue en ne gardant que l'ophtalmologie, tous modes d'exercice et les deux
-sexes confondus. `UNPIVOT` passe les colonnes `effectif_2012`… `effectif_2026` en lignes, une
-par année. La France entière et chaque département reçoivent un code : celui de la DREES
-(`023 -Creuse`, `02A -Corse-du-Sud`, `971 -Guadeloupe`) est ramené au code officiel (`23`, `2A`,
-`971`).
+Chaque feuille est lue en ne gardant que l'ophtalmologie, tous modes d'exercice et les deux sexes confondus. `UNPIVOT` passe les colonnes `effectif_2012`… `effectif_2026` en lignes, une par année. La France entière et chaque département reçoivent un code : celui de la DREES (`023 -Creuse`, `02A -Corse-du-Sud`, `971 -Guadeloupe`) est ramené au code officiel (`23`, `2A`, `971`).
 
 ```{python}
 #| output: false
+#| filename: "Lecture des effectifs et des densités (DREES)"
 with tempfile.TemporaryDirectory() as dossier:
     chemin = f"{dossier}/medecins.xlsx"
     telecharger(MEDECINS_URL, chemin)
@@ -334,35 +331,59 @@ with tempfile.TemporaryDirectory() as dossier:
 
 Par exemple, les ophtalmologues de la Creuse en 2026 :
 
+::: {.content-visible when-format="html"}
+
 ```{python}
 #| echo: false
-con.sql("""
-SELECT code, tranche, annee, effectif::INTEGER AS effectif FROM effectif
+ojs_define(creuse=con.sql("""
+SELECT tranche, effectif::INTEGER AS effectif FROM effectif
 WHERE code = '23' AND annee = 2026 ORDER BY ordre
-""").df().style.hide(axis="index")
+""").df().to_dict("records"))
 ```
 
-### Les départements (cartiflette)
+```{ojs}
+//| echo: false
+Inputs.table(creuse, {
+  header: {tranche: "Tranche d'âge", effectif: "Ophtalmologues"},
+  layout: "auto",
+  rows: 16
+})
+```
 
-Les contours des départements 2026 viennent de [cartiflette](https://github.com/InseeFrLab/cartiflette),
-dans la version où les départements d'outre-mer sont rapprochés de la métropole et où Paris et
-sa petite couronne sont agrandies (`layout=FRANCE_ENTIERE_DROM_RAPPROCHES`). Ils sont simplifiés
-ensemble (`ST_CoverageSimplify`) pour rester jointifs.
+:::
+
+### Les départements avec `cartiflette`
+
+Les contours des départements 2026 viennent du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/), dans la version où les départements d'outre-mer sont rapprochés de la métropole et où Paris et sa petite couronne sont agrandies (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`).
 
 ```{python}
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
-    "administrative_level=DEPARTEMENT/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
-    "vectorfile_format=parquet/simplification=50/raw.parquet"
+#| output: false
+#| filename: "Lecture des départements (cartiflette)"
+from cartiflette import carti_download
+
+departements_drom_rapproches = carti_download(
+    values="France",
+    borders="DEPARTEMENT",
+    filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES",
+    year=2026,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
 )
 
-con.sql(f"""
+con.sql("""
 CREATE TABLE noms AS
 SELECT INSEE_DEP AS code, LIBELLE_DEPARTEMENT AS nom, geometry
-FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+FROM departements_drom_rapproches
 """)
+```
 
+Les contours sont simplifiés ensemble (`ST_CoverageSimplify`) pour rester jointifs, sans trou ni chevauchement.
+
+```{python}
+#| output: false
+#| filename: "Contours simplifiés des départements"
 lignes = con.sql("""
 WITH couverture AS (
     SELECT list(code ORDER BY code) AS codes,
@@ -388,10 +409,11 @@ contours = {
 
 ### Densité et part des 60 ans ou plus
 
-Pour chaque département et chaque année : l'effectif, la densité publiée par la DREES, et la
-part des ophtalmologues de 60 ans ou plus, calculée à partir des tranches d'âge.
+Pour chaque département et chaque année : l'effectif, la densité publiée par la DREES, et la part des ophtalmologues de 60 ans ou plus, calculée à partir des tranches d'âge.
 
 ```{python}
+#| output: false
+#| filename: "Densité et part des 60 ans ou plus"
 con.sql("""
 CREATE TABLE ophtalmos AS
 SELECT e.code, e.annee,
@@ -416,21 +438,53 @@ ORDER BY code, annee
 national = con.sql("""
 SELECT annee, effectif, densite, part_60 FROM ophtalmos WHERE code = 'France' ORDER BY annee
 """).df()
-national.style.hide(axis="index").format({"densite": "{:.2f}", "part_60": "{:.1%}"})
 ```
 
-Les départements les moins bien dotés en 2026 :
+::: {.content-visible when-format="html"}
 
 ```{python}
 #| echo: false
-departements[departements.annee == 2026].sort_values("densite").head(5).style.hide(axis="index").format(
-    {"densite": "{:.2f}", "part_60": "{:.0%}"}
+ojs_define(
+    national=national.to_dict("records"),
+    moins_dotes=departements[departements.annee == departements.annee.max()]
+    .sort_values("densite").head(5).to_dict("records"),
 )
 ```
+
+La France entière, année par année :
+
+```{ojs}
+//| echo: false
+Inputs.table(national, {
+  header: {annee: "Année", effectif: "Ophtalmologues", densite: "Pour 100 000 habitants", part_60: "60 ans ou plus"},
+  format: {
+    annee: (x) => x, effectif: (x) => x.toLocaleString("fr-FR"),
+    densite: (x) => virgule(x, 2), part_60: (x) => virgule(100 * x) + " %"
+  },
+  layout: "auto",
+  rows: 16
+})
+```
+
+Les départements les moins bien dotés en `{python} int(departements.annee.max())` :
+
+```{ojs}
+//| echo: false
+Inputs.table(moins_dotes, {
+  columns: ["code", "nom", "effectif", "densite", "part_60"],
+  header: {code: "Code", nom: "Département", effectif: "Ophtalmologues", densite: "Pour 100 000 habitants", part_60: "60 ans ou plus"},
+  format: {densite: (x) => virgule(x, 2), part_60: pourcent},
+  layout: "auto"
+})
+```
+
+:::
 
 Pour le graphique des âges, les effectifs nationaux par tranche :
 
 ```{python}
+#| output: false
+#| filename: "Pyramide des âges nationale"
 ages = con.sql("""
 -- Libellés courts : « entre 30 et 34 ans » devient « 30-34 ».
 SELECT annee,
@@ -445,11 +499,11 @@ ORDER BY annee, ordre
 
 ### Contrôler
 
-Chaque département de la carte doit avoir ses chiffres, et la somme des départements doit
-redonner, chaque année, le total national.
+Chaque département de la carte doit avoir ses chiffres, et la somme des départements doit redonner, chaque année, le total national.
 
 ```{python}
 #| output: false
+#| filename: "Contrôle des départements et du total"
 manquants = {f["properties"]["code"] for f in contours["features"]} - set(departements.code)
 assert not manquants, f"départements sans données : {manquants}"
 
@@ -457,15 +511,14 @@ somme = departements.groupby("annee").effectif.sum()
 ecarts = national.set_index("annee").effectif - somme
 ```
 
-Écart maximal entre le total national et la somme des départements :
-`{python} int(ecarts.abs().max())` ophtalmologue(s), installés dans une collectivité d'outre-mer
-ou à l'étranger.
+L'écart maximal entre le total national et la somme des départements est de **`{python} int(ecarts.abs().max())`** ophtalmologue(s), installés dans une collectivité d'outre-mer ou à l'étranger.
+
+::: {.content-visible when-format="html"}
 
 ```{python}
 #| echo: false
 ojs_define(
     departements=departements.to_dict("records"),
-    national=national.to_dict("records"),
     ages=ages.to_dict("records"),
     tranches=list(dict.fromkeys(ages.tranche)),  # dans l'ordre des âges
     annees=national.annee.tolist(),
@@ -473,11 +526,17 @@ ojs_define(
 )
 ```
 
+:::
+
 ## Les données de la carte
 
-Les départements pour l'année choisie avec le curseur.
+Lorsqu'on fait toutes ces étapes, on obtient pour chaque département et chaque année le nombre d'ophtalmologues, leur densité et la part des 60 ans ou plus. Le tableau suit l'année choisie avec le curseur. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
 
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -512,21 +571,20 @@ DOM.download(
 
 :::
 
+:::
+
 ## Précautions
 
-- Le RPPS compte les médecins en activité, quel que soit leur temps de travail : un
-  ophtalmologue de 72 ans en cumul emploi-retraite à mi-temps compte autant qu'un jeune à temps
-  plein. La part des 60 ans ou plus mesure le risque de départs, pas l'offre de soins.
-- Le département est celui de l'activité principale : un cabinet secondaire, souvent dans un
-  département voisin moins doté, n'est pas compté.
-- Dans les petits départements, quelques installations ou départs suffisent à changer de
-  couleur.
-- L'accès aux soins visuels ne dépend pas que des ophtalmologues : les orthoptistes et les
-  opticiens, que la DREES suit dans le même jeu de données, réalisent une part croissante des
-  examens de la vue.
+- Le RPPS compte les médecins en activité, quel que soit leur temps de travail : un ophtalmologue de 72 ans en cumul emploi-retraite à mi-temps compte autant qu'un jeune à temps plein. La part des 60 ans ou plus mesure le risque de départs, pas l'offre de soins.
+- Le département est celui de l'activité principale : un cabinet secondaire, souvent dans un département voisin moins doté, n'est pas compté.
+- Dans les petits départements, quelques installations ou départs suffisent à changer de couleur.
+- L'accès aux soins visuels ne dépend pas que des ophtalmologues : les orthoptistes et les opticiens, que la DREES suit dans le même jeu de données, réalisent une part croissante des examens de la vue.
 
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
-- DREES, jeu de données [« La démographie des professionnels de santé depuis 2012 »](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) :
-  les autres spécialités, les orthoptistes, les opticiens, et la note de lecture (lisez-moi).
+- DREES, jeu de données [« La démographie des professionnels de santé depuis 2012 »](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) : les autres spécialités, les orthoptistes, les opticiens, et la note de lecture (lisez-moi).
 - DREES, jeu de données [« Projections des effectifs de médecins en activité et étudiants en 3e cycle à l'horizon 2070 »](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/projections-des-effectifs-de-medecins/).
+:::
