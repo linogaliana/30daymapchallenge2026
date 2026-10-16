@@ -5,11 +5,19 @@ image: vignettes/06-vintage.webp
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#7b6c55"
+  sombre: "#b5a584"
 include-in-header:
   text: |
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&display=swap" rel="stylesheet">
 ---
+
+Pour la sixième journée du [*30 day map challenge*](https://30daymapchallenge.com/), consacrée au vintage 📜, on refait [la première carte choroplèthe]{.underline}, celle de Charles Dupin en 1826, avec [les résultats des élèves de sixième]{.underline} d'aujourd'hui. On en reprend la manière : teintes gravées, nom et nombre de chaque département.
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -22,19 +30,13 @@ html`<p class="lead">
   France</em>, considérée comme la première carte choroplèthe : pour chaque département, le
   nombre d'habitants pour un garçon inscrit à l'école, en teinte d'autant plus foncée que ce
   nombre est grand. En septembre ${annee}, à l'entrée en sixième,
-  <strong>${pourcent(france.part)} des élèves</strong> sont dans les deux groupes de résultats
+  <span class="souligne">${pourcent(france.part)} des élèves</span> sont dans les deux groupes de résultats
   les plus faibles en français. Cette part va de ${pourcent(d3.min(metropole, (d) => d.part))}
   à ${pourcent(d3.max(metropole, (d) => d.part))} selon les départements de métropole, et de
   ${pourcent(d3.min(outreMer, (d) => d.part))} à ${pourcent(d3.max(outreMer, (d) => d.part))}
   dans les départements d'outre-mer.
 </p>`
 ```
-
-Pour ce sixième jour, consacré au vintage, on reprend la manière de Dupin : teintes gravées, nom
-et nombre de chaque département. Les données viennent de la DEPP, le service statistique de
-l'Éducation nationale (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -70,7 +72,11 @@ decrire = (d) => `${d.nom} (${d.code})\n` +
   `Score moyen : ${d.score}\nIndice de position sociale moyen : ${virgule(d.ips)}`
 ```
 
+:::
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -145,6 +151,8 @@ html`<div class="duo duo-dupin">
 
 :::
 
+:::
+
 Dupin explique ainsi sa carte, dans la marge de la planche :
 
 > Dans notre carte, la noirceur des teintes correspond à la grandeur des nombres placés au-dessous
@@ -157,7 +165,9 @@ garçons inscrits à l'école, à une époque où la scolarisation n'était pas 
 depuis 1882 : on regarde ici les résultats à une évaluation que passent tous les élèves à
 l'entrée en sixième.
 
-### Les cinq départements les plus foncés en 1826
+## Les cinq départements les plus foncés en 1826 {.unnumbered}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -185,7 +195,11 @@ l'entrée en sixième.
 }
 ```
 
-### Les résultats et l'origine sociale des élèves
+:::
+
+## Les résultats et l'origine sociale des élèves {.unnumbered}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -246,7 +260,15 @@ html`<p><small>Un point par département. Échelle logarithmique en ordonnée. S
 évaluations nationales de début de sixième ${annee}.</small></p>`
 ```
 
+:::
+
+**On s'appuie pour le J6 sur [les évaluations nationales de la [DEPP](https://www.education.gouv.fr/direction-de-l-evaluation-de-la-prospective-et-de-la-performance-depp-12389)]{.underline}**, le service statistique de l'Éducation nationale (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+# Making of
+
 ## Les données
+
+La carte croise trois sources publiques :
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
@@ -254,10 +276,11 @@ html`<p><small>Un point par département. Échelle logarithmique en ordonnée. S
 | [Départements 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour et le nom de chaque département, outre-mer rapproché | GeoParquet |
 | [Carte figurative de l'instruction populaire de la France](https://commons.wikimedia.org/wiki/File:Carte_figurative_de_l%27instruction_populaire_de_la_France_-_Collon,_del._-_btv1b530830640.jpg) | Charles Dupin, 1826 (BnF, via Wikimedia Commons) | l'original, et les nombres de ses cinq départements les plus foncés, lus sur la planche | image |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 
 import duckdb
@@ -274,7 +297,7 @@ SET enable_progress_bar = false
 
 Depuis 2017, tous les élèves de sixième des collèges publics et privés sous contrat passent, en
 septembre, une évaluation nationale en français et en mathématiques. La DEPP publie, sur
-[data.education.gouv.fr](https://data.education.gouv.fr/), les résultats par département : le
+[[data.education.gouv.fr]{.underline}](https://data.education.gouv.fr/), les résultats par département : le
 score moyen et la répartition des élèves en six groupes de niveau, du groupe 1 (les résultats les
 plus faibles) au groupe 6 (les plus élevés), construits à partir des scores de 2017. On retient
 la part des groupes 1 et 2. Le jeu de données donne aussi l'indice de position sociale (IPS) moyen
@@ -284,6 +307,8 @@ Le portail exporte chaque jeu de données en Parquet : DuckDB le lit directement
 français, pour tous les élèves (le fichier donne aussi filles et garçons à part).
 
 ```{python}
+#| output: false
+#| filename: "Lecture des évaluations (DEPP)"
 EVALUATIONS_URL = (
     "https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/"
     "fr-en-evaluations_nationales_6eme_departement/exports/parquet"
@@ -297,35 +322,74 @@ FROM read_parquet('{EVALUATIONS_URL}')
 WHERE discipline = 'Français' AND caracteristique = 'Ensemble'
 """)
 annee = con.sql("SELECT max(annee) FROM evaluations").fetchone()[0]
-con.sql(f"SELECT * FROM evaluations WHERE annee = {annee} ORDER BY part DESC LIMIT 8").df().style.hide(
-    axis="index"
-)
 ```
+
+::: {.content-visible when-format="html"}
+
+```{python}
+#| echo: false
+# Lignes lues sans pandas : l'IPS manquant des premières années reste null.
+apercu = con.sql("""
+SELECT annee, coalesce(code, 'France') AS code, score, ips, part
+FROM evaluations ORDER BY annee DESC, code
+""")
+ojs_define(evaluations_apercu=[dict(zip(apercu.columns, ligne)) for ligne in apercu.fetchall()])
+```
+
+```{ojs}
+//| echo: false
+viewof rechercheEvaluations = Inputs.search(evaluations_apercu, {
+  placeholder: "Rechercher un département, une année…",
+  format: (n) => `${n.toLocaleString("fr-FR")} lignes`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(rechercheEvaluations, {
+  header: {annee: "Année", code: "Département", score: "Score moyen", ips: "IPS moyen", part: "Groupes 1 et 2 (%)"},
+  format: {annee: (x) => x, ips: (x) => (x === null ? "" : virgule(x)), part: (x) => virgule(x)},
+  layout: "auto",
+  rows: 8
+})
+```
+
+:::
 
 La ligne sans code de département est la France entière.
 
-### Les départements (cartiflette)
+### Les départements avec `cartiflette`
 
-Les contours des départements 2025 viennent de
-[cartiflette](https://github.com/InseeFrLab/cartiflette), dans la version où les départements
-d'outre-mer sont rapprochés de la métropole et où Paris et sa petite couronne sont agrandies
-(`layout=FRANCE_ENTIERE_DROM_RAPPROCHES`). Ils sont simplifiés ensemble (`ST_CoverageSimplify`)
-pour rester jointifs.
+Les contours des départements 2025 viennent du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/), dans la version où les départements d'outre-mer sont rapprochés de la métropole et où Paris et sa petite couronne sont agrandies (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`).
 
 ```{python}
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
-    "administrative_level=DEPARTEMENT/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
-    "vectorfile_format=parquet/simplification=50/raw.parquet"
+#| output: false
+#| filename: "Lecture des départements (cartiflette)"
+from cartiflette import carti_download
+
+departements_drom_rapproches = carti_download(
+    values="France",
+    borders="DEPARTEMENT",
+    filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES",
+    year=2025,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
 )
 
-con.sql(f"""
+con.sql("""
 CREATE TABLE noms AS
 SELECT INSEE_DEP AS code, LIBELLE_DEPARTEMENT AS nom, AREA = 'metropole' AS metropole, geometry
-FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+FROM departements_drom_rapproches
 """)
+```
 
+Les contours sont simplifiés ensemble (`ST_CoverageSimplify`) pour rester jointifs, sans trou ni chevauchement.
+
+```{python}
+#| output: false
+#| filename: "Contours simplifiés des départements"
 con.sql("""
 CREATE TABLE morceaux AS
 WITH couverture AS (
@@ -359,6 +423,8 @@ départements d'outre-mer sont trop petits sur la carte : leur nom va sous leur 
 garde le point le plus bas.
 
 ```{python}
+#| output: false
+#| filename: "Position des noms"
 etiquettes = con.sql("""
 SELECT code, n.metropole, ST_X(p) AS lon, ST_Y(p) AS lat, bas
 FROM (
@@ -371,6 +437,8 @@ FROM (
 ### Les résultats par département
 
 ```{python}
+#| output: false
+#| filename: "Résultats par département"
 con.sql(f"""
 CREATE TABLE departements AS
 SELECT code, nom, metropole, e.part, e.score, e.ips
@@ -387,18 +455,20 @@ Chaque département dessiné doit avoir ses résultats.
 
 ```{python}
 #| output: false
+#| filename: "Contrôle des départements"
 manquants = {f["properties"]["code"] for f in contours["features"]} - {
     code for (code,) in con.sql("SELECT code FROM departements").fetchall()
 }
 assert not manquants, f"départements sans résultats : {manquants}"
 ```
 
-### Ce qui passe à la carte
+### Les nombres de Dupin
 
-Les départements, la France entière, et les nombres lus sur la planche de Dupin pour ses cinq
-départements les plus foncés.
+Pour comparer, les nombres lus sur la planche de Dupin pour ses cinq départements les plus foncés : le nombre d'habitants pour un garçon inscrit à l'école.
 
 ```{python}
+#| output: false
+#| filename: "Les cinq départements les plus foncés de Dupin"
 DUPIN = [
     {"code": "43", "habitants": 268},  # Haute-Loire
     {"code": "37", "habitants": 229},  # Indre-et-Loire
@@ -406,6 +476,12 @@ DUPIN = [
     {"code": "15", "habitants": 209},  # Cantal
     {"code": "29", "habitants": 199},  # Finistère
 ]
+```
+
+::: {.content-visible when-format="html"}
+
+```{python}
+#| echo: false
 IMAGE = "Carte_figurative_de_l%27instruction_populaire_de_la_France_-_Collon%2C_del._-_btv1b530830640.jpg"
 
 ojs_define(
@@ -427,9 +503,17 @@ ojs_define(
 )
 ```
 
+:::
+
 ## Les données de la carte
 
+Lorsqu'on fait toutes ces étapes, on obtient pour chaque département la part des élèves des groupes 1 et 2 en français, le score moyen et l'indice de position sociale moyen. La planche est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -465,6 +549,8 @@ DOM.download(
 
 :::
 
+:::
+
 ## Précautions
 
 - Les deux cartes ne mesurent pas la même chose. Dupin rapportait des élèves inscrits à la
@@ -482,6 +568,9 @@ DOM.download(
 - Les départements d'aujourd'hui ne sont pas tous ceux de Dupin : la Seine et la Seine-et-Oise
   ont été découpées, la Savoie et le comté de Nice rattachés.
 
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - DEPP, Note d'information n° 25-22,
@@ -491,3 +580,4 @@ DOM.download(
   [data.education.gouv.fr](https://data.education.gouv.fr/).
 - La carte de Dupin sur [Gallica](https://gallica.bnf.fr/ark:/12148/btv1b530830640), la
   bibliothèque numérique de la BnF.
+:::
