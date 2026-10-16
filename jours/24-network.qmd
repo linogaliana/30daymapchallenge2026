@@ -265,11 +265,10 @@ Quatre fichiers de l'open data de la SNCF et les contours de
 ```{python}
 import json
 import pathlib
-import shutil
 import tempfile
-import urllib.request
 
 import duckdb
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -291,9 +290,9 @@ JEUX = ["lignes-par-statut", "frequentation-gares", "gares-de-voyageurs", "liste
 
 with tempfile.TemporaryDirectory() as dossier:
     for jeu in JEUX:
-        with urllib.request.urlopen(SNCF_URL.format(jeu=jeu), timeout=300) as reponse, \
-                open(f"{dossier}/{jeu}.parquet", "wb") as f:
-            shutil.copyfileobj(reponse, f)
+        reponse = requests.get(SNCF_URL.format(jeu=jeu), timeout=300)
+        reponse.raise_for_status()
+        pathlib.Path(f"{dossier}/{jeu}.parquet").write_bytes(reponse.content)
         con.sql(f"CREATE TABLE \"{jeu}\" AS SELECT * FROM read_parquet('{dossier}/{jeu}.parquet')")
 
 con.sql("""

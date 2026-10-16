@@ -308,6 +308,24 @@ a[download] button:hover {
   opacity: 0.65;
 }
 
+/* Accueil : bilan des sources sous le calendrier */
+.bilan-sources {
+  margin-top: 3rem;
+}
+
+.bilan-sources h2 {
+  border-bottom: none;
+}
+
+.bilan-sources table {
+  font-size: 0.9rem;
+}
+
+.bilan-sources td:first-child {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
 /* L'auteur est déjà donné par le site : pas de ligne « Lino Galiana » sur l'accueil */
 .page-accueil p.author {
   display: none;

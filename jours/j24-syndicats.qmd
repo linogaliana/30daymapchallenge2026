@@ -236,10 +236,10 @@ numéros SIREN et codes Insee des communes, et les contours de
 import io
 import json
 import pathlib
-import urllib.request
 
 import duckdb
 import pandas as pd
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -259,8 +259,9 @@ dont une par compétence (`OUI` ou `NON`). On le lit avec
 ```{python}
 BANATIC_URL = "https://www.banatic.interieur.gouv.fr/consultation/api/export/pregenere/telecharger/France"
 
-with urllib.request.urlopen(BANATIC_URL, timeout=600) as reponse:
-    banatic = pd.read_excel(io.BytesIO(reponse.read()), dtype=str, engine="calamine").fillna("")
+reponse = requests.get(BANATIC_URL, timeout=600)
+reponse.raise_for_status()
+banatic = pd.read_excel(io.BytesIO(reponse.content), dtype=str, engine="calamine").fillna("")
 con.register("banatic_brut", banatic)
 con.sql("CREATE TABLE banatic AS SELECT * FROM banatic_brut")
 
@@ -287,8 +288,9 @@ CORRESPONDANCE_URL = (
     "https://static.data.gouv.fr/resources/base-nationale-sur-les-intercommunalites/"
     "20250312-083024/correspondance-code-commune-siren.csv"
 )
-with urllib.request.urlopen(CORRESPONDANCE_URL, timeout=120) as reponse:
-    correspondance = pd.read_csv(io.BytesIO(reponse.read()), sep=";", dtype=str, encoding="cp1252")
+reponse = requests.get(CORRESPONDANCE_URL, timeout=120)
+reponse.raise_for_status()
+correspondance = pd.read_csv(io.BytesIO(reponse.content), sep=";", dtype=str, encoding="cp1252")
 correspondance.columns = ["code", "siren", "nom"]
 con.register("correspondance", correspondance)
 len(correspondance)

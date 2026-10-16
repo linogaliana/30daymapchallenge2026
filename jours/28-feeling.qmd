@@ -271,11 +271,10 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 import io
 import json
 import re
-import urllib.parse
-import urllib.request
 
 import duckdb
 import pandas as pd
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -302,9 +301,9 @@ CLASSEURS = {2024: 7941, 2025: 8810}
 
 
 def classeur(annee):
-    requete = urllib.request.Request(SDES_URL.format(CLASSEURS[annee]), headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(requete) as reponse:
-        return io.BytesIO(reponse.read())
+    reponse = requests.get(SDES_URL.format(CLASSEURS[annee]), headers={"User-Agent": "Mozilla/5.0"}, timeout=600)
+    reponse.raise_for_status()
+    return io.BytesIO(reponse.content)
 
 
 classeurs = {annee: classeur(annee) for annee in CLASSEURS}
@@ -372,12 +371,11 @@ de géocodage, une poignée sur des dizaines de milliers.
 
 ```{python}
 #| filename: "Zone climatique de chaque département"
-ADEME_URL = (
-    "https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/values_agg?"
-    + urllib.parse.urlencode({"field": "code_departement_ban;zone_climatique", "agg_size": "120;3", "size": 0})
-)
-with urllib.request.urlopen(ADEME_URL) as reponse:
-    agregats = json.load(reponse)["aggs"]
+ADEME_URL = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/values_agg"
+reponse = requests.get(ADEME_URL, timeout=600,
+                       params={"field": "code_departement_ban;zone_climatique", "agg_size": "120;3", "size": 0})
+reponse.raise_for_status()
+agregats = reponse.json()["aggs"]
 comptes_dpe = pd.DataFrame([
     {"dep": dep["value"], "zone": zone["value"], "dpe": zone["total"]}
     for dep in agregats for zone in dep["aggs"]

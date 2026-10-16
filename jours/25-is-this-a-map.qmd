@@ -315,17 +315,19 @@ d'Eurostat.
 ```{python}
 import pathlib
 import tempfile
-import urllib.request
 import zipfile
 
+import certifi
 import duckdb
 import pandas as pd
+import requests
 
 con = duckdb.connect()
-con.sql("""
+con.sql(f"""
 INSTALL spatial; LOAD spatial;
 SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
-SET enable_progress_bar = false
+SET enable_progress_bar = false;
+SET ca_cert_file = '{certifi.where()}'  -- les certificats de requests, pour lire GISCO sous Windows
 """)
 ```
 
@@ -344,10 +346,10 @@ COLONNES = ["flux", "mois", "annee", "cpf6", "a129", "nc8", "pays", "valeur", "m
 
 telechargements = pathlib.Path(tempfile.mkdtemp())
 for flux in ["export", "import"]:
-    requete = urllib.request.Request(DOUANE_URL.format(flux=flux),
-                                     headers={"User-Agent": "Mozilla/5.0 (30daymapchallenge)"})
-    with urllib.request.urlopen(requete, timeout=600) as reponse:
-        (telechargements / f"{flux}.zip").write_bytes(reponse.read())
+    reponse = requests.get(DOUANE_URL.format(flux=flux),
+                           headers={"User-Agent": "Mozilla/5.0 (30daymapchallenge)"}, timeout=600)
+    reponse.raise_for_status()
+    (telechargements / f"{flux}.zip").write_bytes(reponse.content)
     with zipfile.ZipFile(telechargements / f"{flux}.zip") as archive:
         archive.extractall(telechargements)
 

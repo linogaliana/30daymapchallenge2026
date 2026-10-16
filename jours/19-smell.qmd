@@ -228,14 +228,12 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 import io
 import json
 import pathlib
-import shutil
 import tempfile
-import urllib.parse
-import urllib.request
 import zipfile
 
 import duckdb
 import pandas as pd
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -266,20 +264,18 @@ CHEPTELS_URL = (
 )
 
 
-# Le serveur coupe parfois le téléchargement sans erreur : on compare la taille reçue
-# à celle annoncée.
+# Le serveur coupe parfois le téléchargement : requests le signale (la taille reçue ne
+# correspond pas à celle annoncée) et on recommence.
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
-            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
-                attendu = int(reponse.headers.get("Content-Length", 0))
-                shutil.copyfileobj(reponse, f)
-            if not attendu or pathlib.Path(chemin).stat().st_size == attendu:
-                return
-        except OSError:
+            reponse = requests.get(url, timeout=600)
+            reponse.raise_for_status()
+            pathlib.Path(chemin).write_bytes(reponse.content)
+            return
+        except requests.RequestException:
             if essai == essais - 1:
                 raise
-    raise RuntimeError(f"téléchargement incomplet : {url}")
 
 
 with tempfile.TemporaryDirectory() as dossier:
@@ -339,8 +335,9 @@ def page_lavande(debut):
         "CQL_FILTER": "code_cultu = 'LAV'", "SORTBY": "id_parcel",
         "COUNT": PAGE, "STARTINDEX": debut,
     }
-    with urllib.request.urlopen(f"{WFS_URL}?{urllib.parse.urlencode(parametres)}", timeout=600) as reponse:
-        return json.load(reponse)["features"]
+    reponse = requests.get(WFS_URL, params=parametres, timeout=600)
+    reponse.raise_for_status()
+    return reponse.json()["features"]
 
 
 parcelles = []
@@ -375,8 +372,9 @@ fichier d'Agreste la connaît, celle de 2020 sinon.
 ```{python}
 def composition(annee, fichier):
     url = f"https://www.insee.fr/fr/statistiques/fichier/2510634/{fichier}"
-    with urllib.request.urlopen(url, timeout=600) as reponse:
-        archive = zipfile.ZipFile(io.BytesIO(reponse.read()))
+    reponse = requests.get(url, timeout=600)
+    reponse.raise_for_status()
+    archive = zipfile.ZipFile(io.BytesIO(reponse.content))
     excel = archive.read(next(n for n in archive.namelist() if n.endswith(".xlsx")))
     lire = lambda feuille: pd.read_excel(io.BytesIO(excel), sheet_name=feuille, skiprows=5,
                                          dtype=str, engine="calamine")

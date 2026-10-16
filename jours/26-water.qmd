@@ -197,11 +197,10 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 import json
 import pathlib
 import tempfile
-import urllib.parse
-import urllib.request
 import zipfile
 
 import duckdb
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -246,7 +245,9 @@ def nombre(colonne):
 
 with tempfile.TemporaryDirectory() as dossier:
     archive = pathlib.Path(dossier) / "rei.zip"
-    urllib.request.urlretrieve(REI_URL, archive)
+    reponse = requests.get(REI_URL, timeout=600)
+    reponse.raise_for_status()
+    archive.write_bytes(reponse.content)
     with zipfile.ZipFile(archive) as z:
         csv = next(n for n in z.namelist() if n.endswith(".csv"))
         z.extract(csv, dossier)
@@ -281,15 +282,14 @@ pas nul. L'API permet de ne télécharger que ces colonnes.
 ```{python}
 HISTORIQUE_URL = (
     "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/"
-    "fiscalite-locale-des-particuliers/exports/csv?"
-    + urllib.parse.urlencode({
-        "select": "exercice,insee_com,b52ggemapi,e52ggemapi,h52ggemapi",
-        "delimiter": ";",
-    })
+    "fiscalite-locale-des-particuliers/exports/csv"
 )
+COLONNES_HISTORIQUE = {"select": "exercice,insee_com,b52ggemapi,e52ggemapi,h52ggemapi", "delimiter": ";"}
 
 with tempfile.TemporaryDirectory() as dossier:
-    urllib.request.urlretrieve(HISTORIQUE_URL, f"{dossier}/historique.csv")
+    reponse = requests.get(HISTORIQUE_URL, params=COLONNES_HISTORIQUE, timeout=600)
+    reponse.raise_for_status()
+    pathlib.Path(f"{dossier}/historique.csv").write_bytes(reponse.content)
     con.sql(f"""
     CREATE TABLE historique AS
     SELECT exercice::INTEGER AS annee, lpad(insee_com::VARCHAR, 5, '0') AS commune,
@@ -363,8 +363,9 @@ parametres = {
     "CQL_FILTER": "toponyme IN ({})".format(",".join("'" + f.replace("'", "''") + "'" for f in FLEUVES)),
 }
 with tempfile.TemporaryDirectory() as dossier:
-    urllib.request.urlretrieve(f"https://data.geopf.fr/wfs/ows?{urllib.parse.urlencode(parametres)}",
-                               f"{dossier}/fleuves.geojson")
+    reponse = requests.get("https://data.geopf.fr/wfs/ows", params=parametres, timeout=600)
+    reponse.raise_for_status()
+    pathlib.Path(f"{dossier}/fleuves.geojson").write_bytes(reponse.content)
     con.sql(f"""
     CREATE TABLE fleuves AS
     SELECT toponyme AS nom, geom FROM ST_Read('{dossier}/fleuves.geojson')

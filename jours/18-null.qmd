@@ -7,6 +7,7 @@ resources:
 execute:
   echo: true
 code-overflow: wrap
+eval: false
 ---
 
 ```{ojs}
@@ -481,10 +482,12 @@ année : on lit la liste des dossiers.
 
 ```{python}
 import re
-import urllib.request
 
-with urllib.request.urlopen("https://files.data.gouv.fr/geo-dvf/latest/csv/") as r:
-    annees = sorted(set(re.findall(r'href="[^"]*/(\d{4})/"', r.read().decode())))
+import requests
+
+page = requests.get("https://files.data.gouv.fr/geo-dvf/latest/csv/", timeout=120)
+page.raise_for_status()
+annees = sorted(set(re.findall(r'href="[^"]*/(\d{4})/"', page.text)))
 periode = f"{annees[0]} à {annees[-1]}"
 periode
 ```
@@ -629,7 +632,8 @@ carte = {
 
 SORTIE = pathlib.Path("donnees/j18")
 SORTIE.mkdir(parents=True, exist_ok=True)
-(SORTIE / "communes.geojson").write_text(json.dumps(carte, separators=(",", ":"), ensure_ascii=False))
+(SORTIE / "communes.geojson").write_text(json.dumps(carte, separators=(",", ":"), ensure_ascii=False),
+                                         encoding="utf-8")
 f"{(SORTIE / 'communes.geojson').stat().st_size / 1e6:.1f} Mo"
 ```
 

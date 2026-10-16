@@ -388,11 +388,10 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 #| output: false
 import json
 import pathlib
-import shutil
 import tempfile
-import urllib.request
 
 import duckdb
+import requests
 
 con = duckdb.connect()
 con.sql("INSTALL excel; LOAD excel; SET enable_progress_bar = false")
@@ -423,8 +422,10 @@ LISTE_URL = "https://www.data.gouv.fr/fr/datasets/r/29406189-15e9-4f2f-9e9d-d186
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
-            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
-                shutil.copyfileobj(reponse, f)
+            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
+                reponse.raise_for_status()
+                for bloc in reponse.iter_content(chunk_size=1 << 20):
+                    f.write(bloc)
             return
         except OSError:
             if essai == essais - 1:
@@ -643,7 +644,8 @@ geojson = {
         for id, nom, commune, lon, lat, entrees in lignes
     ],
 }
-(SORTIE / "musees.geojson").write_text(json.dumps(geojson, separators=(",", ":"), ensure_ascii=False))
+(SORTIE / "musees.geojson").write_text(json.dumps(geojson, separators=(",", ":"), ensure_ascii=False),
+                                       encoding="utf-8")
 
 con.sql(f"""
 COPY (

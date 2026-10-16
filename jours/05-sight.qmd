@@ -249,12 +249,11 @@ Comme pour les jours précédents, le code s'appuie sur `Python` et [DuckDB](htt
 #| output: false
 #| filename: "Configuration de l'environnement"
 import json
-import shutil
 import tempfile
-import urllib.request
 import zipfile
 
 import duckdb
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -285,8 +284,10 @@ MEDECINS_URL = (
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
-            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
-                shutil.copyfileobj(reponse, f)
+            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
+                reponse.raise_for_status()
+                for bloc in reponse.iter_content(chunk_size=1 << 20):
+                    f.write(bloc)
         except OSError:
             if essai == essais - 1:
                 raise

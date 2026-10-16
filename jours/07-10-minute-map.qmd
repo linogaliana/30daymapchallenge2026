@@ -660,7 +660,8 @@ FROM equipements JOIN types t USING (type)
     tuiles.setdefault(cle, []).append([lon, lat, indice, libre, installation, nom])
 
 for cle, lignes in tuiles.items():
-    (SORTIE / f"{cle}.json").write_text(json.dumps(lignes, ensure_ascii=False, separators=(",", ":")))
+    (SORTIE / f"{cle}.json").write_text(json.dumps(lignes, ensure_ascii=False, separators=(",", ":")),
+                                        encoding="utf-8")
 ```
 
 ::: {.content-visible when-format="html"}

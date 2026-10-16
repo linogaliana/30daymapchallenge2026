@@ -415,11 +415,10 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 #| output: false
 import json
 import pathlib
-import shutil
 import tempfile
-import urllib.request
 
 import duckdb
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -449,8 +448,10 @@ CONSEILLERS_URL = "https://www.data.gouv.fr/fr/datasets/r/d5f400de-ae3f-4966-8cb
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
-            with urllib.request.urlopen(url, timeout=600) as reponse, open(chemin, "wb") as f:
-                shutil.copyfileobj(reponse, f)
+            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
+                reponse.raise_for_status()
+                for bloc in reponse.iter_content(chunk_size=1 << 20):
+                    f.write(bloc)
             return reponse.url  # l'adresse finale, qui date la version
         except OSError:
             if essai == essais - 1:
@@ -709,7 +710,8 @@ SELECT c.code, c.nom,
 FROM simplifiees s JOIN communes c USING (code) LEFT JOIN groupes g USING (groupe)
 ORDER BY c.code
 """, ["code", "nom", "s", "a", "g", "age", "p"])
-(SORTIE / "communes.geojson").write_text(json.dumps(carte, separators=(",", ":"), ensure_ascii=False))
+(SORTIE / "communes.geojson").write_text(json.dumps(carte, separators=(",", ":"), ensure_ascii=False),
+                                         encoding="utf-8")
 
 # Les départements des petites cartes, simplifiés à 1 km environ.
 departements = en_geojson("""

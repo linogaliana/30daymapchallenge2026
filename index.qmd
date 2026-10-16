@@ -25,3 +25,39 @@ Une carte par jour, du 1^er^ au 30 novembre, sur les thèmes du [défi](https://
 
 ::: {#calendrier}
 :::
+
+::: {.bilan-sources}
+
+## Les sources, jour par jour {.unnumbered .unlisted}
+
+Les principales sources de chaque carte et leurs producteurs. Les fonds de carte (contours des communes, départements, etc.), qui viennent presque tous d'ADMIN EXPRESS (IGN) via [cartiflette](https://inseefrlab.github.io/cartiflette/), ne sont pas repris. Le détail est dans la partie « Les données » de chaque page.
+
+| Jour | Sources principales | Producteurs |
+|---|---|---|
+| [J1 · Points](jours/01-points.qmd) | [Liste des maternités depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/), [FINESS](https://www.data.gouv.fr/fr/datasets/finess-extraction-du-fichier-des-etablissements/) | Drees, ministère de la Santé |
+| [J2 · Lines](jours/02-lines.qmd) | [Mobilités professionnelles 2023](https://www.insee.fr/fr/statistiques/9004795) (MOBPRO) | Insee |
+| [J3 · Polygons](jours/03-polygons.qmd) | [Registre parcellaire graphique 2024](https://geoservices.ign.fr/rpg) | IGN, ASP, ministère de l'Agriculture |
+| [J4 · Clusters](jours/04-clusters.qmd) | [Base Sirene des établissements](https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/), [zones d'emploi 2020](https://www.insee.fr/fr/information/4652957) | Insee |
+| [J5 · Sight](jours/05-sight.qmd) | [Démographie des professionnels de santé](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) (RPPS) | Drees |
+| [J6 · Vintage](jours/06-vintage.qmd) | [Évaluations nationales de début de sixième](https://data.education.gouv.fr/explore/dataset/fr-en-evaluations_nationales_6eme_departement/), [carte de Dupin](https://commons.wikimedia.org/wiki/File:Carte_figurative_de_l%27instruction_populaire_de_la_France_-_Collon,_del._-_btv1b530830640.jpg) (1826) | Depp, BnF |
+| [J7 · 10 minute map](jours/07-10-minute-map.qmd) | [Data ES, équipements sportifs](https://equipements.sports.gouv.fr/explore/dataset/data-es/), [isochrones de la Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire) | INJEP, ministère des Sports, IGN |
+| [J8 · Utopia](jours/08-utopia.qmd) | [Données carroyées Filosofi 2021](https://www.insee.fr/fr/statistiques/8735171) (1 km) | Insee |
+| [J9 · Urban-rural](jours/09-urban-rural.qmd) | [Grille de densité 2025](https://www.insee.fr/fr/information/8571524), unités urbaines 2020 | Insee |
+| [J10 · Prompting only](jours/10-prompting-only.qmd) | Seize sources, une par service statistique ministériel : délinquance enregistrée, APL, indice d'éloignement des collèges, effectifs étudiants, argiles, recensement agricole, fiscalité locale, commerce extérieur, Basilic, clubs sportifs, portraits des métiers, population détenue, dotations, fonction publique, titres de séjour, lieux de mémoire | SSMSI, Drees, Depp, Sies, SDES, SSP (Agreste), DGFiP, Douanes, Deps, INJEP, Dares, SSER, DESL, DGAFP, DSED, S2E |
+| [J11 · Sound](jours/11-sound.qmd) | Les noms des communes (ADMIN EXPRESS, via cartiflette) : ici, le fond de carte est la donnée | IGN, Insee |
+| [J12 · Power](jours/12-power.qmd) | [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/) | Ministère de l'Intérieur |
+| [J13 · Interactions](jours/13-interactions.qmd) | [Fréquentation des musées de France](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1), [liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france) | Ministère de la Culture |
+| [J14 · Borgesian map](jours/14-borgesian-map.qmd) | [Données carroyées Filosofi 2019](https://www.insee.fr/fr/statistiques/7655475) (200 m) | Insee |
+| [J15 · Inside out](jours/15-inside-out.qmd) | [Fichier des personnes décédées](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees), [Code officiel géographique](https://www.insee.fr/fr/information/8740222) | Insee |
+| [J16 · Collaborative map](jours/16-collaborative-map.qmd) | [État de la Base Adresse Nationale par commune](https://adresse.data.gouv.fr/deploiement-bal), révisions des Bases Adresses Locales | Base Adresse Nationale |
+| [J17 · Light & dark](jours/17-light-dark.qmd) | [MOBPRO](https://www.insee.fr/fr/statistiques/9004795) et [MOBSCO](https://www.insee.fr/fr/statistiques/9004793) 2023 | Insee |
+| [J18 · NULL](jours/18-null.qmd) | [Statistiques DVF](https://www.data.gouv.fr/datasets/statistiques-dvf) | DGFiP, Etalab |
+| [J19 · Smell](jours/19-smell.qmd) | [Recensement agricole 2020, cheptels](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_2141_EPCI/detail/), [Registre parcellaire graphique 2020](https://geoservices.ign.fr/rpg) | SSP (Agreste), IGN, ASP |
+| [J20 · Hexagons](jours/20-hexagons.qmd) | [Indices de position sociale des écoles](https://data.education.gouv.fr/explore/dataset/fr-en-ips-ecoles-ap2022/), [effectifs par école](https://data.education.gouv.fr/explore/dataset/fr-en-ecoles-effectifs-nb_classes/), [annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | Depp, ministère de l'Éducation nationale |
+| [J22 · Projections](jours/22-projections.qmd) | [Projections des effectifs de médecins à l'horizon 2070](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/projections-des-effectifs-de-medecins/) | Drees |
+| [J23 · Taste](jours/23-taste.qmd) | [Aires des AOC/AOP](https://www.data.gouv.fr/datasets/aires-geographiques-des-aoc-aop) et [des IGP](https://www.data.gouv.fr/datasets/aire-geographique-des-igp-et-des-ig), [référentiel des produits sous SIQO](https://www.data.gouv.fr/datasets/referentiel-des-produits-sous-signe-officiel-didentification-de-la-qualite-et-de-lorigine-siqo) | INAO |
+| [J24 · Network](jours/24-network.qmd) | [Lignes par statut](https://ressources.data.sncf.com/explore/dataset/lignes-par-statut/), [fréquentation en gares](https://ressources.data.sncf.com/explore/dataset/frequentation-gares/) | SNCF Réseau, SNCF Gares & Connexions |
+| [J25 · Is this a map?](jours/25-is-this-a-map.qmd) | [Statistiques nationales du commerce extérieur 2025](https://www.douane.gouv.fr/la-douane/opendata/mots-cles/commerce-exterieur), [pays de GISCO](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/countries) | Douanes (DSECE), Eurostat |
+| [J26 · Water](jours/26-water.qmd) | [Recensement des éléments d'imposition (REI) 2025](https://data.economie.gouv.fr/explore/dataset/impots-locaux-fichier-de-recensement-des-elements-dimposition-a-la-fiscalite-dir/), [fiscalité locale des particuliers](https://data.economie.gouv.fr/explore/dataset/fiscalite-locale-des-particuliers/), [BD CARTO](https://geoservices.ign.fr/bdcarto) | DGFiP, IGN |
+| [J28 · Feeling](jours/28-feeling.qmd) | [Parc de logements par classe de performance énergétique](https://www.statistiques.developpement-durable.gouv.fr/le-parc-de-logements-par-classe-de-performance-energetique-au-1er-janvier-2025) (2024 et 2025), [DPE des logements existants](https://data.ademe.fr/datasets/dpe03existant) | SDES, Ademe |
+:::

@@ -29,7 +29,7 @@ Ne jamais faire `git commit` ni `git push`, sauf demande explicite. Ne pas non p
 - Fonds de carte : le package Python [`cartiflette`](https://inseefrlab.github.io/cartiflette/), `carti_download(..., engine="duckdb", con=con)`, qui renvoie une relation DuckDB non évaluée, utilisable dans `con.sql` par son nom de variable (voir J1). Le filtre `where=` évite de tout lire.
 - DuckDB : `LOAD spatial` puis `SET geometry_always_xy = true` (coordonnées en longitude, latitude).
 - Les sources sont téléchargées au rendu depuis leur URL officielle : pas de fichier de données ajouté à la main dans le dépôt.
-  Téléchargements : privilégier un code simple avec `requests` (`requests.get`, `raise_for_status`) plutôt que des solutions alambiquées avec `urllib` (contextes SSL, `Request`, `urlopen`…). `requests` vérifie les certificats avec `certifi`, ce qui évite les erreurs de certificat du magasin Windows (Agreste).
+  Récupération des données en Python : toujours `requests` (`requests.get`, `params=`, `raise_for_status`, `.content`/`.json()`, `stream=True` pour les gros fichiers), jamais `urllib.request` (`urlopen`, `urlretrieve`, `Request`, contextes SSL…). `requests` vérifie les certificats avec `certifi`, ce qui évite les erreurs de certificat du magasin Windows (Agreste, Douanes). Si DuckDB lit lui-même une URL et bute sur un certificat sous Windows : `SET ca_cert_file = '{certifi.where()}'` (voir J25).
   Seule exception : `jours/sources/`, pour les fichiers que le rendu ne peut pas télécharger (le site de la Dares est derrière un pare-feu à captcha, lu par J10). Le code essaie toujours l'URL officielle d'abord.
 
 ## Style

@@ -356,10 +356,10 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 import io
 import json
 import pathlib
-import urllib.request
 
 import duckdb
 import pandas as pd
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -386,8 +386,9 @@ FICHIERS_INAO = {
     "produits": "aires-et-produits-aoc-aop-et-igp/20251009-122906/2025-03-10-comagri-aires-produits.csv",
 }
 for table, chemin in FICHIERS_INAO.items():
-    with urllib.request.urlopen(DATAGOUV + chemin, timeout=600) as reponse:
-        brut = pd.read_csv(io.BytesIO(reponse.read()), sep=";", dtype=str, encoding="cp1252")
+    reponse = requests.get(DATAGOUV + chemin, timeout=600)
+    reponse.raise_for_status()
+    brut = pd.read_csv(io.BytesIO(reponse.content), sep=";", dtype=str, encoding="cp1252")
     con.sql(f"CREATE TABLE {table} AS SELECT * FROM brut")
 
 con.sql("""
@@ -715,7 +716,7 @@ ORDER BY c.code
         {"type": "Feature", "properties": dict(zip(colonnes, ligne[:-1])), "geometry": json.loads(ligne[-1])}
         for ligne in lignes
     ],
-}, separators=(",", ":"), ensure_ascii=False))
+}, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 ```
 
 La table des appellations porte, pour la carte, l'emprise de chaque aire (ses longitudes et

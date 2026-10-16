@@ -338,17 +338,15 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 
 ```{python}
 #| output: false
-import http.client
 import json
 import pathlib
-import shutil
 import tempfile
 import time
 import urllib.parse
-import urllib.request
 
 import duckdb
 import pandas as pd
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -429,13 +427,15 @@ RES_URL = (
 def telecharger_parquet(url, chemin, essais=5):
     for essai in range(essais):
         try:
-            with urllib.request.urlopen(url, timeout=900) as reponse, open(chemin, "wb") as f:
-                shutil.copyfileobj(reponse, f)
+            with requests.get(url, timeout=900, stream=True) as reponse, open(chemin, "wb") as f:
+                reponse.raise_for_status()
+                for bloc in reponse.iter_content(chunk_size=1 << 20):
+                    f.write(bloc)
             with open(chemin, "rb") as f:
                 f.seek(-4, 2)
                 if f.read() == b"PAR1":
                     return
-        except (OSError, http.client.HTTPException):
+        except OSError:
             if essai == essais - 1:
                 raise
     raise RuntimeError(f"téléchargement incomplet : {url}")
@@ -504,20 +504,19 @@ def overpass(filtres, region, essais=15):
         f'[out:json][timeout:300];area["ISO3166-2"="FR-{region}"]->.zone;'
         f"({union});out center tags;"
     )
-    donnees = urllib.parse.urlencode({"data": requete}).encode()
     for essai in range(essais):
         serveur = SERVEURS_OVERPASS[essai % len(SERVEURS_OVERPASS)]
         try:
-            demande = urllib.request.Request(serveur, data=donnees, headers={
+            reponse = requests.post(serveur, data={"data": requete}, timeout=600, headers={
                 "User-Agent": "30daymapchallenge2026 (https://github.com/linogaliana/30daymapchallenge2026)"
             })
-            with urllib.request.urlopen(demande, timeout=600) as reponse:
-                resultat = json.load(reponse)
+            reponse.raise_for_status()
+            resultat = reponse.json()
             # Une requête trop longue renvoie un résultat incomplet, avec une remarque.
             if "error" in resultat.get("remark", ""):
                 raise RuntimeError(resultat["remark"])
             return resultat
-        except (OSError, http.client.HTTPException, RuntimeError, ValueError):
+        except (requests.RequestException, RuntimeError, ValueError):
             if essai == essais - 1:
                 raise
             time.sleep(min(20 * (essai + 1), 120))

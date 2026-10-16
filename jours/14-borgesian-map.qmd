@@ -245,13 +245,12 @@ L'archive de l'Insee est compressée au format 7z, que lit le paquet `py7zr`.
 #| output: false
 import json
 import pathlib
-import shutil
 import tempfile
-import urllib.request
 import zipfile
 
 import duckdb
 import py7zr
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -289,8 +288,10 @@ FILOSOFI_URL = "https://www.insee.fr/fr/statistiques/fichier/7655475/Filosofi201
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
-            with urllib.request.urlopen(url, timeout=900) as reponse, open(chemin, "wb") as f:
-                shutil.copyfileobj(reponse, f)
+            with requests.get(url, timeout=900, stream=True) as reponse, open(chemin, "wb") as f:
+                reponse.raise_for_status()
+                for bloc in reponse.iter_content(chunk_size=1 << 20):
+                    f.write(bloc)
         except OSError:
             if essai == essais - 1:
                 raise

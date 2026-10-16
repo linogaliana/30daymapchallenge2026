@@ -231,10 +231,10 @@ Comme pour les jours précédents, le code s'appuie sur `Python` et [DuckDB](htt
 import json
 import pathlib
 import tempfile
-import urllib.request
 import zipfile
 
 import duckdb
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -309,8 +309,9 @@ ZE_URL = "https://www.insee.fr/fr/statistiques/fichier/4652957/ZE2020_au_01-01-2
 
 with tempfile.TemporaryDirectory() as dossier:
     archive = pathlib.Path(dossier) / "ze.zip"
-    with urllib.request.urlopen(ZE_URL, timeout=120) as reponse:
-        archive.write_bytes(reponse.read())
+    reponse = requests.get(ZE_URL, timeout=120)
+    reponse.raise_for_status()
+    archive.write_bytes(reponse.content)
     with zipfile.ZipFile(archive) as z:
         z.extractall(dossier)
     # L'en-tête est en ligne 6.
