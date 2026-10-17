@@ -385,6 +385,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/07-10-minute-map.py >}}
+```
+
 ### Les équipements sportifs (INJEP, Data ES)
 
 Le [[recensement des équipements sportifs]{.underline}](https://equipements.sports.gouv.fr/explore/dataset/data-es/) (Data ES) décrit plus de 330 000 équipements, espaces et sites de pratique : leur position, leur type (185 types, du court de tennis au boulodrome), leur famille, leur propriétaire, leur accessibilité. Il est mis à jour en continu par les collectivités et les services de l'État, et diffusé sur un portail Opendatasoft qui l'exporte en Parquet.
@@ -394,10 +399,6 @@ On garde la position, le type et l'accès libre, et on écarte les équipements 
 ```{python}
 #| output: false
 #| filename: "Lecture des équipements sportifs (INJEP)"
-DATA_ES_URL = (
-    "https://equipements.sports.gouv.fr/api/explore/v2.1/catalog/datasets/data-es/exports/parquet"
-)
-
 con.sql(f"""
 CREATE TABLE equipements AS
 SELECT equip_numero AS numero, inst_nom AS installation, equip_nom AS nom,
@@ -405,7 +406,7 @@ SELECT equip_numero AS numero, inst_nom AS installation, equip_nom AS nom,
        equip_type_name AS type, equip_type_famille AS famille,
        equip_acc_libre = 'true' AS acces_libre,
        equip_coordonnees::GEOMETRY AS geom  -- sans le système de coordonnées attaché
-FROM read_parquet('{DATA_ES_URL}')
+FROM read_parquet('{SOURCES["data_es"]}')
 WHERE equip_coordonnees IS NOT NULL AND inst_hs_bool IS DISTINCT FROM 'Oui'
 """)
 ```

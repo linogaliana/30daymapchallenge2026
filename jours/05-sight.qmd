@@ -264,6 +264,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/05-sight.py >}}
+```
+
 ### Les médecins (DREES, RPPS)
 
 Les médecins sont inscrits au répertoire partagé des professionnels de santé (RPPS). La DREES en tire chaque année le nombre de médecins en activité au 1^er^ janvier, publié sur son [[portail de données]{.underline}](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) dans un fichier Excel par profession.
@@ -275,12 +280,6 @@ Le fichier pèse 73 Mo : on le télécharge une fois, en vérifiant qu'il est co
 ```{python}
 #| output: false
 #| filename: "Fonction de téléchargement"
-MEDECINS_URL = (
-    "https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/datasets/"
-    "la-demographie-des-professionnels-de-sante-depuis-2012/attachments/medecins_rpps_2012_2026_xlsx"
-)
-
-
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -304,7 +303,7 @@ Chaque feuille est lue en ne gardant que l'ophtalmologie, tous modes d'exercice 
 #| filename: "Lecture des effectifs et des densités (DREES)"
 with tempfile.TemporaryDirectory() as dossier:
     chemin = f"{dossier}/medecins.xlsx"
-    telecharger(MEDECINS_URL, chemin)
+    telecharger(SOURCES["medecins"], chemin)
     for feuille, mesure in [("Effectifs", "effectif"), ("Densités", "densite")]:
         con.sql(f"""
         CREATE TABLE {mesure} AS

@@ -237,6 +237,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/15-inside-out.py >}}
+```
+
 ### Le fichier des décès (Insee)
 
 Chaque mois, les mairies transmettent à l'Insee les actes de décès. L'Insee en publie un fichier
@@ -260,8 +265,6 @@ Le fichier de 2025 pèse 130 Mo. On le télécharge par le lien permanent de dat
 renvoie vers la dernière version publiée.
 
 ```{python}
-DECES_URL = "https://www.data.gouv.fr/api/1/datasets/r/a4153e14-68b4-41b7-937c-53c0c62ff4a3"
-OPPOSITIONS_URL = "https://www.data.gouv.fr/api/1/datasets/r/7bcdfa57-dc50-43a8-beb6-6c76537e7057"
 ANNEE = 2025
 
 
@@ -285,8 +288,8 @@ survenus en 2025 : le fichier contient aussi quelques décès plus anciens, tran
 ```{python}
 #| output: false
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger(DECES_URL, f"{dossier}/deces.txt")
-    telecharger(OPPOSITIONS_URL, f"{dossier}/oppositions.csv")
+    telecharger(SOURCES["deces"], f"{dossier}/deces.txt")
+    telecharger(SOURCES["oppositions"], f"{dossier}/oppositions.csv")
     con.sql(f"""
     CREATE TABLE deces AS
     SELECT substr(ligne, 90, 5) AS lieu_naissance,
@@ -338,15 +341,13 @@ touchées. On en garde les changements de département (code `41`) et les fusion
 Chaque code ancien reçoit le code qui l'a remplacé, au dernier de ses événements.
 
 ```{python}
-COG_URL = "https://www.insee.fr/fr/statistiques/fichier/8740222/"
-
 con.sql(f"""
 CREATE TABLE communes_cog AS
-SELECT DISTINCT COM AS com FROM read_csv('{COG_URL}v_commune_depuis_1943.csv', all_varchar = true);
+SELECT DISTINCT COM AS com FROM read_csv('{SOURCES["cog_communes"]}', all_varchar = true);
 
 CREATE TABLE evenements AS
 SELECT MOD AS type, COM_AV AS avant, COM_AP AS apres, DATE_EFF AS date
-FROM read_csv('{COG_URL}v_mvt_commune_2026.csv', all_varchar = true)
+FROM read_csv('{SOURCES["cog_mouvements"]}', all_varchar = true)
 WHERE MOD IN ('31', '32', '33', '34', '41')
   AND TYPECOM_AV = 'COM' AND TYPECOM_AP = 'COM' AND COM_AV <> COM_AP;
 
@@ -356,7 +357,7 @@ SELECT avant, arg_max(apres, date) AS apres FROM evenements GROUP BY avant;
 -- Le nom actuel de chaque pays ou territoire (codes 99xxx).
 CREATE TABLE pays AS
 SELECT COG AS code, arg_max(LIBCOG, coalesce(DATE_FIN, '9999')) AS pays
-FROM read_csv('{COG_URL}v_pays_et_territoire_depuis_1943.csv', all_varchar = true)
+FROM read_csv('{SOURCES["cog_pays"]}', all_varchar = true)
 GROUP BY ALL;
 """)
 ```

@@ -438,6 +438,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/18-null.py >}}
+```
+
 ### Les ventes (DGFiP, statistiques d'Etalab)
 
 Le fichier DVF de la DGFiP recense chaque vente immobilière enregistrée par les services de la
@@ -454,14 +459,12 @@ guillemets, et la détection automatique de DuckDB ne voit pas les guillemets ; 
 `01001` ou `2A004`, doivent rester du texte.
 
 ```{python}
-DVF_URL = "https://www.data.gouv.fr/fr/datasets/r/851d342f-9c96-41c1-924a-11a7a7aae8a6"
-
 con.sql(f"""
 CREATE TABLE dvf AS
 SELECT code_geo AS code,
        nb_ventes_whole_apt_maison AS ventes,
        med_prix_m2_whole_apt_maison AS prix
-FROM read_csv('{DVF_URL}', quote = '"', types = {{'code_geo': 'VARCHAR', 'code_parent': 'VARCHAR'}})
+FROM read_csv('{SOURCES["dvf"]}', quote = '"', types = {{'code_geo': 'VARCHAR', 'code_parent': 'VARCHAR'}})
 WHERE echelle_geo = 'commune'
 """)
 
@@ -485,7 +488,7 @@ import re
 
 import requests
 
-page = requests.get("https://files.data.gouv.fr/geo-dvf/latest/csv/", timeout=120)
+page = requests.get(SOURCES["geo_dvf"], timeout=120)
 page.raise_for_status()
 annees = sorted(set(re.findall(r'href="[^"]*/(\d{4})/"', page.text)))
 periode = f"{annees[0]} à {annees[-1]}"
@@ -501,12 +504,10 @@ la commune nouvelle. On garde les rétablissements depuis la fin de 2019, l'âge
 ventes du fichier.
 
 ```{python}
-COG_URL = "https://www.insee.fr/fr/statistiques/fichier/8740222/"
-
 con.sql(f"""
 CREATE TABLE retablies AS
 SELECT DISTINCT COM_AP AS code, LIBELLE_AP AS nom, DATE_EFF AS date
-FROM read_csv('{COG_URL}v_mvt_commune_2026.csv', all_varchar = true)
+FROM read_csv('{SOURCES["cog_mouvements"]}', all_varchar = true)
 WHERE MOD = '21' AND TYPECOM_AP = 'COM' AND DATE_EFF >= '2019-12-01'
 """)
 con.sql("SELECT * FROM retablies ORDER BY date, code").df().style.hide(axis="index")

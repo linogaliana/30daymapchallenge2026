@@ -238,6 +238,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/09-urban-rural.py >}}
+```
+
 ### La grille de densité (Insee)
 
 La [grille communale de densité](https://www.insee.fr/fr/information/8571524) découpe le
@@ -256,9 +261,6 @@ L'Insee publie un classeur par millésime du code officiel géographique : on pr
 comme les contours. L'en-tête de la feuille des communes est en ligne 5.
 
 ```{python}
-GRILLE_URL = "https://www.insee.fr/fr/statistiques/fichier/8571524/fichier_diffusion_2025.xlsx"
-
-
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -276,7 +278,7 @@ def telecharger(url, chemin, essais=5):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger(GRILLE_URL, f"{dossier}/grille.xlsx")
+    telecharger(SOURCES["grille"], f"{dossier}/grille.xlsx")
     con.sql(f"""
     CREATE TABLE grille AS
     SELECT CODGEO AS code, DENS::INTEGER AS densite, DENS7::INTEGER AS densite7,

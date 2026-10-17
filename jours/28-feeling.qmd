@@ -284,6 +284,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/28-feeling.py >}}
+```
+
 ### Les passoires par département (SDES)
 
 Chaque automne, le SDES publie l'état du parc de logements par étiquette DPE au
@@ -295,18 +300,13 @@ et leur part, pour chaque département. On la lit pour 2024 et 2025.
 
 ```{python}
 #| filename: "Passoires par département, 2024 et 2025"
-SDES_URL = "https://www.statistiques.developpement-durable.gouv.fr/media/{}/download?inline"
-# Le classeur des données complémentaires de chaque publication.
-CLASSEURS = {2024: 7941, 2025: 8810}
-
-
 def classeur(annee):
-    reponse = requests.get(SDES_URL.format(CLASSEURS[annee]), headers={"User-Agent": "Mozilla/5.0"}, timeout=600)
+    reponse = requests.get(SOURCES[f"passoires_{annee}"], headers={"User-Agent": "Mozilla/5.0"}, timeout=600)
     reponse.raise_for_status()
     return io.BytesIO(reponse.content)
 
 
-classeurs = {annee: classeur(annee) for annee in CLASSEURS}
+classeurs = {annee: classeur(annee) for annee in [2024, 2025]}
 
 # Les lignes de départements commencent par leur code : « 23 - Creuse - Guéret ».
 CODE = re.compile(r"^(\d\d|2A|2B) - ")
@@ -371,9 +371,7 @@ de géocodage, une poignée sur des dizaines de milliers.
 
 ```{python}
 #| filename: "Zone climatique de chaque département"
-ADEME_URL = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/values_agg"
-reponse = requests.get(ADEME_URL, timeout=600,
-                       params={"field": "code_departement_ban;zone_climatique", "agg_size": "120;3", "size": 0})
+reponse = requests.get(SOURCES["zones_climatiques"], timeout=600)
 reponse.raise_for_status()
 agregats = reponse.json()["aggs"]
 comptes_dpe = pd.DataFrame([

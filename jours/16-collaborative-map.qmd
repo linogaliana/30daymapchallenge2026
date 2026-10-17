@@ -199,6 +199,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/16-collaborative-map.py >}}
+```
+
 ### Les Bases Adresses Locales (BAN)
 
 Depuis la [loi 3DS](https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000045197395) de
@@ -222,10 +227,6 @@ Deux fichiers décrivent l'état de la base, et sont mis à jour en continu :
   collectivité) et, pour les fichiers moissonnés sur data.gouv, l'organisme qui les publie.
 
 ```{python}
-ETAT_URL = "https://plateforme.adresse.data.gouv.fr/api/communes-summary.csv"
-REVISIONS_URL = "https://plateforme-bal.adresse.data.gouv.fr/api-depot/current-revisions"
-
-
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -240,8 +241,8 @@ def telecharger(url, chemin, essais=5):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger(ETAT_URL, f"{dossier}/etat.csv")
-    telecharger(REVISIONS_URL, f"{dossier}/revisions.json")
+    telecharger(SOURCES["etat"], f"{dossier}/etat.csv")
+    telecharger(SOURCES["revisions"], f"{dossier}/revisions.json")
     con.sql(f"""
     CREATE TABLE etat AS
     SELECT code_commune AS code, type_composition = 'bal' AS bal,

@@ -290,6 +290,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/02-lines.py >}}
+```
+
 ### Les navettes (Insee, recensement 2023)
 
 L'Insee diffuse le [[fichier détail des mobilités professionnelles]{.underline}](https://www.insee.fr/fr/statistiques/9004795) (MOBPRO) du recensement de 2023 : une ligne par actif ayant un emploi de 15 ans ou plus recensé, avec
@@ -306,9 +311,6 @@ Le fichier est publié en Parquet, mais le serveur de l'Insee ne répond pas aux
 ```{python}
 #| output: false
 #| filename: "Fonction de téléchargement"
-MOBPRO_URL = "https://www.insee.fr/fr/statistiques/fichier/9004795/RP2023_mobpro.parquet"
-
-
 # Le serveur coupe parfois le téléchargement sans erreur, et n'envoie pas la
 # taille : un fichier Parquet complet finit par « PAR1 ».
 def telecharger(url, chemin, essais=5):
@@ -336,7 +338,7 @@ On ne garde en mémoire que les cinq colonnes utiles ; le fichier téléchargé 
 #| filename: "Lecture des navettes (Insee)"
 with tempfile.TemporaryDirectory() as dossier:
     chemin = f"{dossier}/mobpro.parquet"
-    telecharger(MOBPRO_URL, chemin)
+    telecharger(SOURCES["mobpro"], chemin)
     con.sql(f"""
     CREATE TABLE mobpro AS
     SELECT COMMUNE, ARM, DCLT, TRANS, IPONDI FROM read_parquet('{chemin}')

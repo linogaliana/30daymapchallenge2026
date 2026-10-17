@@ -239,6 +239,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/08-utopia.py >}}
+```
+
 ### Les carreaux habités (Insee, Filosofi)
 
 Le dispositif [Filosofi](https://www.insee.fr/fr/metadonnees/source/serie/s1172) rapproche les
@@ -252,9 +257,6 @@ de son coin sud-ouest, en mètres (`CRS3035RES1000mN2029000E4252000`) : on les g
 kilomètres. Le fichier compte aussi le nombre d'habitants (`ind`).
 
 ```{python}
-FILOSOFI_URL = "https://www.insee.fr/fr/statistiques/fichier/8735171/Filosofi2021_carreaux_1km_csv.zip"
-
-
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -272,7 +274,7 @@ def telecharger(url, chemin, essais=5):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger(FILOSOFI_URL, f"{dossier}/carreaux.zip")
+    telecharger(SOURCES["filosofi"], f"{dossier}/carreaux.zip")
     with zipfile.ZipFile(f"{dossier}/carreaux.zip") as z:
         z.extract("carreaux_1km_met.csv", dossier)
     con.sql(f"""

@@ -260,6 +260,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/14-borgesian-map.py >}}
+```
+
 ### Les carreaux de 200 m (Insee)
 
 Le [dispositif Filosofi](https://www.insee.fr/fr/metadonnees/source/serie/s1172) rapproche les
@@ -282,9 +287,6 @@ garde que la métropole : la Martinique et La Réunion ont leurs propres fichier
 projections.
 
 ```{python}
-FILOSOFI_URL = "https://www.insee.fr/fr/statistiques/fichier/7655475/Filosofi2019_carreaux_200m_csv.zip"
-
-
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -302,7 +304,7 @@ def telecharger(url, chemin, essais=5):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger(FILOSOFI_URL, f"{dossier}/filosofi.zip")
+    telecharger(SOURCES["filosofi"], f"{dossier}/filosofi.zip")
     with zipfile.ZipFile(f"{dossier}/filosofi.zip") as archive:
         archive.extractall(dossier)
     with py7zr.SevenZipFile(f"{dossier}/Filosofi2019_carreaux_200m_csv.7z") as archive:

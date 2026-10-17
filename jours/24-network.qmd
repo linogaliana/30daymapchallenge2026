@@ -278,6 +278,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/24-network.py >}}
+```
+
 ### Le réseau et les gares (SNCF)
 
 Le portail open data de la SNCF exporte chaque jeu de données en Parquet, avec les géométries
@@ -285,12 +290,11 @@ déjà lisibles par DuckDB. L'export est produit à la demande et ne répond pas
 partielles : on télécharge les quatre fichiers (moins de 10 Mo en tout) avant de les lire.
 
 ```{python}
-SNCF_URL = "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/{jeu}/exports/parquet"
 JEUX = ["lignes-par-statut", "frequentation-gares", "gares-de-voyageurs", "liste-des-gares"]
 
 with tempfile.TemporaryDirectory() as dossier:
     for jeu in JEUX:
-        reponse = requests.get(SNCF_URL.format(jeu=jeu), timeout=300)
+        reponse = requests.get(SOURCES[jeu], timeout=300)
         reponse.raise_for_status()
         pathlib.Path(f"{dossier}/{jeu}.parquet").write_bytes(reponse.content)
         con.sql(f"CREATE TABLE \"{jeu}\" AS SELECT * FROM read_parquet('{dossier}/{jeu}.parquet')")

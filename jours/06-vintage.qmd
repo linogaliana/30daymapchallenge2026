@@ -293,6 +293,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/06-vintage.py >}}
+```
+
 ### Les évaluations de sixième (DEPP)
 
 Depuis 2017, tous les élèves de sixième des collèges publics et privés sous contrat passent, en
@@ -309,16 +314,11 @@ français, pour tous les élèves (le fichier donne aussi filles et garçons à 
 ```{python}
 #| output: false
 #| filename: "Lecture des évaluations (DEPP)"
-EVALUATIONS_URL = (
-    "https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/"
-    "fr-en-evaluations_nationales_6eme_departement/exports/parquet"
-)
-
 con.sql(f"""
 CREATE TABLE evaluations AS
 SELECT year(annee) AS annee, code_departement AS code, score_moyen AS score,
        ips_moyen AS ips, round(groupe_1 + groupe_2, 1) AS part
-FROM read_parquet('{EVALUATIONS_URL}')
+FROM read_parquet('{SOURCES["evaluations"]}')
 WHERE discipline = 'Français' AND caracteristique = 'Ensemble'
 """)
 annee = con.sql("SELECT max(annee) FROM evaluations").fetchone()[0]

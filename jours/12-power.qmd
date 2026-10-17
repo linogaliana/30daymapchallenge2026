@@ -428,6 +428,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/12-power.py >}}
+```
+
 ### Le répertoire national des élus (ministère de l'Intérieur)
 
 Le [répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/)
@@ -441,10 +446,6 @@ On télécharge chaque fichier par son lien stable sur data.gouv, qui renvoie ve
 version. Ce sont des CSV séparés par des points-virgules.
 
 ```{python}
-MAIRES_URL = "https://www.data.gouv.fr/fr/datasets/r/2876a346-d50c-4911-934e-19ee07b0e503"
-CONSEILLERS_URL = "https://www.data.gouv.fr/fr/datasets/r/d5f400de-ae3f-4966-8cb6-a85c70c6c24a"
-
-
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -471,8 +472,8 @@ def lire_elus(chemin, colonnes=""):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    url_maires = telecharger(MAIRES_URL, f"{dossier}/maires.csv")
-    telecharger(CONSEILLERS_URL, f"{dossier}/conseillers.csv")
+    url_maires = telecharger(SOURCES["maires"], f"{dossier}/maires.csv")
+    telecharger(SOURCES["conseillers"], f"{dossier}/conseillers.csv")
     con.sql(f"CREATE TABLE maires AS {lire_elus(f'{dossier}/maires.csv')}")
     fonction = '\n           "Libellé de la fonction" AS fonction,'
     con.sql(f"CREATE TABLE conseillers AS {lire_elus(f'{dossier}/conseillers.csv', fonction)}")

@@ -590,7 +590,6 @@ import re
 import shutil
 import tempfile
 import unicodedata
-import urllib.parse
 import zipfile
 
 import duckdb
@@ -610,11 +609,18 @@ SORTIE = pathlib.Path("donnees/j10")
 SORTIE.mkdir(parents=True, exist_ok=True)
 ```
 
+Les adresses des fichiers sont rassemblées dans un dictionnaire. Plusieurs sont des exports
+CSV d'un portail [Opendatasoft](https://help.opendatasoft.com/apis/ods-explore-v2/), filtrés
+pour ne télécharger que les lignes et les colonnes utiles.
+
+```{python}
+#| filename: "Les sources"
+{{< include _liens/10-prompting-only.py >}}
+```
+
 Quelques fonctions servent à toutes les sources : télécharger un fichier (en vérifiant qu'un
-classeur ou une archive est bien complet), construire l'URL d'export CSV d'un portail
-[Opendatasoft](https://help.opendatasoft.com/apis/ods-explore-v2/) avec un filtre, rapprocher
-des noms écrits différemment (accents, tirets, « St » pour « Saint »), et découper une valeur en
-classes.
+classeur ou une archive est bien complet), rapprocher des noms écrits différemment (accents,
+tirets, « St » pour « Saint »), et découper une valeur en classes.
 
 ```{python}
 def telecharger(url, nom, archive=True, essais=3):
@@ -631,11 +637,6 @@ def telecharger(url, nom, archive=True, essais=3):
         if not archive or zipfile.is_zipfile(chemin):  # .xlsx, .ods et .zip sont des archives zip
             return chemin
     raise RuntimeError(f"téléchargement incomplet : {url}")
-
-
-def export_ods(domaine, jeu, **parametres):
-    requete = urllib.parse.urlencode({"delimiter": ";", **parametres})
-    return f"https://{domaine}/api/explore/v2.1/catalog/datasets/{jeu}/exports/csv?{requete}"
 
 
 def cle(texte):
@@ -840,9 +841,7 @@ intercommunalités](https://www.insee.fr/fr/information/2510634) de l'Insee au 1
 dont l'en-tête est en ligne 6.
 
 ```{python}
-EPCI_URL = "https://www.insee.fr/fr/statistiques/fichier/2510634/epci_au_01-01-2026.zip"
-
-with zipfile.ZipFile(telecharger(EPCI_URL, "epci.zip")) as archive:
+with zipfile.ZipFile(telecharger(SOURCES["epci"], "epci.zip")) as archive:
     archive.extract("EPCI_au_01-01-2026.xlsx", TELECHARGEMENTS)
 noms_epci = pd.read_excel(TELECHARGEMENTS / "EPCI_au_01-01-2026.xlsx", sheet_name="EPCI", header=5,
                           engine="calamine", dtype=str)[["EPCI", "LIBEPCI"]].set_axis(["code", "nom"], axis=1)
@@ -861,11 +860,6 @@ années de suite (`est_diffuse = 'diff'`) ; sinon, la base donne le taux moyen d
 publiées du département (`complement_info_taux`).
 
 ```{python}
-SSMSI_URL = (
-    "https://static.data.gouv.fr/resources/bases-statistiques-communale-departementale-et-regionale-"
-    "de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales/20260709-120017/"
-    "donnee-comm-data.gouv-parquet-2025-geographie2026-produit-le2026-06-25.parquet"
-)
 SSMSI_SEUILS = [2, 4, 6, 9, 12]
 
 con.sql(f"""
@@ -873,7 +867,7 @@ CREATE TABLE cambriolages AS
 SELECT CODGEO_2026 AS code, est_diffuse = 'diff' AS publie, nombre AS cambriolages,
        complement_info_nombre AS moyenne_non_publiees, insee_log AS logements,
        CASE WHEN est_diffuse = 'diff' THEN taux_pour_mille ELSE complement_info_taux END AS taux
-FROM read_parquet('{SSMSI_URL}')
+FROM read_parquet('{SOURCES["ssmsi"]}')
 WHERE annee = 2025 AND indicateur = 'Cambriolages de logement'
 """)
 con.sql(f"CREATE TABLE classes_ssmsi AS SELECT code, {classe_sql('taux', SSMSI_SEUILS)} AS classe FROM cambriolages")
@@ -909,13 +903,9 @@ publie dans un classeur par profession, une feuille par année ; les en-têtes o
 premières lignes.
 
 ```{python}
-APL_URL = (
-    "https://data.drees.solidarites-sante.gouv.fr/api/v2/catalog/datasets/"
-    "530_l-accessibilite-potentielle-localisee-apl/attachments/indicateur_d_apl_aux_medecins_generalistes_xlsx"
-)
 APL_SEUILS = [1.5, 2.5, 3.5, 4.5]
 
-feuille = pd.read_excel(telecharger(APL_URL, "apl.xlsx"), sheet_name="APL 2024", header=None, engine="calamine")
+feuille = pd.read_excel(telecharger(SOURCES["apl"], "apl.xlsx"), sheet_name="APL 2024", header=None, engine="calamine")
 apl = feuille.iloc[:, [0, 2, 3, 7]].set_axis(["code", "apl", "apl65", "population"], axis=1)
 apl = apl[apl["code"].astype(str).str.fullmatch(r"\w{5}")]
 apl = apl.astype({"code": str, "apl": float, "apl65": float, "population": float})
@@ -963,10 +953,8 @@ CREATE TABLE colleges AS
 SELECT e.uai, e.patronyme AS nom, a.nom_commune AS commune, e.departement,
        TRY_CAST(e.indice_eloignement AS DOUBLE) AS indice,
        round(a.longitude, 4) AS lon, round(a.latitude, 4) AS lat
-FROM read_csv('{export_ods("data.education.gouv.fr", "fr-en-indice_eloignement_college_ap2022",
-                           where='rentree_scolaire="2025"')}', all_varchar = true) e
-JOIN read_csv('{export_ods("data.education.gouv.fr", "fr-en-annuaire-education",
-                           select="identifiant_de_l_etablissement,nom_commune,latitude,longitude")}') a
+FROM read_csv('{SOURCES["colleges"]}', all_varchar = true) e
+JOIN read_csv('{SOURCES["annuaire_education"]}') a
   ON a.identifiant_de_l_etablissement = e.uai
 WHERE indice IS NOT NULL AND a.latitude IS NOT NULL
 """)
@@ -990,8 +978,7 @@ CREATE TABLE etudiants AS
 SELECT substr(geo_id, 3) AS code, any_value(geo_nom) AS nom,
        sum(effectif) FILTER (rentree = 2025) AS etudiants,
        coalesce(sum(effectif) FILTER (rentree = 2015), 0) AS etudiants_2015
-FROM read_csv('{export_ods("data.enseignementsup-recherche.gouv.fr", "fr-esr-atlas_regional-effectifs-d-etudiants-inscrits",
-                           where="niveau_geographique='Unité urbaine' AND regroupement='TOTAL' AND rentree IN ('2015', '2025')")}')
+FROM read_csv('{SOURCES["etudiants"]}')
 GROUP BY 1 HAVING etudiants > 0
 """)
 con.sql("""
@@ -1023,14 +1010,12 @@ l'exposition moyenne et forte, en comptant les secrets pour zéro. Chaque EPCI e
 commune la plus peuplée.
 
 ```{python}
-RGA_URL = "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/1a9ad5c2-0929-4687-8455-78aac6530a76/csv"
-
 con.sql(f"""
 CREATE TABLE argiles AS
 PIVOT (
     SELECT EPCI_CODE AS code, EPCI_LIBELLE AS nom, INDICATEUR_EXPOSITION AS indicateur,
            TRY_CAST(VALEUR_EXPOSITION AS DOUBLE) AS valeur
-    FROM read_csv('{RGA_URL}', delim = ';', all_varchar = true)
+    FROM read_csv('{SOURCES["rga"]}', delim = ';', all_varchar = true)
     WHERE INDICATEUR_EXPOSITION IN ('Maisons_indiv_exposees_RGA2', 'Maisons_indiv_exposees_RGA3')
 ) ON indicateur IN ('Maisons_indiv_exposees_RGA2' AS moyenne, 'Maisons_indiv_exposees_RGA3' AS forte)
 USING any_value(valeur)
@@ -1065,13 +1050,9 @@ vergers). Le fichier est un classeur ODS dans une archive zip. Chaque commune pr
 de l'usage le plus étendu, foncée si celui-ci couvre au moins la moitié de la SAU.
 
 ```{python}
-AGRESTE_URL = (
-    "https://agreste.agriculture.gouv.fr/agreste-web/download/publication/publie/"
-    "RA2020_1013/RA2020_1013_SAU_Communes.zip"
-)
 USAGES = ["Céréales et oléoprotéagineux", "Prairies", "Vignes et vergers"]
 
-with zipfile.ZipFile(telecharger(AGRESTE_URL, "agreste.zip")) as archive:
+with zipfile.ZipFile(telecharger(SOURCES["agreste"], "agreste.zip")) as archive:
     archive.extract("RA2020_1013_SAU_Communes.ods", TELECHARGEMENTS)
 surfaces = pd.read_excel(TELECHARGEMENTS / "RA2020_1013_SAU_Communes.ods",
                          sheet_name="RA2020_1013_SAU_Communes", engine="calamine", dtype={"CODE_COM": str})
@@ -1121,8 +1102,7 @@ TFPB_SEUILS = [30, 40, 50, 60]
 con.sql(f"""
 CREATE TABLE foncier AS
 SELECT insee_com AS code, taux_global_tfb AS taux
-FROM read_csv('{export_ods("data.economie.gouv.fr", "fiscalite-locale-des-particuliers",
-                           select="insee_com,taux_global_tfb", where='exercice="2025"')}', types = {{'insee_com': 'VARCHAR'}})
+FROM read_csv('{SOURCES["foncier"]}', types = {{'insee_com': 'VARCHAR'}})
 """)
 con.sql(f"CREATE TABLE classes_dgfip AS SELECT code, {classe_sql('taux', TFPB_SEUILS)} AS classe FROM foncier")
 dgfip = con.sql("""
@@ -1153,10 +1133,9 @@ valeur (en euros) et masse. Les départements suivent une codification propre : 
 pays non déterminés…).
 
 ```{python}
-DOUANE_URL = "https://www.douane.gouv.fr/sites/default/files/2026-10/07/202608-Regional-2023-export.zip"
 DEPARTEMENTS_DOUANE = {"20": ["2A", "2B"], "9A": ["971"], "9B": ["972"], "9C": ["973"], "9D": ["974"], "9E": ["976"]}
 
-with zipfile.ZipFile(telecharger(DOUANE_URL, "douane.zip")) as archive:
+with zipfile.ZipFile(telecharger(SOURCES["douane"], "douane.zip")) as archive:
     archive.extractall(TELECHARGEMENTS)
 dossier_douane = TELECHARGEMENTS / "Regional-2023-export"
 con.sql(f"""
@@ -1219,11 +1198,6 @@ musées, théâtres… On garde les cinémas, avec leur nombre d'écrans et de f
 label Art et essai.
 
 ```{python}
-BASILIC_URL = (
-    "https://static.data.gouv.fr/resources/base-des-lieux-et-equipements-culturels-basilic/"
-    "20260218-084338/base-des-lieux-et-des-equipements-culturels.csv"
-)
-
 con.sql(f"""
 CREATE TABLE cinemas AS
 SELECT Nom AS nom, libelle_geographique AS commune, "Département" AS departement,
@@ -1231,7 +1205,7 @@ SELECT Nom AS nom, libelle_geographique AS commune, "Département" AS departemen
        TRY_CAST(Nombre_fauteuils_de_cinema AS INTEGER) AS fauteuils,
        coalesce("Label et appellation" = 'Art et essai', false) AS art_essai,
        round(TRY_CAST(Longitude AS DOUBLE), 4) AS lon, round(TRY_CAST(Latitude AS DOUBLE), 4) AS lat
-FROM read_csv('{BASILIC_URL}', delim = ';', all_varchar = true)
+FROM read_csv('{SOURCES["basilic"]}', delim = ';', all_varchar = true)
 WHERE "Type équipement ou lieu" = 'Cinéma' AND lat IS NOT NULL
 """)
 deps = con.sql("""
@@ -1252,17 +1226,11 @@ olympiques ou non (codes inférieurs à 300), et pas les fédérations multispor
 mis à part.
 
 ```{python}
-CLUBS_URL = (
-    "https://static.data.gouv.fr/resources/donnees-geocodees-issues-du-recensement-des-licences-et-"
-    "clubs-aupres-des-federations-sportives-agreees-par-le-ministere-charge-des-sports/"
-    "20251229-163249/clubs-data-2023.csv"
-)
-
 con.sql(f"""
 CREATE TABLE clubs AS
 SELECT c.epci AS code, regexp_replace(k."Fédération", '^(FF|F) (de la |de l''|d''|du |des |de )?', '') AS sport,
        sum(TRY_CAST(k.Clubs AS INTEGER)) AS clubs
-FROM read_csv('{CLUBS_URL}', delim = ';', all_varchar = true) k
+FROM read_csv('{SOURCES["clubs"]}', delim = ';', all_varchar = true) k
 JOIN communes c ON c.code = k."Code Commune"
 WHERE k."Statut géo" = '1.Champ geoc' AND TRY_CAST(k.Code AS INTEGER) < 300 AND c.epci <> 'ZZZZZZZZZ'
 GROUP BY ALL
@@ -1314,15 +1282,10 @@ rendu de cette page ne peut pas télécharger le fichier. Une copie du fichier o
 versionnée avec le site, dans `jours/sources/` ; le code essaie d'abord l'URL officielle.
 
 ```{python}
-DARES_URL = (
-    "https://dares.travail-emploi.gouv.fr/sites/default/files/a4ef7ed6cced6fba8b492fec3933678c/"
-    "R%C3%A9partition%20territoriale%20-%20part%20du%20m%C3%A9tier%20dans%20l%27emploi%20d%C3%A9partemental"
-    "%20et%20r%C3%A9partition%20par%20d%C3%A9partement%20de%20l%27emploi%20du%20m%C3%A9tier.xlsx"
-)
 DARES_COPIE = pathlib.Path("sources/dares-portraits-metiers-repartition-departementale-2022.xlsx")
 
 try:
-    chemin_dares = telecharger(DARES_URL, "dares.xlsx", essais=1)
+    chemin_dares = telecharger(SOURCES["dares"], "dares.xlsx", essais=1)
 except (OSError, RuntimeError):
     chemin_dares = DARES_COPIE
     print(f"Site de la Dares inaccessible : lecture de la copie {DARES_COPIE}")
@@ -1372,12 +1335,7 @@ de détenus. La densité carcérale rapporte les détenus aux places. On additio
 de chaque établissement.
 
 ```{python}
-DETENUS_URL = (
-    "https://static.data.gouv.fr/resources/statistique-mensuelle-de-la-population-ecrouee-et-detenue-en-france/"
-    "20261013-162028/statistique-etablissements-01092026.xlsx"
-)
-
-classeur = telecharger(DETENUS_URL, "detenus.xlsx")
+classeur = telecharger(SOURCES["detenus"], "detenus.xlsx")
 quartiers = []
 for numero in range(14, 24):
     tableau = pd.read_excel(classeur, sheet_name=f"Tab{numero}", header=None, engine="calamine")
@@ -1391,7 +1349,7 @@ for colonne in ["places", "detenus"]:
     quartiers[colonne] = pd.to_numeric(quartiers[colonne].astype(str).str.replace(r"\s", "", regex=True),
                                        errors="coerce")  # « NC » : non communiqué
 etablissements = quartiers.groupby("etablissement", as_index=False)[["places", "detenus"]].sum()
-date_detenus = re.search(r"(\d{2})(\d{2})(\d{4})\.xlsx$", DETENUS_URL).groups()
+date_detenus = re.search(r"(\d{2})(\d{2})(\d{4})\.xlsx$", SOURCES["detenus"]).groups()
 len(etablissements), int(etablissements["detenus"].sum())
 ```
 
@@ -1405,12 +1363,11 @@ semi-liberté, établissements pour mineurs) restent hors de la carte.
 
 ```{python}
 TYPES = {"CP": "centre_penitentiaire", "MA": "maison_arret", "CD": "centre_detention", "MC": "maison_centrale"}
-filtre = " OR ".join(f'search("{t}")' for t in TYPES.values())
 annuaire = con.sql(f"""
 SELECT nom, json_extract_string("pivot", '$[0].type_service_local') AS type,
        json_extract_string(adresse, '$[0].latitude')::DOUBLE AS lat,
        json_extract_string(adresse, '$[0].longitude')::DOUBLE AS lon
-FROM read_json('https://api-lannuaire.service-public.fr/api/explore/v2.1/catalog/datasets/api-lannuaire-administration/exports/json?{urllib.parse.urlencode({"select": "nom,pivot,adresse", "where": filtre})}')
+FROM read_json('{SOURCES["annuaire"]}')
 """).df()
 annuaire = annuaire[annuaire["type"].isin(TYPES.values())]
 annuaire["lieu"] = annuaire["nom"].str.replace(
@@ -1466,7 +1423,6 @@ urbaine, solidarité rurale, nationale de péréquation), la dotation d'aménage
 et la dotation des communes nouvelles.
 
 ```{python}
-DGF_URL = "http://www.dotations-dgcl.interieur.gouv.fr/consultation/criteres_repartition_csv.php?annee=2026&ct=com"
 DGF_SEUILS = [100, 150, 200, 300, 450]
 COLONNES_DGF = {
     "code": ("Informations générales", "Code INSEE de la commune"),
@@ -1479,7 +1435,7 @@ COLONNES_DGF = {
     "nouvelles": ("Dotation en faveur des communes nouvelles", "Montant total réparti"),
 }
 
-criteres = pd.read_excel(telecharger(DGF_URL, "dgf.xlsx"), sheet_name="Critères de répartition",
+criteres = pd.read_excel(telecharger(SOURCES["dgf"], "dgf.xlsx"), sheet_name="Critères de répartition",
                          header=None, engine="calamine")
 rubriques = criteres.iloc[2].ffill().fillna("").astype(str).str.strip()
 intitules = criteres.iloc[3].fillna("").astype(str).str.strip()
@@ -1524,9 +1480,7 @@ départements n'y sont désignés que par leur nom, mêlés aux régions : on le
 noms de cartiflette.
 
 ```{python}
-DGAFP_URL = "https://www.fonction-publique.gouv.fr/files/files/publications/vue-rapport-annuel/ra_2025-caracteristiques_postes.zip"
-
-with zipfile.ZipFile(telecharger(DGAFP_URL, "dgafp.zip")) as archive:
+with zipfile.ZipFile(telecharger(SOURCES["dgafp"], "dgafp.zip")) as archive:
     archive.extract("ra2025_caracteristiques_postes_donnees_comp_FP.xlsx", TELECHARGEMENTS)
 classeur = TELECHARGEMENTS / "ra2025_caracteristiques_postes_donnees_comp_FP.xlsx"
 taux = pd.read_excel(classeur, sheet_name="Figure 4 loc", header=None, engine="calamine").iloc[3:, [0, 15]]
@@ -1558,16 +1512,10 @@ sont pas communiqués (`nc`). Les contours des pays viennent de
 lettres sert à la jointure.
 
 ```{python}
-DSED_URL = (
-    "https://static.data.gouv.fr/resources/stock-et-flux-des-titres-de-sejour-en-france-sur-lannee-2024/"
-    "20260821-131354/2024-sejour-flux-region-monde-nationalites.csv"
-)
-MONDE_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_110m_admin_0_countries.geojson"
-
 titres = con.sql(f"""
 SELECT code_iso3 AS iso3, pays_nationalite AS pays, region_monde_origine AS region,
        TRY_CAST(nb_titres AS INTEGER) AS titres
-FROM read_csv('{DSED_URL}', all_varchar = true)
+FROM read_csv('{SOURCES["dsed"]}', all_varchar = true)
 ORDER BY titres DESC NULLS LAST
 """).df()
 total_titres = int(titres.loc[titres["region"] == "TOTAL", "titres"].iloc[0])
@@ -1576,7 +1524,7 @@ monde = json.loads(con.sql(f"""
 SELECT ST_AsGeoJSON(ST_ReducePrecision(geom, 0.01)) AS geometrie,
        CASE WHEN ADM0_A3 = 'KOS' THEN 'XKX' WHEN ISO_A3_EH <> '-99' THEN ISO_A3_EH ELSE ADM0_A3 END AS iso3,
        NAME_FR AS nom
-FROM ST_Read('{telecharger(MONDE_URL, "monde.geojson", archive=False)}')
+FROM ST_Read('{telecharger(SOURCES["monde"], "monde.geojson", archive=False)}')
 WHERE ADM0_A3 <> 'ATA'
 """).df().pipe(lambda m: json.dumps({
     "type": "FeatureCollection",
@@ -1598,9 +1546,7 @@ total de la France métropolitaine, seule couverte par l'enquête ; la figure 3 
 visiteurs résidant à l'étranger.
 
 ```{python}
-ECODEF_URL = "https://static.data.gouv.fr/resources/ecodef-statistiques-ndeg-255/20241212-133351/donnes-ecodef-255.xlsx"
-
-classeur = telecharger(ECODEF_URL, "ecodef.xlsx")
+classeur = telecharger(SOURCES["ecodef"], "ecodef.xlsx")
 visites = pd.read_excel(classeur, sheet_name="Figure 2", header=None, engine="calamine").iloc[:, [0, 2]]
 etrangers = pd.read_excel(classeur, sheet_name="Figure 3", header=None, engine="calamine").iloc[:, [0, 2]]
 visites.columns, etrangers.columns = ["nom", "visites"], ["nom", "part_etrangers"]

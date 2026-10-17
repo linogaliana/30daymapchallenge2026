@@ -342,7 +342,6 @@ import json
 import pathlib
 import tempfile
 import time
-import urllib.parse
 
 import duckdb
 import pandas as pd
@@ -354,6 +353,11 @@ INSTALL spatial; LOAD spatial;
 SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
 SET enable_progress_bar = false
 """)
+```
+
+```{python}
+#| filename: "Les sources"
+{{< include _liens/21-openstreetmap.py >}}
 ```
 
 ### Six équipements, deux nomenclatures
@@ -414,16 +418,6 @@ les distances en mètres. La colonne `dens_lib` donne la densité de la commune.
 installations déclarées hors service.
 
 ```{python}
-COLONNES_RES = [
-    "equip_numero", "inst_nom", "equip_nom", "equip_type_code", "equip_nature",
-    "new_name", "dep_code_filled", "dens_lib", "equip_x", "equip_y", "inst_hs_bool",
-]
-RES_URL = (
-    "https://equipements.sports.gouv.fr/api/explore/v2.1/catalog/datasets/data-es/exports/parquet?"
-    + urllib.parse.urlencode({"select": ",".join(COLONNES_RES)})
-)
-
-
 def telecharger_parquet(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -447,7 +441,7 @@ codes_res = pd.DataFrame(
 )
 date_res = pd.Timestamp.now(tz="Europe/Paris").date().isoformat()
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger_parquet(RES_URL, f"{dossier}/res.parquet")
+    telecharger_parquet(SOURCES["res"], f"{dossier}/res.parquet")
     con.sql(f"""
     CREATE TABLE res_brut AS
     SELECT c.equipement, r.equip_numero AS numero, r.equip_type_code AS code, r.equip_nature AS nature,

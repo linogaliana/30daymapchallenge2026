@@ -369,6 +369,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/23-taste.py >}}
+```
+
 ### Les aires et leurs produits (INAO)
 
 L'INAO publie sur data.gouv.fr deux listes de communes : une pour les aires des appellations
@@ -379,14 +384,8 @@ fait le lien. Ces trois fichiers sont encodés en Windows-1252 (l'apostrophe typ
 `œ`), que DuckDB ne lit pas : ils passent par pandas.
 
 ```{python}
-DATAGOUV = "https://static.data.gouv.fr/resources/"
-FICHIERS_INAO = {
-    "communes_ao": "aires-geographiques-des-aoc-aop/20251009-122320/2025-10-09-comagri-communes-aires-ao.csv",
-    "communes_ig": "aire-geographique-des-igp-et-des-ig/20251009-122625/2025-10-09-comagri-communes-aires-ig.csv",
-    "produits": "aires-et-produits-aoc-aop-et-igp/20251009-122906/2025-03-10-comagri-aires-produits.csv",
-}
-for table, chemin in FICHIERS_INAO.items():
-    reponse = requests.get(DATAGOUV + chemin, timeout=600)
+for table in ["communes_ao", "communes_ig", "produits"]:
+    reponse = requests.get(SOURCES[table], timeout=600)
     reponse.raise_for_status()
     brut = pd.read_csv(io.BytesIO(reponse.content), sep=";", dtype=str, encoding="cp1252")
     con.sql(f"CREATE TABLE {table} AS SELECT * FROM brut")
@@ -411,13 +410,9 @@ regroupe le rouge, le blanc et le rosé d'un même vin), sa catégorie (« Pâte
 « Volaille ») et sa classe européenne (« Fromages », « Vins »).
 
 ```{python}
-REFERENTIEL_URL = (
-    DATAGOUV + "referentiel-des-produits-sous-signe-officiel-didentification-de-la-qualite-et-de-lorigine-siqo/"
-    "20251231-153733/2025-12-31-inao-ref-produit-siqo.csv"
-)
 con.sql(f"""
 CREATE TABLE referentiel AS
-SELECT * FROM read_csv('{REFERENTIEL_URL}', all_varchar = true)
+SELECT * FROM read_csv('{SOURCES["referentiel"]}', all_varchar = true)
 WHERE appellation NOT LIKE '---%'   -- les labels rouges et STG sans appellation
 """)
 ```
@@ -528,7 +523,6 @@ CARTIFLETTE_URL = (
     "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
     "vectorfile_format=parquet/simplification=50/raw.parquet"
 )
-COG_URL = "https://www.insee.fr/fr/statistiques/fichier/8740222/"
 
 con.sql(f"""
 CREATE TABLE communes AS
@@ -539,7 +533,7 @@ FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitionin
 con.sql(f"""
 CREATE TABLE mouvements AS
 SELECT DISTINCT COM_AV AS avant, COM_AP AS apres
-FROM read_csv('{COG_URL}v_mvt_commune_2026.csv', all_varchar = true)
+FROM read_csv('{SOURCES["cog_mouvements"]}', all_varchar = true)
 WHERE COM_AV <> COM_AP
 """)
 

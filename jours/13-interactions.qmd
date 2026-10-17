@@ -397,6 +397,11 @@ con = duckdb.connect()
 con.sql("INSTALL excel; LOAD excel; SET enable_progress_bar = false")
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/13-interactions.py >}}
+```
+
 ### La fréquentation des musées de France (ministère de la Culture)
 
 L'appellation « musée de France » est attribuée par l'État à quelque 1 200 musées, publics ou
@@ -414,11 +419,6 @@ celui de la base Muséofile, et celui des fichiers de fréquentation.
 On télécharge les trois fichiers par leur lien stable sur data.gouv.
 
 ```{python}
-FREQUENTATION_URL = "https://www.data.gouv.fr/fr/datasets/r/7708e380-e7f8-4b56-936a-5d2a262d852d"
-HISTORIQUE_URL = "https://www.data.gouv.fr/fr/datasets/r/4cf7f64a-a107-409b-afc9-06972425b1a5"
-LISTE_URL = "https://www.data.gouv.fr/fr/datasets/r/29406189-15e9-4f2f-9e9d-d18649762198"
-
-
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -446,9 +446,9 @@ def feuille(chemin, nom, colonne):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger(FREQUENTATION_URL, f"{dossier}/frequentation.csv")
-    telecharger(HISTORIQUE_URL, f"{dossier}/historique.xlsx")
-    telecharger(LISTE_URL, f"{dossier}/liste.csv")
+    telecharger(SOURCES["frequentation"], f"{dossier}/frequentation.csv")
+    telecharger(SOURCES["historique"], f"{dossier}/historique.xlsx")
+    telecharger(SOURCES["liste"], f"{dossier}/liste.csv")
     con.sql(f"""
     CREATE TABLE recent AS
     SELECT IDPatrimostat AS id, IDMuseofile AS museofile, nom_du_musee AS nom,

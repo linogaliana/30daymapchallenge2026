@@ -245,6 +245,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/04-clusters.py >}}
+```
+
 ### Les établissements (Sirene)
 
 Le [[répertoire Sirene]{.underline}](https://www.insee.fr/fr/metadonnees/source/serie/s1236) immatricule les entreprises et leurs établissements. Le fichier stock des établissements, publié chaque mois en Parquet, compte une ligne par établissement, ouvert ou fermé, avec
@@ -258,18 +263,13 @@ Le serveur de data.gouv.fr répond aux requêtes partielles : DuckDB ne lit que 
 ```{python}
 #| output: false
 #| filename: "Lecture des établissements (Sirene)"
-SIRENE_URL = (
-    "https://static.data.gouv.fr/resources/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/"
-    "20261001-073823/stock-stocketablissement-parquet.parquet"
-)
-
 con.sql(f"""
 CREATE TABLE etablissements AS
 SELECT siret, codeCommuneEtablissement AS code, activitePrincipaleEtablissement AS naf,
        trancheEffectifsEtablissement AS tranche,
        TRY_CAST(coordonneeLambertAbscisseEtablissement AS DOUBLE) AS x,
        TRY_CAST(coordonneeLambertOrdonneeEtablissement AS DOUBLE) AS y
-FROM read_parquet('{SIRENE_URL}')
+FROM read_parquet('{SOURCES["sirene"]}')
 WHERE etatAdministratifEtablissement = 'A'
   AND trancheEffectifsEtablissement NOT IN ('NN', '00')
 """)
@@ -305,11 +305,9 @@ Une [zone d'emploi](https://www.insee.fr/fr/metadonnees/definition/c1361) est un
 ```{python}
 #| output: false
 #| filename: "Lecture des noms des zones d'emploi"
-ZE_URL = "https://www.insee.fr/fr/statistiques/fichier/4652957/ZE2020_au_01-01-2026.zip"
-
 with tempfile.TemporaryDirectory() as dossier:
     archive = pathlib.Path(dossier) / "ze.zip"
-    reponse = requests.get(ZE_URL, timeout=120)
+    reponse = requests.get(SOURCES["ze"], timeout=120)
     reponse.raise_for_status()
     archive.write_bytes(reponse.content)
     with zipfile.ZipFile(archive) as z:

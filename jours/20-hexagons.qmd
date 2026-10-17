@@ -342,7 +342,6 @@ directement.
 import json
 import math
 import pathlib
-import urllib.parse
 
 import duckdb
 import pandas as pd
@@ -353,13 +352,11 @@ INSTALL spatial; LOAD spatial;
 SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude), ou (x, y)
 SET enable_progress_bar = false
 """)
+```
 
-
-def depp(jeu, **parametres):
-    return (
-        f"https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/{jeu}/exports/parquet?"
-        + urllib.parse.urlencode(parametres)
-    )
+```{python}
+#| filename: "Les sources"
+{{< include _liens/20-hexagons.py >}}
 ```
 
 ### L'indice de position sociale des écoles (DEPP)
@@ -374,8 +371,6 @@ CM2 en cinq ans : les autres (`NS`, non significatif) et les écoles maternelles
 fichier rappelle aussi l'IPS national du public et du privé sous contrat.
 
 ```{python}
-RENTREE = "2024-2025"
-
 con.sql(f"""
 CREATE TABLE ips AS
 SELECT uai, nom_de_l_etablissement AS nom, code_insee_de_la_commune AS commune,
@@ -383,7 +378,7 @@ SELECT uai, nom_de_l_etablissement AS nom, code_insee_de_la_commune AS commune,
        TRY_CAST(ips AS DOUBLE) AS ips,
        TRY_CAST(ips_national_public AS DOUBLE) AS ips_national_public,
        TRY_CAST(ips_national_prive AS DOUBLE) AS ips_national_prive
-FROM read_parquet('{depp("fr-en-ips-ecoles-ap2022", where=f"rentree_scolaire = '{RENTREE}'")}')
+FROM read_parquet('{SOURCES["ips"]}')
 WHERE code_du_departement < '97'
 """)
 con.sql("""
@@ -401,7 +396,7 @@ pondère chaque école par ses élèves d'élémentaire à la même rentrée.
 con.sql(f"""
 CREATE TABLE effectifs AS
 SELECT numero_ecole AS uai, nombre_eleves_elementaire_hors_ulis AS eleves
-FROM read_parquet('{depp("fr-en-ecoles-effectifs-nb_classes", where="rentree_scolaire = date'2024-01-01'")}')
+FROM read_parquet('{SOURCES["effectifs"]}')
 """)
 con.sql("SELECT count(*) AS ecoles, sum(eleves)::INTEGER AS eleves_elementaire FROM effectifs").df().style.hide(axis="index")
 ```
@@ -418,7 +413,7 @@ SELECT identifiant_de_l_etablissement AS uai,
        -- « Marseille  2e  Arrondissement » devient « Marseille 2e arrondissement »
        replace(regexp_replace(nom_commune, '\s+', ' ', 'g'), 'Arrondissement', 'arrondissement') AS nom_commune,
        replace(libelle_region, 'Ile-', 'Île-') AS region, longitude, latitude
-FROM read_parquet('{depp("fr-en-annuaire-education", select="identifiant_de_l_etablissement, nom_commune, libelle_region, longitude, latitude", where="type_etablissement = 'Ecole'")}')
+FROM read_parquet('{SOURCES["annuaire"]}')
 WHERE latitude IS NOT NULL
 """)
 con.sql("SELECT count(*) AS ecoles_localisees FROM annuaire").df().style.hide(axis="index")

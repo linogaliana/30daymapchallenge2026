@@ -210,6 +210,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/26-water.py >}}
+```
+
 ### Le produit de la taxe (DGFiP, REI 2025)
 
 Le recensement des éléments d'imposition (REI) détaille, pour chaque commune, les bases, les
@@ -226,11 +231,6 @@ On les additionne. Chaque ligne donne aussi l'intercommunalité qui lève la tax
 son nom (`Q03`). Le fichier est en Latin-1, avec des virgules décimales.
 
 ```{python}
-REI_URL = (
-    "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/"
-    "impots-locaux-fichier-de-recensement-des-elements-dimposition-a-la-fiscalite-dir/"
-    "attachments/rei_2025_fichier_notice_tracezip"
-)
 MONTANTS = {
     "foncier_bati": ["E53gGEMAPI"],
     "foncier_non_bati": ["B53gGEMAPI"],
@@ -245,7 +245,7 @@ def nombre(colonne):
 
 with tempfile.TemporaryDirectory() as dossier:
     archive = pathlib.Path(dossier) / "rei.zip"
-    reponse = requests.get(REI_URL, timeout=600)
+    reponse = requests.get(SOURCES["rei"], timeout=600)
     reponse.raise_for_status()
     archive.write_bytes(reponse.content)
     with zipfile.ZipFile(archive) as z:
@@ -280,14 +280,8 @@ Gemapi une année donnée si l'un de ses taux Gemapi (foncier bâti, non bâti, 
 pas nul. L'API permet de ne télécharger que ces colonnes.
 
 ```{python}
-HISTORIQUE_URL = (
-    "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/"
-    "fiscalite-locale-des-particuliers/exports/csv"
-)
-COLONNES_HISTORIQUE = {"select": "exercice,insee_com,b52ggemapi,e52ggemapi,h52ggemapi", "delimiter": ";"}
-
 with tempfile.TemporaryDirectory() as dossier:
-    reponse = requests.get(HISTORIQUE_URL, params=COLONNES_HISTORIQUE, timeout=600)
+    reponse = requests.get(SOURCES["historique"], timeout=600)
     reponse.raise_for_status()
     pathlib.Path(f"{dossier}/historique.csv").write_bytes(reponse.content)
     con.sql(f"""

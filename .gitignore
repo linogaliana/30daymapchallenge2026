@@ -4,6 +4,9 @@ jours/brouillons/
 .vscode/
 *_files/
 
+_site/
+site_libs*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

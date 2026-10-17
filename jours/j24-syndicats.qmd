@@ -249,6 +249,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/j24-syndicats.py >}}
+```
+
 ### Banatic (DGCL)
 
 Le site de Banatic produit chaque jour un export de tous les groupements de France, en Excel
@@ -257,9 +262,7 @@ dont une par compétence (`OUI` ou `NON`). On le lit avec
 [calamine](https://github.com/tafia/calamine), tout en texte.
 
 ```{python}
-BANATIC_URL = "https://www.banatic.interieur.gouv.fr/consultation/api/export/pregenere/telecharger/France"
-
-reponse = requests.get(BANATIC_URL, timeout=600)
+reponse = requests.get(SOURCES["banatic"], timeout=600)
 reponse.raise_for_status()
 banatic = pd.read_excel(io.BytesIO(reponse.content), dtype=str, engine="calamine").fillna("")
 con.register("banatic_brut", banatic)
@@ -284,11 +287,7 @@ Banatic désigne les communes par leur numéro SIREN. La DGCL publie la table de
 code Insee, encodée en Windows-1252.
 
 ```{python}
-CORRESPONDANCE_URL = (
-    "https://static.data.gouv.fr/resources/base-nationale-sur-les-intercommunalites/"
-    "20250312-083024/correspondance-code-commune-siren.csv"
-)
-reponse = requests.get(CORRESPONDANCE_URL, timeout=120)
+reponse = requests.get(SOURCES["correspondance"], timeout=120)
 reponse.raise_for_status()
 correspondance = pd.read_csv(io.BytesIO(reponse.content), sep=";", dtype=str, encoding="cp1252")
 correspondance.columns = ["code", "siren", "nom"]

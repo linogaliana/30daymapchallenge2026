@@ -381,6 +381,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/22-projections.py >}}
+```
+
 ### Les projections (Drees, ProMédI)
 
 Le modèle ProMédI de la Drees part des médecins en activité au 1^er^ janvier, recensés dans le
@@ -402,12 +407,6 @@ ligne par année, scénario, statut (médecins en activité, ou avec les interne
 région ; le tableau commence à la septième ligne, sous le titre et les notes.
 
 ```{python}
-PROJECTIONS_URL = (
-    "https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/datasets/"
-    "projections-des-effectifs-de-medecins/attachments/drees_projections_medecins_2026xlsx"
-)
-
-
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -432,7 +431,7 @@ que les médecins en activité, sans les internes.
 #| output: false
 with tempfile.TemporaryDirectory() as dossier:
     chemin = f"{dossier}/projections.xlsx"
-    telecharger(PROJECTIONS_URL, chemin)
+    telecharger(SOURCES["projections"], chemin)
     for feuille, colonne, mesure in [
         ("Effectif rég. par spé. ag. ", "Effectif", "effectif"),  # avec l'espace final
         ("Densité stand. rég. par spé. ag", "Densité standardisée", "densite"),

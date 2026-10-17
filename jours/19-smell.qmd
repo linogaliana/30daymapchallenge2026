@@ -243,6 +243,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/19-smell.py >}}
+```
+
 ### Les cheptels (Agreste, recensement agricole 2020)
 
 Le recensement agricole compte, dans chaque exploitation, les animaux présents au moment de
@@ -258,12 +263,6 @@ l'intercommunalité : une intercommunalité à cheval sur deux départements y a
 département.
 
 ```{python}
-CHEPTELS_URL = (
-    "https://agreste.agriculture.gouv.fr/agreste-web/download/publication/publie/"
-    "RA2020_2141_EPCI/FDS_RA2020_2141_EPCI.csv"
-)
-
-
 # Le serveur coupe parfois le téléchargement : requests le signale (la taille reçue ne
 # correspond pas à celle annoncée) et on recommence.
 def telecharger(url, chemin, essais=5):
@@ -279,7 +278,7 @@ def telecharger(url, chemin, essais=5):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger(CHEPTELS_URL, f"{dossier}/cheptels.csv")
+    telecharger(SOURCES["cheptels"], f"{dossier}/cheptels.csv")
     con.sql(f"""
     CREATE TABLE cheptels_bruts AS
     SELECT GEO AS code, DEP AS dep,
@@ -370,9 +369,8 @@ séparées, comme en 2020. Pour chaque commune, on retient donc son intercommuna
 fichier d'Agreste la connaît, celle de 2020 sinon.
 
 ```{python}
-def composition(annee, fichier):
-    url = f"https://www.insee.fr/fr/statistiques/fichier/2510634/{fichier}"
-    reponse = requests.get(url, timeout=600)
+def composition(annee):
+    reponse = requests.get(SOURCES[f"intercommunalites_{annee}"], timeout=600)
     reponse.raise_for_status()
     archive = zipfile.ZipFile(io.BytesIO(reponse.content))
     excel = archive.read(next(n for n in archive.namelist() if n.endswith(".xlsx")))
@@ -384,8 +382,8 @@ def composition(annee, fichier):
 
 
 compositions = pd.concat([
-    composition(2021, "Intercommunalite_Metropole_au_01-01-2021.zip"),
-    composition(2020, "Intercommunalite_Metropole_au_01-01-2020_v1.zip"),
+    composition(2021),
+    composition(2020),
 ])
 con.sql("""
 CREATE TABLE commune_epci AS

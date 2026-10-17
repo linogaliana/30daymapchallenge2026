@@ -10,6 +10,7 @@ Ne jamais faire `git commit` ni `git push`, sauf demande explicite. Ne pas non p
 
 - `jours/NN-theme.qmd` : une page par jour (`01-points.qmd`…). Le numéro en tête du nom de fichier est le jour : l'accueil s'en sert.
 - `index.qmd` + `_calendrier.ejs` : l'accueil, un listing Quarto des `jours/[0-9][0-9]-*.qmd` rendu en calendrier par semaine (J1 à J7, J8 à J14…). Les 30 thèmes officiels sont listés dans le gabarit. Un jour avec `image:` dans son en-tête s'affiche avec sa carte, un jour avec une page mais sans image est « en préparation », les autres sont « à venir ».
+- `jours/_liens/NN-theme.py` : le dict `SOURCES` d'une page (clé → URL officielle de chaque fichier lu), inclus dans la page par une cellule `{{< include _liens/NN-theme.py >}}` placée après la connexion DuckDB. Le `_` empêche Quarto d'en faire des pages.
 - `jours/vignettes/NN-theme.webp` : captures de la première carte de chaque page, faites par `scripts/vignettes.py` sur le site rendu (Playwright). Versionnées.
 - `_quarto.yml` : la barre de navigation range les jours par semaine (« Semaine 1 · J1 à J7 ») ; ajouter un menu par semaine.
 - Filtres Lua (`_quarto.yml`) : `en-cours.lua` (avertissement « en cours de rédaction » avant le jour J), `approche.lua` (encadré repliable « La démarche de ce site » en tête de chaque jour, texte dans `_approche.md`), `charte.lua` (charte de couleur d'une page et souligné coloré, voir plus bas).
@@ -29,6 +30,7 @@ Ne jamais faire `git commit` ni `git push`, sauf demande explicite. Ne pas non p
 - Fonds de carte : le package Python [`cartiflette`](https://inseefrlab.github.io/cartiflette/), `carti_download(..., engine="duckdb", con=con)`, qui renvoie une relation DuckDB non évaluée, utilisable dans `con.sql` par son nom de variable (voir J1). Le filtre `where=` évite de tout lire.
 - DuckDB : `LOAD spatial` puis `SET geometry_always_xy = true` (coordonnées en longitude, latitude).
 - Les sources sont téléchargées au rendu depuis leur URL officielle : pas de fichier de données ajouté à la main dans le dépôt.
+  Les URL ne sont pas écrites dans la page mais dans `jours/_liens/NN-theme.py`, une entrée par fichier (gabarits déroulés, filtres d'export compris : `urllib.parse.urlencode` dans le `.py`), et le code les lit par `SOURCES["cle"]`. Restent dans la page les API interrogées élément par élément (géocodage, isochrones, pages WFS, Overpass) et les fonds cartiflette, déjà sur le S3 du SSP Cloud.
   Récupération des données en Python : toujours `requests` (`requests.get`, `params=`, `raise_for_status`, `.content`/`.json()`, `stream=True` pour les gros fichiers), jamais `urllib.request` (`urlopen`, `urlretrieve`, `Request`, contextes SSL…). `requests` vérifie les certificats avec `certifi`, ce qui évite les erreurs de certificat du magasin Windows (Agreste, Douanes). Si DuckDB lit lui-même une URL et bute sur un certificat sous Windows : `SET ca_cert_file = '{certifi.where()}'` (voir J25).
   Seule exception : `jours/sources/`, pour les fichiers que le rendu ne peut pas télécharger (le site de la Dares est derrière un pare-feu à captcha, lu par J10). Le code essaie toujours l'URL officielle d'abord.
 

@@ -246,6 +246,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/17-light-dark.py >}}
+```
+
 ### Les navettes (Insee, recensement 2023)
 
 Les deux fichiers ont une ligne par personne recensée, avec sa commune de résidence (`COMMUNE`,
@@ -260,10 +265,6 @@ fichiers à distance. On les télécharge (67 et 24 Mo) en vérifiant qu'ils son
 garde, pour chaque personne, d'où elle part, où elle va et son poids.
 
 ```{python}
-MOBPRO_URL = "https://www.insee.fr/fr/statistiques/fichier/9004795/RP2023_mobpro.parquet"
-MOBSCO_URL = "https://www.insee.fr/fr/statistiques/fichier/9004793/RP2023_mobsco.parquet"
-
-
 # Le serveur coupe parfois le téléchargement sans erreur, et n'envoie pas la
 # taille : un fichier Parquet complet finit par « PAR1 ».
 def telecharger(url, chemin, essais=5):
@@ -285,8 +286,8 @@ def telecharger(url, chemin, essais=5):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    telecharger(MOBPRO_URL, f"{dossier}/mobpro.parquet")
-    telecharger(MOBSCO_URL, f"{dossier}/mobsco.parquet")
+    telecharger(SOURCES["mobpro"], f"{dossier}/mobpro.parquet")
+    telecharger(SOURCES["mobsco"], f"{dossier}/mobsco.parquet")
     con.sql(f"""
     CREATE TABLE deplacements AS
     SELECT 'travail' AS motif,

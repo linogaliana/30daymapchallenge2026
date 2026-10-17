@@ -238,6 +238,11 @@ SET enable_progress_bar = false
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/03-polygons.py >}}
+```
+
 ### Les parcelles (RPG)
 
 Le [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) recense les parcelles que les agriculteurs déclarent chaque année pour toucher les aides de la politique agricole commune (PAC). L'IGN le diffuse sous une forme anonymisée : un polygone par parcelle et sa culture principale, sans l'exploitation.
@@ -247,12 +252,10 @@ On part d'un extrait au format GeoParquet, limité au Pas-de-Calais, préparé p
 ```{python}
 #| output: false
 #| filename: "Lecture des parcelles (RPG)"
-RPG_URL = "https://minio.lab.sspcloud.fr/lgaliana/data/geodata-days/rpg_pac_2024_62_comm_v11.parquet"
-
 con.sql(f"""
 CREATE TABLE parcelles AS
 SELECT code_cultu, code_group::INTEGER AS groupe, area / 10000 AS surface_ha, geom
-FROM read_parquet('{RPG_URL}')
+FROM read_parquet('{SOURCES["rpg"]}')
 """)
 ```
 
@@ -287,13 +290,9 @@ Le RPG ne donne qu'un code de trois lettres par culture (`BTH` pour le blé tend
 ```{python}
 #| output: false
 #| filename: "Lecture de la nomenclature des cultures"
-NOMENCLATURE_URL = (
-    "https://raw.githubusercontent.com/linogaliana/geodatadays-atelier-parquet/main/code_culture_2026.xlsx"
-)
-
 con.sql(f"""
 CREATE TABLE cultures AS
-SELECT code_culture, nom_culture FROM read_xlsx('{NOMENCLATURE_URL}')
+SELECT code_culture, nom_culture FROM read_xlsx('{SOURCES["nomenclature"]}')
 """)
 ```
 

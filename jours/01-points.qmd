@@ -400,6 +400,11 @@ SET geometry_always_xy = true  -- coordonnées en (longitude, latitude)
 """)
 ```
 
+```{python}
+#| filename: "Les sources"
+{{< include _liens/01-points.py >}}
+```
+
 ### La liste des maternités (DREES)
 
 La DREES publie la [[liste des maternités de France depuis 2000]{.underline color="#ce614a"}](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) sur son portail de données [data.drees/](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/). En l'occurrence, ces données sont issues de la **statistique annuelle des établissements de santé (SAE)**. 
@@ -435,17 +440,12 @@ empilées les unes sur les autres.
 
 ```{python}
 #| filename: "Requête de lecture des maternités (DREES)"
-MATERNITES_URL = (
-    "https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/"
-    "datasets/fichier_maternites_112021/attachments/fichier_maternites_122025_mad_xlsx"
-)
-
 requete_maternites = "CREATE TABLE maternites AS\n" + "\nUNION ALL BY NAME\n".join(
     f"""SELECT {annee} AS annee, NOM_MAT, TYPE, STATUT,
        lpad(FI_ET, 9, '0') AS FI_ET,  -- zéro initial perdu en 2022
        COM, NOMCOM, ADRESSE,
        TRY_CAST(ACCTOT AS INTEGER) AS ACCTOT
-FROM read_xlsx('{MATERNITES_URL}', sheet = 'Maternités_{annee}',
+FROM read_xlsx('{SOURCES["maternites"]}', sheet = 'Maternités_{annee}',
                header = true, all_varchar = true, range = 'A6:N2000')
 WHERE FI_ET IS NOT NULL"""
     for annee in ANNEES
@@ -472,7 +472,7 @@ con.sql(requete_maternites)
 
 # Tableau de synthèse : une ligne d'années, puis le nombre de maternités.
 lignes = con.sql(f"""
-FROM read_xlsx('{MATERNITES_URL}', sheet = 'Tableau de synthèse', header = false,
+FROM read_xlsx('{SOURCES["maternites"]}', sheet = 'Tableau de synthèse', header = false,
                all_varchar = true, stop_at_empty = false, range = 'B6:Z7')
 """).fetchall()
 synthese = {int(a): int(n) for a, n in zip(*lignes) if a and n}
@@ -501,11 +501,6 @@ On va avoir besoin de deux jeux de données :
 
 ```{python}
 #| filename: "Requête de lecture du FINESS géolocalisé"
-FINESS_URL = (
-    "https://static.data.gouv.fr/resources/finess-extraction-du-fichier-des-etablissements/"
-    "20260512-091152/etalab-cs1100507-stock-20260512-0339.csv"
-)
-
 # Le CSV mêle deux types de lignes : "structureet" (l'établissement) et
 # "geolocalisation" (ses coordonnées), avec le système de coordonnées en clair.
 requete_finess = f"""CREATE TABLE finess AS
@@ -514,7 +509,7 @@ WITH geo AS (
            TRY_CAST(column02 AS DOUBLE) AS x,
            TRY_CAST(column03 AS DOUBLE) AS y,
            regexp_extract(column04, 'EPSG:[0-9]+') AS epsg
-    FROM read_csv('{FINESS_URL}', sep = ';', header = false, skip = 1,
+    FROM read_csv('{SOURCES["finess"]}', sep = ';', header = false, skip = 1,
                   all_varchar = true, null_padding = true, strict_mode = false)
     WHERE column00 = 'geolocalisation' AND column01 IN (SELECT FI_ET FROM maternites)
 )
@@ -575,16 +570,11 @@ Inputs.table(finess_apercu, {
 
 ```{python}
 #| filename: "Requête de lecture du flux FINESS de l'ANS"
-FINESS_ANS_URL = (
-    "https://static.data.gouv.fr/resources/finess-structures-1/"
-    "20261001-021940/finess-structures-mensuel-202609.json.gz"
-)
-
 # Personnes morales (pmej) > établissements géographiques (ege) > adresses.
 requete_finess_ans = f"""CREATE TABLE finess_ans AS
 WITH pm AS (
     SELECT unnest(pmej) AS p
-    FROM read_json('{FINESS_ANS_URL}', columns = {{'pmej': 'JSON[]'}},
+    FROM read_json('{SOURCES["finess_ans"]}', columns = {{'pmej': 'JSON[]'}},
                    maximum_object_size = 2000000000)
 ),
 ege AS (SELECT unnest(from_json(p -> '$.ege', '["JSON"]')) AS e FROM pm),
