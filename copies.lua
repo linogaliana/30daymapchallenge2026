@@ -1,5 +1,5 @@
 -- Ajoute aux pages de jour qui lisent des fichiers (celles qui ont un jours/_liens/NN-theme.py)
--- un encadré d'avertissement repliable, sous celui de la démarche : les données sont lues sur
+-- un encadré d'avertissement repliable, sous le titre « Making of » : les données sont lues sur
 -- leur copie du SSP Cloud, et non à leur adresse officielle. Son texte est dans _copies.md, à la
 -- racine du projet.
 
@@ -25,11 +25,19 @@ function Pandoc(doc)
 
   local encadre = quarto.Callout({
     type = "warning",
-    title = "Les données lues sur le SSP Cloud",
+    title = "Pourquoi la lecture des données depuis le SSP Cloud ?",
     collapse = true,
     content = pandoc.read(texte, "markdown").blocks
   })
-  -- Juste après l'encadré de la démarche, qu'approche.lua place en tête de page.
-  doc.blocks:insert(math.min(2, #doc.blocks + 1), encadre)
+  -- Juste sous le titre « Making of », ou à défaut sous « Les données », qui ouvre la partie
+  -- technique des pages sans ce titre.
+  for _, titre in ipairs({"Making of", "Les données"}) do
+    for i, bloc in ipairs(doc.blocks) do
+      if bloc.t == "Header" and pandoc.utils.stringify(bloc) == titre then
+        doc.blocks:insert(i + 1, encadre)
+        return doc
+      end
+    end
+  end
   return doc
 end
