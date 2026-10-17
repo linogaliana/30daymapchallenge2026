@@ -1278,8 +1278,9 @@ territoriale donne, pour chaque métier et département, l'emploi et sa part dan
 département.
 
 Le site de la Dares refuse les requêtes automatiques (un pare-feu y demande un captcha) : le
-rendu de cette page ne peut pas télécharger le fichier. Une copie du fichier officiel est donc
-versionnée avec le site, dans `jours/sources/` ; le code essaie d'abord l'URL officielle.
+rendu de cette page ne peut pas télécharger le fichier. Comme les autres sources, il est lu sur
+sa copie du SSP Cloud ; une autre copie est versionnée avec le site, dans `jours/sources/`, au
+cas où.
 
 ```{python}
 DARES_COPIE = pathlib.Path("sources/dares-portraits-metiers-repartition-departementale-2022.xlsx")

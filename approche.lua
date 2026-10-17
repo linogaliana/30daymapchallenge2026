@@ -12,7 +12,7 @@ local function icones(texte)
 end
 
 function Pandoc(doc)
-  local fichier = quarto.doc.input_file or ""
+  local fichier = (quarto.doc.input_file or ""):gsub("\\", "/")  -- chemins Windows
   if not fichier:match("jours/%d%d%-[^/]*%.qmd$") then
     return doc
   end

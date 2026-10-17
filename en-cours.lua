@@ -6,7 +6,7 @@
 local annee = 2026
 
 function Pandoc(doc)
-  local fichier = quarto.doc.input_file or ""
+  local fichier = (quarto.doc.input_file or ""):gsub("\\", "/")  -- chemins Windows
   local numero = fichier:match("jours/(%d%d)%-[^/]*%.qmd$")
   if not numero then
     return doc

@@ -65,6 +65,7 @@ format:
     filters:
       - en-cours.lua
       - approche.lua
+      - copies.lua
       - charte.lua
     toc: true
     author: Lino Galiana

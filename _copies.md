@@ -1,0 +1,3 @@
+Pour réaliser les 30 jours du challenge, on utilise plus de 70 sources de la statistique publique, dont de nombreuses proviennent de [data.gouv.fr](https://www.data.gouv.fr/). Autant de téléchargements peuvent provoquer des blocages temporaires, qui brident la pleine reproductibilité du site.
+
+Pour cette raison, les données sont copiées et lues sur le système de stockage *cloud* du [SSP Cloud](https://datalab.sspcloud.fr/). Les URL initiales des données sont mises à disposition de manière systématique pour permettre de répliquer l'analyse : elles sont en commentaire dans la cellule « Les sources » de chaque page, au-dessus de chaque copie.

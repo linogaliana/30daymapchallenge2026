@@ -442,8 +442,8 @@ les préfectures et mis à jour plusieurs fois par an. Chaque élu y figure avec
 naissance, sa catégorie socioprofessionnelle (déclarée par l'élu) et les dates de début de son
 mandat et de sa fonction.
 
-On télécharge chaque fichier par son lien stable sur data.gouv, qui renvoie vers la dernière
-version. Ce sont des CSV séparés par des points-virgules.
+On lit la version du 11 août 2026 de chaque fichier. Ce sont des CSV séparés par des
+points-virgules.
 
 ```{python}
 def telecharger(url, chemin, essais=5):
@@ -453,7 +453,7 @@ def telecharger(url, chemin, essais=5):
                 reponse.raise_for_status()
                 for bloc in reponse.iter_content(chunk_size=1 << 20):
                     f.write(bloc)
-            return reponse.url  # l'adresse finale, qui date la version
+            return
         except OSError:
             if essai == essais - 1:
                 raise
@@ -472,22 +472,16 @@ def lire_elus(chemin, colonnes=""):
 
 
 with tempfile.TemporaryDirectory() as dossier:
-    url_maires = telecharger(SOURCES["maires"], f"{dossier}/maires.csv")
+    telecharger(SOURCES["maires"], f"{dossier}/maires.csv")
     telecharger(SOURCES["conseillers"], f"{dossier}/conseillers.csv")
     con.sql(f"CREATE TABLE maires AS {lire_elus(f'{dossier}/maires.csv')}")
     fonction = '\n           "Libellé de la fonction" AS fonction,'
     con.sql(f"CREATE TABLE conseillers AS {lire_elus(f'{dossier}/conseillers.csv', fonction)}")
-url_maires
 ```
-
-La date de la version se lit dans l'adresse finale du fichier (`AAAAMMJJ-hhmmss`).
 
 ```{python}
 #| output: false
-import re
-
-aaaa, mm, jj = re.search(r"/(\d{4})(\d{2})(\d{2})-\d{6}/", url_maires).groups()
-extraction = f"version du {int(jj)}/{mm}/{aaaa}"
+extraction = "version du 11/08/2026"  # la date de la version, dans son adresse officielle
 ```
 
 Un maire par commune, et aucune valeur manquante pour le sexe, l'âge et la profession :
