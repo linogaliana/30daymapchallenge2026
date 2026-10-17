@@ -199,7 +199,7 @@ viewof sens = Inputs.radio(new Map([["Se remplissent le jour", "gain"], ["Se vid
       Plot.dot(ecarts, {x: "habitants", y: "nom", r: 5, fill: couleurNuit}),
       Plot.dot(ecarts, {x: "jour", y: "nom", r: 5, fill: couleurJour}),
       Plot.tip(ecarts, Plot.pointerY({
-        x: "jour", y: "nom",
+        x: "jour", y: "nom", fill: sombre ? "#222" : "#fff",
         channels: {"La nuit": (d) => entier(d.habitants), "Le jour": (d) => entier(d.jour)},
         format: {x: false, y: false}
       }))

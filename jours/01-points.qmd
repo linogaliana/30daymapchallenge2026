@@ -11,7 +11,9 @@ charte:
   sombre: "#3fc1c9"
 ---
 
-Comme tout commence par la naissance 👶, pour la première journée du [*30 day map challenge*](https://30daymapchallenge.com/), on va représenter la localisation des [maternités françaises en 2024]{.underline} et [celles qui ont fermé depuis 2000]{.underline color="#ce614a"}. 
+Comme tout commence par la naissance 👶, pour la première journée du [*30 day map challenge*](https://30daymapchallenge.com/) sur le thème [**"Points"**]{.underline color="#0A5927"}, on va représenter la localisation des [maternités françaises en 2024]{.underline} et [celles qui ont fermé depuis 2000]{.underline color="#ce614a"}. 
+
+-------------------------------
 
 ::: {.content-visible when-format="html"}
 
@@ -717,6 +719,8 @@ ojs_define(bouches_du_rhone={
 Plot.plot({
   projection: {type: "reflect-y", domain: bouches_du_rhone},
   height: 480,
+  // Fond des bulles assorti au thème (blanc par défaut, illisible en sombre).
+  style: `--plot-background: ${sombre ? "#222" : "#fff"}; background: transparent`,
   marks: [
     Plot.geo(bouches_du_rhone.features.filter((d) => !d.properties.arrondissement), {
       stroke: "currentColor", strokeOpacity: 0.45, strokeWidth: 0.6

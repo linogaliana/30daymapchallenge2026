@@ -11,7 +11,6 @@ charte:
   sombre: "#7cc0e8"
 ---
 
-Après la naissance, le travail 🚗. Pour la deuxième journée du [*30 day map challenge*](https://30daymapchallenge.com/), on trace les [trajets domicile-travail]{.underline} entre [bassins de vie]{.underline color="#c8553d"}, d'après le recensement de 2023.
 
 ::: {.content-visible when-format="html"}
 
@@ -86,6 +85,7 @@ Plot.plot({
     }),
     Plot.tip(visibles, Plot.pointer(Plot.geoCentroid({
       geometry: "geometrie",
+      fill: sombre ? "#222" : "#fff",
       channels: {
         "De": "nom_origine",
         "Vers": "nom_destination",
@@ -277,10 +277,8 @@ Comme pour le J1, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/)
 #| output: false
 #| filename: "Configuration de l'environnement"
 import json
-import tempfile
 
 import duckdb
-import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -306,43 +304,15 @@ L'Insee diffuse le [[fichier détail des mobilités professionnelles]{.underline
 
 La [documentation](https://www.insee.fr/fr/information/2383243) décrit toutes les variables.
 
-Le fichier est publié en Parquet, mais le serveur de l'Insee ne répond pas aux requêtes partielles : DuckDB ne peut pas le lire à distance. On le télécharge une fois (67 Mo) en vérifiant qu'il est complet.
-
-```{python}
-#| output: false
-#| filename: "Fonction de téléchargement"
-# Le serveur coupe parfois le téléchargement sans erreur, et n'envoie pas la
-# taille : un fichier Parquet complet finit par « PAR1 ».
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
-                reponse.raise_for_status()
-                for bloc in reponse.iter_content(chunk_size=1 << 20):
-                    f.write(bloc)
-        except OSError:
-            if essai == essais - 1:
-                raise
-            continue
-        with open(chemin, "rb") as f:
-            f.seek(-4, 2)
-            if f.read() == b"PAR1":
-                return
-    raise RuntimeError(f"téléchargement incomplet : {url}")
-```
-
-On ne garde en mémoire que les cinq colonnes utiles ; le fichier téléchargé est effacé ensuite.
+Le fichier est publié en Parquet : DuckDB le lit directement à son adresse, en ne gardant que les cinq colonnes utiles.
 
 ```{python}
 #| output: false
 #| filename: "Lecture des navettes (Insee)"
-with tempfile.TemporaryDirectory() as dossier:
-    chemin = f"{dossier}/mobpro.parquet"
-    telecharger(SOURCES["mobpro"], chemin)
-    con.sql(f"""
-    CREATE TABLE mobpro AS
-    SELECT COMMUNE, ARM, DCLT, TRANS, IPONDI FROM read_parquet('{chemin}')
-    """)
+con.sql(f"""
+CREATE TABLE mobpro AS
+SELECT COMMUNE, ARM, DCLT, TRANS, IPONDI FROM read_parquet('{SOURCES["mobpro"]}')
+""")
 ```
 
 ::: {.content-visible when-format="html"}
@@ -401,9 +371,13 @@ Inputs.table(modes_transport, {
 
 ### Les communes et les bassins de vie avec `cartiflette`
 
-Le recensement de 2023 est diffusé dans la géographie communale 2026, celle des contours 2026 du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/). Chaque commune (chaque arrondissement à Paris, Lyon et Marseille) y porte son [bassin de vie](https://www.insee.fr/fr/metadonnees/definition/c2060) 2022 (`BV2022`), le plus petit territoire où les habitants ont accès aux équipements et services courants.
+Le recensement de 2023 est diffusé dans la géographie de référence en 2026 (le [code officiel géographique](https://www.insee.fr/fr/information/8740222)). Le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) faciltie la récupération des contours officiels de communes. Chaque commune (chaque arrondissement à Paris, Lyon et Marseille) y porte son [bassin de vie](https://www.insee.fr/fr/metadonnees/definition/c2060) 2022 (`BV2022`), le plus petit territoire où les habitants ont accès aux équipements et services courants.
 
-On lit trois niveaux : les communes et arrondissements (le niveau du recensement), les communes entières (pour les communes-pôles) et les bassins de vie eux-mêmes (pour le fond de carte).
+On lit trois niveaux : 
+
+* les communes et arrondissements (le niveau du recensement), 
+* les communes entières (pour les communes-pôles) 
+* et les bassins de vie eux-mêmes (pour le fond de carte).
 
 ```{python}
 #| filename: "Lecture des communes et des bassins de vie (cartiflette)"
@@ -424,7 +398,7 @@ communes_entieres = carti_download(borders="COMMUNE", **parametres)
 bassins_vie = carti_download(borders="BASSIN_VIE", **parametres)
 ```
 
-Comme au J1, ces relations DuckDB ne sont pas encore lues : on s'en sert dans `con.sql` par leur nom de variable. Le code d'un bassin de vie est celui de sa commune-pôle : elle lui donne son nom, et les arcs partent de son centre.
+Le code d'un bassin de vie est celui de sa commune-pôle : elle lui donne son nom, et les arcs partent de son centre.
 
 ```{python}
 #| output: false
@@ -446,11 +420,10 @@ WHERE INSEE_COM IN (SELECT bv FROM communes)
 """)
 ```
 
-Les contours des bassins de vie ne servent que de fond : on les simplifie encore et on arrondit les coordonnées pour alléger la page.
-
 ```{python}
 #| output: false
 #| filename: "Contours des bassins de vie"
+#| echo: false
 contours = {
     "type": "FeatureCollection",
     "features": [
@@ -490,7 +463,7 @@ GROUP BY ALL
 
 ### Garder les liaisons importantes
 
-La carte ne montre que les liaisons d'au moins 100 navetteurs (`SEUIL`) entre deux bassins de vie différents. Comme le recommande l'Insee, les flux de moins de 200 personnes, estimés à partir d'un échantillon, sont des ordres de grandeur.
+La carte ne montre que les liaisons d'au moins 100 navetteurs (`SEUIL`) entre deux bassins de vie différents. De la sorte, on évite la variabilité inhérente aux petits échantillons. 
 
 ```{python}
 #| output: false
@@ -531,13 +504,18 @@ def nombre(x):
 
 actifs_millions = f"{actifs / 1e6:.1f}".replace(".", ",")
 hors_carte_milliers = nombre((actifs - bilan.localises) / 1e3)
+nbre_liaisons = nombre(bilan.liaisons)
 ```
 
-Sur les **`{python} actifs_millions`** millions d'actifs ayant un emploi, **`{python} hors_carte_milliers`** milliers travaillent à l'étranger ou dans une collectivité d'outre-mer et ne sont pas sur la carte. Les **`{python} nombre(bilan.liaisons)`** liaisons gardées regroupent **`{python} round(100 * bilan.gardes / bilan.sortants)` %** des navetteurs qui changent de bassin de vie.
+Sur les **`{python} actifs_millions`** millions d'actifs ayant un emploi, **`{python} hors_carte_milliers`** milliers travaillent à l'étranger ou dans une collectivité d'outre-mer et ne sont pas sur la carte. Les **`{python} nbre_liaisons`** liaisons gardées regroupent **`{python} round(100 * bilan.gardes / bilan.sortants)` %** des navetteurs qui changent de bassin de vie.
 
 ### Résumer chaque bassin de vie
 
-Pour chaque bassin de vie : ceux qui y vivent et y travaillent, ceux qui viennent d'ailleurs y travailler (la taille des cercles), ceux qui en partent.
+Pour chaque bassin de vie : on va créer les différentes catégories de flux: 
+
+* ceux qui y vivent et y travaillent,
+* ceux qui viennent d'ailleurs y travailler (la taille des cercles), 
+* ceux qui en partent.
 
 ```{python}
 #| output: false
@@ -633,18 +611,12 @@ DOM.download(
 
 :::
 
-## Précautions
-
-- Le recensement retient le lieu de travail habituel déclaré, pas un trajet quotidien : un actif qui travaille à Paris deux jours par semaine depuis Lyon compte comme un navetteur Lyon-Paris.
-- Les flux de moins de 200 personnes sont des ordres de grandeur.
-- Une anomalie du recensement 2023 attribue à Maxey-sur-Vaise (Meuse) des emplois du quartier de Vaise, à Lyon ([Insee](https://www.insee.fr/fr/statistiques/8998300)).
-
 ## Références {.unnumbered}
 
 ::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
-- Insee Première n° 1835, janvier 2021, [« La voiture reste majoritaire pour les déplacements domicile-travail, même pour de courtes distances »](https://www.insee.fr/fr/statistiques/5013868).
-- Insee Première n° 1605, [« De plus en plus de personnes travaillent en dehors de leur commune de résidence »](https://www.insee.fr/fr/statistiques/2019022).
 - Insee, [Mobilités professionnelles en 2023 : déplacements domicile - lieu de travail](https://www.insee.fr/fr/statistiques/8998300) (flux agrégés par commune).
+- Insee, [Mode de transport pour aller travailler selon la catégorie socioprofessionnelle - Données annuelles 2023](https://www.insee.fr/fr/statistiques/5430829)
+- Insee, [Tableau de bord de l'économie française ; Mobilités - Déplacements](https://www.insee.fr/fr/outil-interactif/5367857/tableau/80_AMN/84_MOB)
 :::

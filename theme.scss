@@ -78,6 +78,16 @@ div.sourceCode {
   border-radius: 0.375rem;
 }
 
+// Code dans les titres : Quarto ne fonce le fond du code en ligne que dans les
+// paragraphes, listes et tableaux ; ailleurs, darkly garde un fond clair sous un
+// texte clair. Un fond pris sur la couleur du texte vaut pour les deux thèmes.
+h1, h2, h3, h4, h5, h6 {
+  code:not(.sourceCode) {
+    background-color: rgba($body-color, 0.1);
+    color: inherit;
+  }
+}
+
 // Titre des blocs (`#| filename:`), collé au bloc.
 .code-with-filename {
   margin: 1.5rem 0;

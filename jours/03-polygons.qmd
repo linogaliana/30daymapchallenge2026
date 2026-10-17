@@ -13,7 +13,7 @@ charte:
   sombre: "#5fbf5f"
 ---
 
-Après la naissance et le travail, ce qu'on mange 🌾. Pour la troisième journée du [*30 day map challenge*](https://30daymapchallenge.com/), on dessine les [parcelles agricoles]{.underline} du Pas-de-Calais, de la [betterave]{.underline color="#6250d6"} au [blé]{.underline color="#eda100"}, et ce qu'en garde une carte à la commune.
+Pour la troisième journée du [*30 day map challenge*](https://30daymapchallenge.com/), on dessine les [parcelles agricoles]{.underline} du Pas-de-Calais, de la [betterave]{.underline color="#6250d6"} au [blé]{.underline color="#eda100"}, et ce qu'en garde une carte à la commune.
 
 ::: {.content-visible when-format="html"}
 

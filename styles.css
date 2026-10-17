@@ -62,8 +62,10 @@ a[download] button:hover {
   min-width: 3em;
 }
 
-/* Bulles de la carte lisibles dans les deux thèmes */
-.maplibregl-popup-content {
+/* Bulles de la carte lisibles dans les deux thèmes. La feuille de MapLibre est
+   ajoutée par la page après celle-ci : il faut un sélecteur plus précis que le
+   sien pour que le fond ne reste pas blanc. */
+.maplibregl-popup .maplibregl-popup-content {
   background: var(--bs-body-bg);
   color: var(--bs-body-color);
 }

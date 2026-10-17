@@ -230,7 +230,7 @@ toutes les communes ont une gare à moins de 5 km.
       }),
       Plot.ruleX([0]),
       Plot.tip(premiers, Plot.pointerY({
-        x: (d) => 100 * d.part_loin, y: "departement",
+        x: (d) => 100 * d.part_loin, y: "departement", fill: fond,
         channels: {
           "Habitants à 10 km ou plus": (d) => entier(d.habitants_loin),
           "Distance moyenne": (d) => `${virgule(d.km_moyen)} km`
