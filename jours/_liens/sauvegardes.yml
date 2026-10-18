@@ -11,6 +11,8 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/rpg_pac_2024_62_comm_v11.parquet
 - source: https://raw.githubusercontent.com/linogaliana/geodatadays-atelier-parquet/main/code_culture_2026.xlsx
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/code_culture_2026.xlsx
+- source: https://agreste.agriculture.gouv.fr/agreste-web/download/publication/publie/RA2020_1013/RA2020_1013_SAU_Communes.zip
+  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/RA2020_1013_SAU_Communes.zip
 - source: https://static.data.gouv.fr/resources/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/20261001-073823/stock-stocketablissement-parquet.parquet
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/stock-stocketablissement-parquet.parquet
 - source: https://www.insee.fr/fr/statistiques/fichier/4652957/ZE2020_au_01-01-2026.zip
@@ -39,8 +41,6 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/etudiants.csv
 - source: https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/1a9ad5c2-0929-4687-8455-78aac6530a76/csv
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/rga.csv
-- source: https://agreste.agriculture.gouv.fr/agreste-web/download/publication/publie/RA2020_1013/RA2020_1013_SAU_Communes.zip
-  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/RA2020_1013_SAU_Communes.zip
 - source: https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/fiscalite-locale-des-particuliers/exports/csv?delimiter=%3B&select=insee_com%2Ctaux_global_tfb&where=exercice%3D%222025%22
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/foncier.csv
 - source: https://www.douane.gouv.fr/sites/default/files/2026-10/07/202608-Regional-2023-export.zip

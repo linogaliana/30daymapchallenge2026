@@ -5,4 +5,6 @@ SOURCES = {
     "rpg": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/rpg_pac_2024_62_comm_v11.parquet",
     # https://raw.githubusercontent.com/linogaliana/geodatadays-atelier-parquet/main/code_culture_2026.xlsx
     "nomenclature": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/code_culture_2026.xlsx",
+    # https://agreste.agriculture.gouv.fr/agreste-web/download/publication/publie/RA2020_1013/RA2020_1013_SAU_Communes.zip
+    "agreste": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/RA2020_1013_SAU_Communes.zip",
 }

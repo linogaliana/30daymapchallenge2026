@@ -81,6 +81,10 @@ a[download] button:hover {
   gap: 1.5em;
 }
 
+.duo + .duo {
+  margin-top: 1.5em;
+}
+
 .duo svg {
   max-width: 100%;
   height: auto;

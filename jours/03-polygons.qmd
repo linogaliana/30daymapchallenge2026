@@ -13,7 +13,9 @@ charte:
   sombre: "#5fbf5f"
 ---
 
-Pour la troisième journée du [*30 day map challenge*](https://30daymapchallenge.com/), on dessine les [parcelles agricoles]{.underline} du Pas-de-Calais, de la [betterave]{.underline color="#6250d6"} au [blé]{.underline color="#eda100"}, et ce qu'en garde une carte à la commune.
+Pour la troisième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Polygons"**]{.underline color="#0A5927"}), on dessine les [parcelles agricoles]{.underline} du Pas-de-Calais, de la [betterave]{.underline color="#6250d6"} au [blé]{.underline color="#eda100"}, et ce qu'en garde une carte à la commune. Tout cela grâce au [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) de l'[IGN]{.underline color="#0A5927"}, tiré des déclarations des agriculteurs pour les aides de la politique agricole commune (PAC), et au [recensement agricole]{.underline} produit par le [SSM Agriculture (SSP)]{.underline color="#0A5927"} (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
 
 ::: {.content-visible when-format="html"}
 
@@ -26,7 +28,8 @@ html`<p class="lead">
   soit ${Math.round(total).toLocaleString("fr-FR")} hectares :
   ${familles.slice(0, 3).map((f, i) => `<span class="souligne" style="--souligne: ${couleurs[i]}">${f.nom.toLowerCase()}</span> pour ${pourcent(partDepartement[f.cle])}`).join(", ")}.
   À la commune, on ne voit que la culture qui domine ; à la parcelle, la mosaïque des champs
-  réapparaît. Choisissez une commune dans la liste ou cliquez sur la carte du département.
+  réapparaît. Le recensement agricole, en dessous, rattache les mêmes terres au siège des exploitations.
+  Choisissez une commune dans la liste ou cliquez sur l'une des cartes du département.
 </p>`
 ```
 
@@ -68,22 +71,16 @@ carteDepartement = {
         stroke: fond, strokeWidth: 0.3
       }),
       Plot.geo(commune, {stroke: "currentColor", strokeWidth: 2}),
+      survol,
       Plot.tip(communes.features, Plot.pointer(Plot.centroid({
+        fill: fond,
         title: ({properties: p}) => p.surface
           ? `${p.nom}\n${p.parcelles.toLocaleString("fr-FR")} parcelles, ${hectares(p.surface)}\n${composition(p)}`
           : `${p.nom}\nAucune parcelle déclarée`
       })))
     ]
   })
-  // Un clic sur une commune la choisit dans la liste.
-  plot.addEventListener("click", () => {
-    if (!plot.value) return
-    const liste = viewof code
-    liste.value = plot.value.properties.commune
-    liste.dispatchEvent(new Event("input", {bubbles: true}))
-  })
-  plot.style.cursor = "pointer"
-  return plot
+  return choisirAuClic(plot)
 }
 
 carteCommune = Plot.plot({
@@ -97,19 +94,99 @@ carteCommune = Plot.plot({
     Plot.geo(parcelles, {fill: (f) => f.properties.famille, stroke: fond, strokeWidth: 0.5}),
     Plot.geo(commune, {stroke: "currentColor", strokeWidth: 1.5}),
     Plot.tip(parcelles.features, Plot.pointer(Plot.centroid({
+      fill: fond,
       title: ({properties: p}) => `${p.culture}\n${p.famille}\n${hectares(p.surface)}`
     })))
   ]
 })
 
-html`<div class="duo">${carteDepartement}${carteCommune}</div>`
+carteAgreste = choisirAuClic(Plot.plot({
+  title: "Le recensement agricole 2020, à la commune du siège des exploitations",
+  width: 560,
+  style: stylePlot,
+  projection: {type: "mercator", domain: communes},
+  color: echelleRA,
+  marks: [
+    Plot.geo(communes, {fill: "currentColor", fillOpacity: 0.05, stroke: fond, strokeWidth: 0.3}),
+    Plot.geo(communes, {
+      filter: (f) => f.properties.ra_dominante,
+      fill: (f) => f.properties.ra_dominante,
+      stroke: fond, strokeWidth: 0.3
+    }),
+    Plot.geo(commune, {stroke: "currentColor", strokeWidth: 2}),
+    survol,
+    Plot.tip(communes.features, Plot.pointer(Plot.centroid({
+      fill: fond,
+      title: ({properties: p}) => p.ra_dominante
+        ? `${p.nom}\n${hectares(p.sau)} de SAU pour ses exploitations\n${compositionRA(p)}`
+        : `${p.nom}\nAucune exploitation n'y a son siège`
+    })))
+  ]
+}))
+
+html`<div class="duo">${carteDepartement}${carteCommune}</div>
+<div class="duo"><div>${Plot.legend({color: echelleRA})}${carteAgreste}</div>${encartAgreste}</div>`
+```
+
+```{ojs}
+//| echo: false
+// Le survol d'une commune sur une carte du département la surligne sur l'autre.
+{
+  const cartes = [carteDepartement, carteAgreste]
+  const surligner = (f) => {
+    const i = f ? communes.features.indexOf(f) : -1
+    for (const carte of cartes) {
+      d3.select(carte).selectAll('g[stroke-opacity="0"] path').attr("stroke-opacity", (_, j) => (j === i ? 1 : 0))
+    }
+  }
+  for (const carte of cartes) carte.addEventListener("input", () => surligner(carte.value))
+}
+```
+
+```{ojs}
+//| echo: false
+// La commune choisie vue par les deux sources.
+encartAgreste = {
+  const p = commune.properties
+  const parcelles = p.surface
+    ? `le registre parcellaire situe <strong>${hectares(p.surface)}</strong> de parcelles déclarées en 2024 sur son territoire`
+    : `le registre parcellaire n'y situe aucune parcelle déclarée en 2024`
+  const siege = p.ra_dominante
+    ? `les exploitations qui y ont leur siège cultivaient <strong>${hectares(p.sau)}</strong> en 2020, ici ou ailleurs : ${
+        famillesRA.map((nom, i) => `<span style="color:${textes[i]}">${nom.toLowerCase()}</span> ${pourcent(p[clesRA[i]] / p.sau)}`).join(", ")}`
+    : `aucune exploitation n'y avait son siège en 2020`
+  return html`<div style="align-self: center; font-size: 1.05em">
+    <p>À <strong>${p.nom}</strong>, ${parcelles} ;
+    ${siege}.</p>
+    <p class="text-muted" style="font-size: 0.9em">Les deux cartes ne disent pas la même chose :
+    le registre parcellaire place la terre là où elle est, le recensement là où l'exploitation a son siège.</p>
+  </div>`
+}
+```
+
+```{ojs}
+//| echo: false
+// Un clic sur une commune la choisit dans la liste.
+function choisirAuClic(plot) {
+  plot.addEventListener("click", () => {
+    if (!plot.value) return
+    const liste = viewof code
+    liste.value = plot.value.properties.commune
+    liste.dispatchEvent(new Event("input", {bubbles: true}))
+  })
+  plot.style.cursor = "pointer"
+  return plot
+}
+// Contours de toutes les communes, invisibles (seul calque en stroke-opacity="0") :
+// le survol en allume un.
+survol = Plot.geo(communes, {fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeOpacity: 0})
 ```
 
 :::
 
 :::
 
-<small>Source : IGN, [registre parcellaire graphique 2024](https://geoservices.ign.fr/rpg), d'après les déclarations PAC (ASP) ; ministère de l'Agriculture, nomenclature des cultures ; IGN, ADMIN EXPRESS COG CARTO 2024, via cartiflette.</small>
+<small>Source : IGN, [registre parcellaire graphique 2024](https://geoservices.ign.fr/rpg), d'après les déclarations PAC (ASP) ; ministère de l'Agriculture, nomenclature des cultures ; SSP (Agreste), [recensement agricole 2020](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/) ; IGN, ADMIN EXPRESS COG CARTO 2024, via cartiflette.</small>
 
 ::: {.content-visible when-format="html"}
 
@@ -151,7 +228,7 @@ html`<div class="duo">${carteDepartement}${carteCommune}</div>`
         fill: "white", fontWeight: 600, fontSize: 12
       })),
       Plot.tip(lignes, Plot.pointerX(Plot.stackX({
-        y: "territoire", x: "part", z: "famille",
+        y: "territoire", x: "part", z: "famille", fill: fond,
         title: (d) => `${d.territoire}\n${d.famille} : ${pourcent(d.part)}`
       })))
     ]
@@ -183,6 +260,10 @@ textes = sombre
   : ["#b07800", "#6250d6", "#008300", "#777"]
 texteFamille = (nom) => textes[familles.findIndex((f) => f.nom === nom)]
 echelle = ({type: "ordinal", domain: familles.map((f) => f.nom), range: couleurs})
+// Les usages du recensement agricole, dans les teintes des familles les plus proches.
+famillesRA = ["Céréales et oléoprotéagineux", "Autres cultures", "Prairies"]
+clesRA = ["ra_cereales", "ra_autres", "ra_prairies"]
+echelleRA = ({type: "ordinal", domain: famillesRA, range: couleurs.slice(0, 3)})
 pourcent = (x) => `${Math.round(100 * x)} %`
 hectares = (x) => `${x.toLocaleString("fr-FR", {maximumFractionDigits: x < 10 ? 1 : 0})} ha`
 
@@ -198,36 +279,48 @@ function composition(p) {
     .map((f) => `${f.nom} : ${pourcent(p[f.cle] / p.surface)}`)
     .join("\n")
 }
+
+function compositionRA(p) {
+  return famillesRA.map((nom, i) => `${nom} : ${pourcent(p[clesRA[i]] / p.sau)}`).join("\n")
+}
 ```
 
 :::
 
-La carte de gauche est celle qu'on voit le plus souvent : une couleur par commune, celle de la culture qui y occupe le plus de place. Elle oppose l'ouest du département, où dominent les prairies autour de Boulogne et de Montreuil, aux plaines de céréales et de betteraves du sud et de l'est. La carte de droite montre ce que cette couleur unique cache : presque partout, céréales, betteraves, pommes de terre et prairies se côtoient, parcelle contre parcelle.
+----------------------------
 
-**On s'appuie pour le J3 sur [le registre parcellaire graphique de l'[IGN](https://www.ign.fr/)]{.underline}**, tiré des déclarations des agriculteurs pour les aides de la politique agricole commune (voir @tip-pour-aller-plus-loin pour aller plus loin).
+La carte de gauche correspond aux parcelles dominantes par commune. Elle oppose l'ouest du département, où dominent les prairies autour de Boulogne et de Montreuil, aux plaines de céréales et aux exploitations de betteraves du sud et de l'est. La carte de droite montre ce que cette couleur unique cache : presque partout, céréales, betteraves, pommes de terre et prairies se côtoient, parcelle contre parcelle.
+
+La carte du bas vient du recensement agricole 2020 : elle range toute la surface de chaque exploitation dans la commune de son siège. Elle est presque toute jaune : le recensement range le colza et les pois avec les céréales, et cet ensemble l'emporte dans la plupart des communes ; les prairies ne dominent plus que dans une partie de l'ouest. Sur le département, les deux sources trouvent à peu près la même surface, mais d'une commune à l'autre l'écart atteint souvent plusieurs centaines d'hectares, selon que les agriculteurs du village cultivent chez eux ou chez leurs voisins. Survoler une commune sur l'une des cartes la surligne sur l'autre.
+
 
 # Making of
 
 ## Les données
 
-La carte croise trois sources publiques :
+La carte croise quatre sources publiques :
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Registre parcellaire graphique (RPG) 2024](https://geoservices.ign.fr/rpg), extrait du Pas-de-Calais | IGN, à partir des déclarations PAC (ASP) | le contour et la culture de chaque parcelle | GeoParquet |
-| [Nomenclature des cultures de la PAC](https://github.com/linogaliana/geodatadays-atelier-parquet/blob/main/code_culture_2026.xlsx) | Ministère de l'Agriculture | le libellé de chaque code culture | Excel |
-| [Communes 2024](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | la commune de chaque parcelle | GeoParquet |
+| [Registre parcellaire graphique (RPG) 2024](https://geoservices.ign.fr/rpg), extrait du Pas-de-Calais | IGN, à partir des déclarations PAC (ASP) | le contour et la culture de chaque parcelle | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Nomenclature des cultures de la PAC](https://github.com/linogaliana/geodatadays-atelier-parquet/blob/main/code_culture_2026.xlsx) | Ministère de l'Agriculture | le libellé de chaque code culture | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Communes 2024](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | la commune de chaque parcelle | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Recensement agricole 2020, SAU par commune](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/) | SSP (Agreste) | la surface et les grands usages des exploitations, par commune du siège | {{< iconify vscode-icons file-type-libreoffice-calc >}} ODS (zip) |
 
-Comme pour les jours précédents, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) pour les étapes de travail de données.
+Comme pour le J1 et le J2, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
 #| filename: "Configuration de l'environnement"
+import io
 import itertools
 import json
 import pathlib
+import zipfile
 
 import duckdb
+import pandas as pd
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -243,15 +336,22 @@ SET enable_progress_bar = false
 {{< include _liens/03-polygons.py >}}
 ```
 
-### Les parcelles (RPG)
+### Les parcelles (IGN, registre parcellaire graphique 2024)
 
 Le [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) recense les parcelles que les agriculteurs déclarent chaque année pour toucher les aides de la politique agricole commune (PAC). L'IGN le diffuse sous une forme anonymisée : un polygone par parcelle et sa culture principale, sans l'exploitation.
 
-On part d'un extrait au format GeoParquet, limité au Pas-de-Calais, préparé pour l'[atelier GeoDataDays sur le format Parquet](https://github.com/linogaliana/geodatadays-atelier-parquet). Les polygones sont en Lambert 93 (EPSG:2154), en mètres.
+On part d'un extrait limité au Pas-de-Calais, préparé pour ma[présentation aux *GeoDataDays* sur le format Parquet](https://github.com/linogaliana/geodatadays-atelier-parquet). On a une ligne par parcelle, avec
+
+- sa culture principale, en code (`code_cultu`) ;
+- le groupe de cultures de l'IGN (`code_group`), de `1` (blé tendre) à `28` (divers) ;
+- sa surface (`area`), en mètres carrés ;
+- son contour (`geom`), en Lambert 93 (EPSG:2154), donc en mètres.
+
+Le fichier est en {{< iconify vscode-icons file-type-parquet >}} `GeoParquet` ([documentation du RPG](https://geoservices.ign.fr/documentation/donnees/vecteur/rpg)) : {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` le lit directement à son adresse, en ne gardant que ces quatre colonnes.
 
 ```{python}
 #| output: false
-#| filename: "Lecture des parcelles (RPG)"
+#| filename: "Lecture des parcelles (IGN)"
 con.sql(f"""
 CREATE TABLE parcelles AS
 SELECT code_cultu, code_group::INTEGER AS groupe, area / 10000 AS surface_ha, geom
@@ -283,13 +383,13 @@ Inputs.table(parcelles_apercu, {
 
 :::
 
-### Les libellés des cultures
+### Les libellés des cultures (ministère de l'Agriculture)
 
-Le RPG ne donne qu'un code de trois lettres par culture (`BTH` pour le blé tendre d'hiver, `BTN` pour la betterave non fourragère…). La nomenclature des cultures de la PAC donne leur libellé.
+Le RPG ne donne qu'un code de trois lettres par culture (`BTH` pour le blé tendre d'hiver, `BTN` pour la betterave non fourragère…). La nomenclature des cultures de la PAC, un classeur {{< iconify vscode-icons file-type-excel >}} `Excel`, donne leur libellé : l'extension `excel` de DuckDB le lit à son adresse.
 
 ```{python}
 #| output: false
-#| filename: "Lecture de la nomenclature des cultures"
+#| filename: "Lecture de la nomenclature des cultures (ministère de l'Agriculture)"
 con.sql(f"""
 CREATE TABLE cultures AS
 SELECT code_culture, nom_culture FROM read_xlsx('{SOURCES["nomenclature"]}')
@@ -355,11 +455,40 @@ FROM communes_62
 """)
 ```
 
+### Les exploitations (Agreste, recensement agricole 2020)
+
+Le [[recensement agricole 2020]{.underline}](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/) du service statistique du ministère de l'Agriculture (Agreste) interroge toutes les exploitations. Il publie, par commune, la surface agricole utilisée (SAU) et trois grands usages : céréales et oléoprotéagineux, prairies, cultures permanentes (vignes et vergers). Mais la commune est celle du **siège de l'exploitation**, pas celle des champs : c'est l'autre façon de mettre l'agriculture sur une carte.
+
+Le fichier est un classeur {{< iconify vscode-icons file-type-libreoffice-calc >}} `ODS` dans une archive zip, que DuckDB ne sait pas lire : on le télécharge avec `requests` et on l'ouvre avec `pandas`, sans l'écrire sur le disque. On garde, pour les communes du département (`CODE_DEP`) :
+
+- le code de la commune (`CODE_COM`) ;
+- la SAU des exploitations qui y ont leur siège, en hectares ;
+- ses surfaces en céréales et oléoprotéagineux, et en prairies.
+
+```{python}
+#| output: false
+#| filename: "Lecture du recensement agricole (Agreste)"
+reponse = requests.get(SOURCES["agreste"], timeout=300)
+reponse.raise_for_status()
+with zipfile.ZipFile(io.BytesIO(reponse.content)) as archive:
+    classeur = io.BytesIO(archive.read("RA2020_1013_SAU_Communes.ods"))
+sau_communes = pd.read_excel(
+    classeur, sheet_name="RA2020_1013_SAU_Communes", engine="calamine",
+    dtype={"CODE_COM": str, "CODE_DEP": str},
+)
+# Les intitulés des colonnes de surface sont longs : on les prend par leur position.
+sau_62 = (
+    sau_communes[sau_communes["CODE_DEP"] == "62"]
+    .iloc[:, [0, 6, 7, 8]]
+    .set_axis(["commune", "sau", "cereales", "prairies"], axis=1)
+)
+```
+
 ## Les traitements
 
 ### Regrouper les cultures en trois familles
 
-L'IGN classe les cultures en 28 groupes (blé tendre, maïs, orge, colza, prairies permanentes…). Une carte ne distingue bien que quelques couleurs : on les regroupe en trois familles, plus une catégorie « Autres » (jachères, vergers, divers). Le maïs ensilage, récolté pour nourrir le bétail, rejoint les fourrages ; le maïs grain reste une céréale.
+Le RPG classe les cultures en 28 groupes (blé tendre, maïs, orge, colza, prairies permanentes…). Une carte ne distingue bien que quelques couleurs : on les regroupe en trois familles, plus une catégorie "Autres" (jachères, vergers, divers). Le maïs ensilage, récolté pour nourrir le bétail, rejoint les fourrages ; le maïs grain reste une céréale.
 
 ```{python}
 #| output: false
@@ -441,7 +570,16 @@ hors_communes = (
 )
 ```
 
-Seules **`{python} hors_communes`** parcelles ne tombent dans aucune commune du département et sont laissées de côté.
+```{python}
+#| echo: false
+from IPython.display import Markdown
+
+
+def nombre(x):
+    """Entier avec l'espace des milliers, à la française. En Markdown : en ligne
+    (`{python}`), une chaîne serait montrée par son repr, qui code cette espace fine."""
+    return Markdown(f"{x:,.0f}".replace(",", " "))
+```
 
 ### Écrire un fichier par commune
 
@@ -508,6 +646,45 @@ GROUP BY ALL
 """)
 ```
 
+### Harmoniser avec le recensement agricole
+
+Chaque commune prend l'usage le plus étendu dans la surface agricole utilisée. On regrouope les céréales et oléoprotéagineux, les prairies et le reste.
+
+```{python}
+#| output: false
+#| filename: "Usage dominant des exploitations de chaque commune"
+con.sql("""
+CREATE TABLE recensement AS
+WITH s AS (
+    SELECT commune, sau, cereales AS ra_cereales, prairies AS ra_prairies,
+           greatest(sau - cereales - prairies, 0) AS ra_autres
+    FROM sau_62
+)
+SELECT *,
+       CASE WHEN sau = 0 THEN NULL
+            WHEN ra_cereales >= greatest(ra_prairies, ra_autres) THEN 'Céréales et oléoprotéagineux'
+            WHEN ra_autres >= ra_prairies THEN 'Autres cultures'
+            ELSE 'Prairies' END AS ra_dominante
+FROM s
+""")
+
+sans_siege = con.sql("""
+SELECT count(*) FROM communes
+WHERE commune NOT IN (SELECT commune FROM recensement WHERE sau > 0)
+""").fetchone()[0]
+
+# Les deux sources sur tout le département : surface des parcelles et SAU des sièges.
+surface_rpg, sau_recensement = con.sql("""
+SELECT (SELECT sum(surface_ha) FROM parcelles_communes), (SELECT sum(sau) FROM recensement)
+""").fetchone()
+```
+
+**`{python} nombre(sans_siege)`** communes du département n'ont le siège d'aucune exploitation : elles restent en gris sur la carte du recensement.
+
+Sur tout le département, les deux sources trouvent presque la même surface : **`{python} nombre(surface_rpg)`** hectares de parcelles déclarées en 2024 dans le RPG, **`{python} nombre(sau_recensement)`** hectares de SAU pour les exploitations qui y avaient leur siège en 2020. Au niveau communal, les écarts s'expliquent par la différence entre le lieu des champs et celui du siège.
+
+### Les contours des communes
+
 Les contours des communes sont simplifiés ensemble (`ST_CoverageSimplify`, environ 80 m) : ils restent jointifs, sans trou ni chevauchement, et la carte du département reste légère.
 
 ```{python}
@@ -525,7 +702,12 @@ SELECT codes[path[1]] AS commune,
 FROM morceaux GROUP BY ALL
 """)
 
-resultat = con.sql("SELECT r.*, c.geojson FROM resume r JOIN contours c USING (commune)")
+resultat = con.sql("""
+SELECT r.*, a.* EXCLUDE (commune), c.geojson
+FROM resume r
+LEFT JOIN recensement a USING (commune)
+JOIN contours c USING (commune)
+""")
 communes = {
     "type": "FeatureCollection",
     "features": [
@@ -555,7 +737,7 @@ ojs_define(
 
 ## Les données de la carte
 
-Lorsqu'on fait toutes ces étapes, on obtient pour chaque commune ses parcelles, sa surface déclarée et la part de chaque famille. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+Après toutes ces étapes, on obtient pour chaque commune ses parcelles, sa surface déclarée, la part de chaque famille et la SAU de ses exploitations au recensement. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
 
 <br>
 
@@ -571,6 +753,8 @@ tableau = communes.features.map(({properties: p}) => ({
   parcelles: p.parcelles,
   surface: p.surface,
   dominante: p.dominante,
+  sau: p.sau,
+  ra_dominante: p.ra_dominante,
   ...Object.fromEntries(familles.map((f) => [f.cle, p.surface ? p[f.cle] / p.surface : null]))
 }))
 viewof recherche = Inputs.search(tableau, {
@@ -582,15 +766,18 @@ viewof recherche = Inputs.search(tableau, {
 ```{ojs}
 //| echo: false
 Inputs.table(recherche, {
-  columns: ["commune", "parcelles", "surface", "dominante", ...familles.map((f) => f.cle)],
+  columns: ["commune", "parcelles", "surface", "dominante", ...familles.map((f) => f.cle), "sau", "ra_dominante"],
   header: {
     commune: "Commune", parcelles: "Parcelles", surface: "Surface (ha)", dominante: "Famille dominante",
-    ...Object.fromEntries(familles.map((f) => [f.cle, f.nom]))
+    ...Object.fromEntries(familles.map((f) => [f.cle, f.nom])),
+    sau: "SAU des sièges, 2020 (ha)", ra_dominante: "Usage dominant, 2020"
   },
   format: {
     parcelles: (x) => x.toLocaleString("fr-FR"),
     surface: (x) => Math.round(x).toLocaleString("fr-FR"),
-    ...Object.fromEntries(familles.map((f) => [f.cle, (x) => (x === null ? "" : pourcent(x))]))
+    ...Object.fromEntries(familles.map((f) => [f.cle, (x) => (x === null ? "" : pourcent(x))])),
+    sau: (x) => (x == null ? "" : Math.round(x).toLocaleString("fr-FR")),
+    ra_dominante: (x) => x ?? ""
   },
   sort: "surface",
   reverse: true,
@@ -611,12 +798,17 @@ DOM.download(
 
 :::
 
-## Précautions
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - Le RPG ne contient que les parcelles déclarées à la PAC : les surfaces des exploitations qui ne demandent pas d'aide (certains maraîchers, de petites exploitations) n'y figurent pas.
 - Chaque parcelle n'a qu'une culture, la principale de la campagne 2024 : les cultures dérobées ou successives n'apparaissent pas.
 - Les trois familles sont un regroupement fait pour cette carte, pas une nomenclature officielle.
-- La couleur d'une commune est sa famille la plus étendue, même si elle n'occupe qu'un tiers des surfaces : c'est précisément ce que la carte à la parcelle permet de nuancer.
+- La couleur d'une commune est sa famille la plus étendue, même si elle n'occupe qu'un tiers des surfaces : c'est l'inconvénient d'une carte choroplèthe et ce que, précisément, la carte à la parcelle permet de nuancer.
+- Le recensement agricole et le RPG ne mesurent pas la même chose : le premier rattache toute la SAU d'une exploitation à la commune de son siège, même si ses champs sont dans les communes voisines ; le second place chaque parcelle là où elle est. Ils ne portent pas non plus sur la même année (2020 et 2024).
+- Les "autres cultures" du recensement sont un reste (SAU auquel on a retranché les céréales, oléoprotéagineux et prairies) : betteraves, pommes de terre, légumes, fourrages annuels comme le maïs ensilage, jachères, cultures permanentes. Elles ne correspondent pas exactement aux familles de la carte du RPG.
+:::
+
 
 ## Références {.unnumbered}
 
@@ -624,5 +816,6 @@ DOM.download(
 ## Pour aller plus loin
 
 - IGN, [registre parcellaire graphique](https://geoservices.ign.fr/rpg) : les données de toute la France, depuis 2007, et leur documentation (codes et groupes de cultures).
-- [Atelier GeoDataDays sur le format Parquet](https://github.com/linogaliana/geodatadays-atelier-parquet) : interroger le RPG avec DuckDB, directement dans le navigateur.
+- [Viz'Agreste](https://vizagreste.agriculture.gouv.fr/#/bienvenue) : une *dataviz* user-friendly pour explorer les résultats issus du recensement agricole. La carte pour le Nord est, par exemple, [ici](https://vizagreste.agriculture.gouv.fr/#/indicateur/59/2020). 
+- ["Quel apport des formats optimisés *cloud*, présentation aux *Geodata days*"](https://linogaliana.github.io/geodatadays-atelier-parquet/#/title-slide) : interroger le RPG avec DuckDB, directement dans le navigateur.
 :::
