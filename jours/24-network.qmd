@@ -595,8 +595,8 @@ DOM.download(
 
 ## Pour aller plus loin
 
-- [J2 · Lines](02-lines.qmd) : les navettes domicile-travail, vues comme des flux entre bassins
-  de vie.
+- [J2 · Lines](02-lines.qmd) : les navettes domicile-travail, vues comme des flux entre zones
+  d'emploi.
 - [J17 · Light & dark](17-light-dark.qmd) : la population de chaque commune le jour et la nuit.
 - Autorité de régulation des transports, [Le marché français du transport ferroviaire de voyageurs](https://www.autorite-transports.fr/observatoire-des-transports/)
   (bilans annuels).

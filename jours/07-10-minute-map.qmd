@@ -625,9 +625,13 @@ GROUP BY ALL
 
 ```{python}
 #| echo: false
+from IPython.display import Markdown
+
+
 def nombre(x):
-    """Entier avec l'espace des milliers, à la française."""
-    return f"{x:,.0f}".replace(",", " ")
+    """Entier avec l'espace des milliers, à la française. En Markdown : en ligne
+    (`{python}`), une chaîne serait montrée par son repr, qui code cette espace fine."""
+    return Markdown(f"{x:,.0f}".replace(",", " "))
 
 
 nb_equipements = con.sql("SELECT count(*) FROM equipements").fetchone()[0]

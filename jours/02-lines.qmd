@@ -1,6 +1,6 @@
 ---
 title: "J2 · Lines. Les navettes domicile-travail"
-description: "Les flux de navetteurs entre bassins de vie, d'après le recensement de 2023."
+description: "Les flux de navetteurs entre zones d'emploi, d'après le recensement de 2023."
 image: vignettes/02-lines.webp
 execute:
   echo: true
@@ -12,6 +12,10 @@ charte:
 ---
 
 
+Pour la deuxième journée du *challenge* ([**"Lines"**]{.underline color="#0A5927"}) on va représenter les flux de navetteurs entre zones d'emploi, d'après le recensement de 2023 produit par l'[Insee]{.underline color="#0A5927"} (voir @tip-pour-aller-plus-loin pour quelques publications sur ce sujet).
+
+------
+
 ::: {.content-visible when-format="html"}
 
 ```{ojs}
@@ -19,10 +23,11 @@ charte:
 millions = (x) => (x / 1e6).toLocaleString("fr-FR", {maximumFractionDigits: 1})
 html`<p class="lead">
   En 2023, <span class="souligne">${millions(resume.sortants)} millions d'actifs</span> travaillent
-  hors du <span class="souligne" style="--souligne: ${couleurPole}">bassin de vie</span> où ils habitent,
+  hors de la <span class="souligne" style="--souligne: ${couleurPole}">zone d'emploi</span> où ils habitent,
   soit ${Math.round(100 * resume.sortants / resume.localises)} % des actifs ayant un emploi.
   <span class="souligne">${Math.round(100 * resume.voiture / resume.sortants)} %</span> d'entre eux
-  y vont en voiture. Choisissez une ville pour zoomer, et le seuil des liaisons à montrer.
+  y vont en voiture. Cliquez sur une zone d'emploi pour voir ses navettes, puis sur une seconde
+  pour les navettes entre les deux.
 </p>`
 ```
 
@@ -53,76 +58,98 @@ viewof seuil = Inputs.range([100, 5000], {
 
 ```{ojs}
 //| echo: false
-Plot.plot({
-  width: 900,
-  height: 820,
-  projection: cadrage[0] === "La Réunion"
-    ? {type: "mercator", domain: cadreGeo(cadrage[1]), inset: 10}
-    : {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0],
-       domain: cadreGeo(cadrage[1]), inset: 10},
-  r: {range: [0, rayonMax], domain: [0, maxEntrants]},
-  marks: [
-    Plot.geo(contours, {
-      stroke: "currentColor", strokeOpacity: 0.15, strokeWidth: 0.5, clip: "frame"
-    }),
-    Plot.geo(visibles, {
-      geometry: "geometrie",
-      stroke: couleurArc,
-      strokeOpacity: 0.55,
-      strokeWidth: (d) => epaisseur(d.n),
-      strokeLinecap: "round",
-      clip: "frame"
-    }),
-    Plot.dot(polesVisibles, {
-      x: "lon", y: "lat", r: "entrants",
-      fill: couleurPole, fillOpacity: 0.35, stroke: couleurPole, strokeWidth: 0.6,
-      clip: "frame"
-    }),
-    Plot.text(etiquettes, {
-      x: "lon", y: "lat", text: "nom", dy: -10, fontSize: 11, fontWeight: 600,
-      stroke: "var(--bs-body-bg, white)", strokeWidth: 3, fill: "currentColor",
-      clip: "frame"
-    }),
-    Plot.tip(visibles, Plot.pointer(Plot.geoCentroid({
-      geometry: "geometrie",
-      fill: sombre ? "#222" : "#fff",
-      channels: {
-        "De": "nom_origine",
-        "Vers": "nom_destination",
-        "Navetteurs": (d) => d.n.toLocaleString("fr-FR"),
-        "Voiture": (d) => `${d.part_voiture} %`,
-        "Transports en commun": (d) => `${d.part_transports} %`,
-        "Marche, vélo": (d) => `${d.part_marche_velo} %`
-      },
-      format: {x: false, y: false}
-    })))
-  ]
-})
+viewof internes = Inputs.toggle({label: "Navettes au sein de chaque zone", value: false})
+```
+
+```{ojs}
+//| echo: false
+// Le conteneur de la carte ; la carte y écrit les zones cliquées (une ou deux).
+viewof selection = {
+  const div = html`<div style="height: min(80vh, 760px); border-radius: 4px"></div>`
+  div.value = []
+  return div
+}
+```
+
+```{ojs}
+//| echo: false
+// Sous la carte : les navettes de la zone choisie, ou entre les deux zones choisies.
+{
+  const [a, b] = selection.map((code) => zonesParCode.get(code))
+  const effacer = html`<button type="button" class="btn btn-sm btn-outline-secondary">Effacer la sélection</button>`
+  effacer.onclick = () => choisir([])
+  const sortant = (texte) => `<strong style="color:${couleurArc}">${texte}</strong>`
+  const entrant = (texte) => `<strong style="color:${couleurPole}">${texte}</strong>`
+
+  if (!a) {
+    const gardes = flux.filter((d) => d.n >= seuil)
+    return html`<div class="navettes">
+      <p><strong>${entier(gardes.length)} liaisons</strong> d'au moins ${entier(seuil)} navetteurs,
+      soit ${entier(d3.sum(gardes, (d) => d.n))} personnes.</p>
+      ${barreModes(gardes)}
+      <p><small>Cliquez sur une zone d'emploi pour voir ses navettes, puis sur une seconde
+      pour les navettes entre les deux.</small></p>
+    </div>`
+  }
+
+  if (!b) {
+    const liste = (lignes, cle) => lignes.length
+      ? `<ol>${lignes.map((d) => `<li>${d[cle]} : ${entier(d.n)}</li>`).join("")}</ol>`
+      : "<p><small>Aucune liaison d'au moins 100 navetteurs.</small></p>"
+    const premieres = (filtre) => d3.sort(flux.filter(filtre), (d) => -d.n).slice(0, 5)
+    return html`<div class="navettes">
+      <h4>${a.nom}</h4>
+      <p>${entier(a.sur_place)} actifs y vivent et y travaillent ;
+      ${entrant(entier(a.entrants))} viennent d'ailleurs y travailler ;
+      ${sortant(entier(a.sortants))} habitent ici et travaillent ailleurs.</p>
+      <div class="duo">
+        <div><p>${sortant("Où vont ceux qui partent")}</p>
+          ${liste(premieres((d) => d.origine === a.ze), "nom_destination")}</div>
+        <div><p>${entrant("D'où viennent ceux qui arrivent")}</p>
+          ${liste(premieres((d) => d.destination === a.ze), "nom_origine")}</div>
+      </div>
+      <p><small>Cliquez sur une seconde zone pour les navettes entre les deux.</small> ${effacer}</p>
+    </div>`
+  }
+
+  const sens = (de, vers, couleur) => {
+    const d = fluxParCouple.get(`${de.ze}>${vers.ze}`)
+    const titre = `<strong style="color:${couleur}">${de.nom} → ${vers.nom}</strong>`
+    return d
+      ? `<p>${titre} : ${entier(d.n)} navetteurs</p>${barreModes([d]).outerHTML}`
+      : `<p>${titre} : moins de 100 navetteurs, trop peu pour une estimation fiable.</p>`
+  }
+  return html`<div class="navettes">
+    ${sens(a, b, couleurArc)}
+    ${sens(b, a, couleurPole)}
+    <p><small>Cliquez sur une autre zone pour recommencer, ou sur une zone choisie pour la retirer.</small>
+    ${effacer}</p>
+  </div>`
+}
 ```
 
 :::
 
-<small>Source : Insee, [recensement de la population 2023, mobilités professionnelles](https://www.insee.fr/fr/statistiques/9004795) ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small>
+<small>Source : Insee, [recensement de la population 2023, mobilités professionnelles](https://www.insee.fr/fr/statistiques/9004795) ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette. Fond de carte : Plan IGN.</small>
 
 ::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
-// Légende repliée : épaisseur des arcs et taille des cercles, à l'échelle
-// du cadrage choisi.
+// Légende repliée : épaisseur des arcs et taille des cercles quand la carte
+// montre toute la métropole ; ils grossissent quand on zoome.
 legende = {
-  const etalonsArcs = [2000, 10000, 30000].filter((n) => n <= maxFlux)
+  const etalonsArcs = [2000, 10000, 30000]
   const arcs = etalonsArcs.map((n) => `<div>
       <svg width="60" height="16"><line x1="4" x2="56" y1="8" y2="8" stroke="${couleurArc}"
-        stroke-opacity="0.7" stroke-linecap="round" stroke-width="${epaisseur(n)}"/></svg>
+        stroke-opacity="0.7" stroke-linecap="round" stroke-width="${largeurArc(n)}"/></svg>
       <div>${n.toLocaleString("fr-FR")} navetteurs</div>
     </div>`)
-  const etalonsCercles = [50000, 200000, 750000].filter((n) => n <= maxEntrants)
-  const rayon = (n) => rayonMax * Math.sqrt(n / maxEntrants)
-  const hauteur = 2 * rayon(etalonsCercles.at(-1)) + 6
+  const etalonsCercles = [50000, 200000, 750000]
+  const hauteur = 2 * rayonPole(etalonsCercles.at(-1)) + 6
   let x = 4
   const cercles = etalonsCercles.map((n) => {
-    const r = rayon(n)
+    const r = rayonPole(n)
     const cx = x + Math.max(r, 18)
     x += 2 * Math.max(r, 18) + 16
     return `<circle cx="${cx}" cy="${hauteur - r - 3}" r="${r}" fill="${couleurPole}"
@@ -136,40 +163,17 @@ legende = {
       ${arcs.join("")}
       <div>
         <svg width="${x}" height="${hauteur + 16}">${cercles.join("")}</svg>
-        <div>Navetteurs venus d'autres bassins de vie pour y travailler</div>
+        <div>Navetteurs venus d'autres zones d'emploi pour y travailler</div>
       </div>
     </div>
-    <p><small>Chaque arc relie deux bassins de vie et tourne dans le sens des aiguilles d'une
-    montre : l'aller et le retour sont deux arcs distincts. Survolez un arc pour le détail.
-    Dans un zoom, seules les liaisons proches du cadre sont tracées.</small></p>
+    <p><small>Chaque arc relie deux zones d'emploi et tourne dans le sens des aiguilles d'une
+    montre : l'aller et le retour sont deux arcs distincts. Une zone cliquée montre
+    <span style="color:${couleurArc}">ses départs</span> et
+    <span style="color:${couleurPole}">ses arrivées</span>, même sous le seuil ; deux zones
+    cliquées, les navettes de l'une vers l'autre. En option, une boucle revient sur chaque
+    zone : sa taille suit le nombre d'actifs qui y vivent et y travaillent.</small></p>
   </details>`
 }
-```
-
-```{ojs}
-//| echo: false
-html`<p style="font-size: 1.1em">
-  <strong>${cadrage[0]}</strong> :
-  <span style="color:${couleurArc}">${visibles.length.toLocaleString("fr-FR")} liaisons</span>
-  d'au moins ${seuil.toLocaleString("fr-FR")} navetteurs,
-  soit ${Math.round(navetteursVisibles).toLocaleString("fr-FR")} personnes.
-</p>`
-```
-
-```{ojs}
-//| echo: false
-// Comment viennent les navetteurs des liaisons visibles.
-html`<div>
-  <p style="margin-bottom: 0.3em">${modes.map((d) => `<span style="color:${d.couleur}; white-space: nowrap">■
-    ${d.mode} ${Math.round(100 * d.part)} %</span>`).join(" &nbsp;·&nbsp; ")}</p>
-  ${Plot.plot({
-    width,
-    height: 28,
-    margin: 0,
-    x: {axis: null},
-    marks: [Plot.barX(modes, {x: "part", fill: "couleur", insetRight: 1})]
-  })}
-</div>`
 ```
 
 ```{ojs}
@@ -187,6 +191,40 @@ couleurPole = sombre ? "#ec8a74" : "#c8553d"
 couleurVoiture = sombre ? "#e9b55f" : "#c98a1e"
 couleurMarche = sombre ? "#8fcf9f" : "#4f8f5f"
 couleurAutre = sombre ? "#777" : "#aaa"
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris (comme au J1).
+styleClair = fetch(
+  "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+).then((r) => r.json())
+
+styleSombre = {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
+
+maplibregl = {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
+}
 ```
 
 ```{ojs}
@@ -209,69 +247,258 @@ function arc(d, points = 24) {
   return {type: "LineString", coordinates: coordonnees}
 }
 
-// Sens des aiguilles d'une montre : sinon, d3 prend tout le globe sauf le cadre.
-function cadreGeo([[o, s], [e, n]]) {
-  return {type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}
+// Boucle qui part du centre de la zone et y revient, vers le sud : une courbe
+// de Bézier cubique dont les deux bouts sont confondus. `taille` en degrés de latitude.
+function boucle(d, taille, points = 24) {
+  const k = Math.cos(d.lat * Math.PI / 180)
+  const controle = (angle) => [d.lon + taille * Math.cos(angle) / k, d.lat + taille * Math.sin(angle)]
+  const [c1, c2] = [controle(-Math.PI / 2 - 0.6), controle(-Math.PI / 2 + 0.6)]
+  const coordonnees = d3.range(points + 1).map((i) => {
+    const t = i / points
+    const a = (1 - t) ** 3 + t ** 3
+    const b = 3 * t * (1 - t) ** 2
+    const c = 3 * t ** 2 * (1 - t)
+    return [a * d.lon + b * c1[0] + c * c2[0], a * d.lat + b * c1[1] + c * c2[1]]
+  })
+  return {type: "LineString", coordinates: coordonnees}
 }
 
-// Le cadre, élargi de `marge` fois sa taille de chaque côté.
-function dansCadre(lon, lat, marge = 0) {
-  const [[o, s], [e, n]] = cadrage[1]
-  const mx = marge * (e - o)
-  const my = marge * (n - s)
-  return lon >= o - mx && lon <= e + mx && lat >= s - my && lat <= n + my
+zonesParCode = new Map(zones.map((d) => [d.ze, d]))
+fluxParCouple = new Map(flux.map((d) => [`${d.origine}>${d.destination}`, d]))
+arcsGeo = ({
+  type: "FeatureCollection",
+  features: flux.map((d) => ({type: "Feature", properties: d, geometry: arc(d)}))
+})
+polesGeo = ({
+  type: "FeatureCollection",
+  features: zones.map((d) => ({type: "Feature", properties: d, geometry: {type: "Point", coordinates: [d.lon, d.lat]}}))
+})
+
+// Épaisseur des arcs et rayon des cercles quand la carte montre la métropole
+// (zoom 4,5 environ) ; trois fois plus au zoom 10.
+maxFlux = d3.max(flux, (d) => d.n)
+maxEntrants = d3.max(zones, (d) => d.entrants)
+largeurArc = (n) => Math.max(0.4, 8 * n / maxFlux)
+rayonPole = (n) => 20 * Math.sqrt(n / maxEntrants)
+
+// Répartition par mode des navetteurs de quelques liaisons, en une barre.
+function barreModes(lignes) {
+  const total = d3.sum(lignes, (d) => d.n)
+  const part = (cle) => d3.sum(lignes, (d) => d.n * d[cle] / 100) / total
+  const modes = [
+    {mode: "Voiture", part: part("part_voiture"), couleur: couleurVoiture},
+    {mode: "Transports en commun", part: part("part_transports"), couleur: couleurArc},
+    {mode: "Marche, vélo", part: part("part_marche_velo"), couleur: couleurMarche}
+  ]
+  modes.push({mode: "Autres", part: Math.max(0, 1 - d3.sum(modes, (d) => d.part)), couleur: couleurAutre})
+  return html`<div class="modes">
+    <p>${modes.map((d) => `<span style="color:${d.couleur}; white-space: nowrap">■
+      ${d.mode} ${Math.round(100 * d.part)} %</span>`).join(" &nbsp;·&nbsp; ")}</p>
+    <div class="barre">${modes.map((d) => `<span style="width:${100 * d.part}%; background:${d.couleur}"></span>`).join("")}</div>
+  </div>`
+}
+
+// Les zones cliquées, écrites dans le conteneur de la carte.
+function choisir(codes) {
+  const conteneur = viewof selection
+  conteneur.value = codes
+  conteneur.dispatchEvent(new Event("input", {bubbles: true}))
 }
 ```
 
 ```{ojs}
 //| echo: false
-// Dans un zoom, les liaisons lointaines traverseraient tout le cadre : on ne
-// garde que celles dont les deux bouts sont proches.
-visibles = flux
-  .filter((d) => d.n >= seuil && dansCadre(d.lon1, d.lat1, 0.3) && dansCadre(d.lon2, d.lat2, 0.3))
-  .map((d) => ({...d, geometrie: arc(d)}))
-maxFlux = d3.max(flux, (d) => d.n)
-// Épaisseur proportionnelle au flux, plus grande quand on zoome.
-largeurMax = cadrage[0] === "France métropolitaine" ? 9 : 14
-epaisseur = (n) => Math.max(0.4, largeurMax * n / maxFlux)
-maxEntrants = d3.max(bassins, (d) => d.entrants)
-rayonMax = 22
-polesVisibles = bassins.filter((d) => dansCadre(d.lon, d.lat))
-// Noms : les pôles qui attirent le plus de navetteurs dans le cadre.
-etiquettes = d3.sort(polesVisibles, (d) => -d.entrants)
-  .slice(0, cadrage[0] === "France métropolitaine" ? 25 : 15)
+// La carte n'est créée qu'une fois ; le seuil, la sélection et le thème
+// changent ses couches (voir `miseAJour`).
+carte = {
+  const map = new maplibregl.Map({
+    container: viewof selection,
+    style: document.body.classList.contains("quarto-dark") ? styleSombre : styleClair,
+    bounds: cadrages[0][1],
+    attributionControl: {customAttribution: "Insee, IGN"}
+  })
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
 
-navetteursVisibles = d3.sum(visibles, (d) => d.n)
-modes = {
-  const part = (cle) => d3.sum(visibles, (d) => d.n * d[cle] / 100) / navetteursVisibles
-  const lignes = [
-    {mode: "Voiture", part: part("part_voiture"), couleur: couleurVoiture},
-    {mode: "Transports en commun", part: part("part_transports"), couleur: couleurArc},
-    {mode: "Marche, vélo", part: part("part_marche_velo"), couleur: couleurMarche}
-  ]
-  lignes.push({mode: "Autres", part: Math.max(0, 1 - d3.sum(lignes, (d) => d.part)), couleur: couleurAutre})
-  return lignes
+  // Taille d'écran fixe pour les boucles : on les redessine à chaque zoom.
+  const bouclesGeo = () => {
+    const e = map.etat
+    const gardees = zones.filter((d) => d.sur_place >= e.seuil &&
+      (e.selection.length === 0 || e.selection.includes(d.ze)))
+    const maxSurPlace = d3.max(zones, (d) => d.sur_place)
+    const degresParPixel = 360 / (512 * 2 ** map.getZoom())
+    return {
+      type: "FeatureCollection",
+      features: gardees.map((d) => ({
+        type: "Feature", properties: d,
+        // De 12 à 60 pixels de long (60 % de `taille`), selon la racine du nombre d'actifs.
+        geometry: boucle(d, (20 + 80 * Math.sqrt(d.sur_place / maxSurPlace)) * degresParPixel * Math.cos(d.lat * Math.PI / 180))
+      }))
+    }
+  }
+
+  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre).
+  const ajouterCouches = () => {
+    const vide = {type: "FeatureCollection", features: []}
+    map.addSource("zones", {type: "geojson", data: contours})
+    map.addSource("boucles", {type: "geojson", data: vide})
+    map.addSource("arcs", {type: "geojson", data: arcsGeo})
+    map.addSource("poles", {type: "geojson", data: polesGeo})
+    // Fond transparent : il ne sert qu'à cliquer et survoler les zones.
+    map.addLayer({id: "zones", type: "fill", source: "zones", paint: {"fill-opacity": 0}})
+    map.addLayer({id: "zones-choisies", type: "fill", source: "zones", paint: {"fill-opacity": 0.12}})
+    map.addLayer({id: "zones-contours", type: "line", source: "zones", paint: {"line-width": 0.6, "line-opacity": 0.5}})
+    map.addLayer({id: "zones-choisies-contours", type: "line", source: "zones", paint: {"line-width": 2}})
+    map.addLayer({
+      id: "boucles", type: "line", source: "boucles",
+      paint: {"line-opacity": 0.8, "line-width": ["interpolate", ["linear"], ["zoom"], 4, 1.2, 10, 3]}
+    })
+    map.addLayer({id: "arcs", type: "line", source: "arcs", layout: {"line-cap": "round"}})
+    const racine = ["sqrt", ["/", ["get", "entrants"], maxEntrants]]
+    map.addLayer({
+      id: "poles", type: "circle", source: "poles",
+      paint: {
+        "circle-opacity": 0.35, "circle-stroke-width": 0.6,
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 4.5, ["*", 20, racine], 10, ["*", 60, racine]]
+      }
+    })
+    map.appliquer()
+  }
+
+  // Couleurs, filtres et boucles, d'après `map.etat` (écrit par `miseAJour`).
+  map.appliquer = () => {
+    const e = map.etat
+    if (!e || !map.getLayer("arcs")) return
+    const [a, b] = e.selection
+    const c = e.couleurs
+    const de = (code) => ["==", ["get", "origine"], code]
+    const vers = (code) => ["==", ["get", "destination"], code]
+    // Une zone : ses départs et ses arrivées. Deux : de la première vers la seconde, et retour.
+    const sortant = b ? ["all", de(a), vers(b)] : a ? de(a) : false
+    const entrant = b ? ["all", de(b), vers(a)] : a ? vers(a) : false
+    const concerne = ["any", sortant, entrant]
+    map.setFilter("arcs", ["any", [">=", ["get", "n"], e.seuil], concerne])
+    // Épaisseur proportionnelle au flux, avec un minimum plus fort pour les arcs choisis.
+    const n = ["get", "n"]
+    const minimum = (base) => ["case", concerne, b ? 3 * base : 2 * base, base]
+    map.setPaintProperty("arcs", "line-width", ["interpolate", ["linear"], ["zoom"],
+      4.5, ["max", minimum(0.4), ["*", 8 / maxFlux, n]],
+      10, ["max", minimum(1.2), ["*", 24 / maxFlux, n]]
+    ])
+    map.setPaintProperty("arcs", "line-color", a ? ["case", sortant, c.arc, entrant, c.pole, c.eteint] : c.arc)
+    map.setPaintProperty("arcs", "line-opacity", a ? ["case", concerne, 0.9, 0.12] : 0.55)
+    map.setLayoutProperty("arcs", "line-sort-key", ["case", concerne, ["+", 1e7, ["get", "n"]], ["get", "n"]])
+    const choisies = ["in", ["get", "ze"], ["literal", e.selection]]
+    map.setFilter("zones-choisies", choisies)
+    map.setFilter("zones-choisies-contours", choisies)
+    map.setPaintProperty("zones-choisies", "fill-color", c.arc)
+    map.setPaintProperty("zones-choisies-contours", "line-color", c.arc)
+    map.setPaintProperty("zones-contours", "line-color", c.contour)
+    map.setPaintProperty("poles", "circle-color", c.pole)
+    map.setPaintProperty("poles", "circle-stroke-color", c.pole)
+    map.setPaintProperty("boucles", "line-color", c.pole)
+    map.setLayoutProperty("boucles", "visibility", e.internes ? "visible" : "none")
+    if (e.internes) map.getSource("boucles").setData(bouclesGeo())
+  }
+  map.on("style.load", ajouterCouches)
+  map.on("zoomend", () => map.etat?.internes && map.getSource("boucles")?.setData(bouclesGeo()))
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  // Survol : l'élément le plus haut sous la souris (cercle, arc, boucle, puis zone),
+  // en ignorant les arcs éteints par la sélection.
+  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "300px"})
+  const allume = (p) => {
+    const [a, b] = map.etat?.selection ?? []
+    if (!a) return true
+    if (!b) return p.origine === a || p.destination === a
+    return (p.origine === a && p.destination === b) || (p.origine === b && p.destination === a)
+  }
+  const decrire = {
+    poles: (p) => `<strong>${p.nom}</strong><br>${entier(p.entrants)} viennent d'ailleurs y travailler<br>
+      ${entier(p.sur_place)} y vivent et y travaillent`,
+    arcs: (p) => `<strong>${p.nom_origine} → ${p.nom_destination}</strong><br>
+      ${entier(p.n)} navetteurs<br>Voiture ${p.part_voiture} % · transports en commun
+      ${p.part_transports} % · marche, vélo ${p.part_marche_velo} %`,
+    boucles: (p) => `<strong>${p.nom}</strong><br>${entier(p.sur_place)} y vivent et y travaillent`,
+    zones: (p) => `<strong>${zonesParCode.get(p.ze)?.nom ?? p.ze}</strong><br><small>Cliquez pour voir ses navettes</small>`
+  }
+  map.on("mousemove", (e) => {
+    const {x, y} = e.point
+    const elements = map.queryRenderedFeatures([[x - 3, y - 3], [x + 3, y + 3]],
+      {layers: ["poles", "arcs", "boucles", "zones"]})
+      .filter((f) => f.layer.id !== "arcs" || allume(f.properties))
+    const f = ["poles", "arcs", "boucles", "zones"].map((id) => elements.find((g) => g.layer.id === id)).find(Boolean)
+    map.getCanvas().style.cursor = f ? "pointer" : ""
+    if (f) bulle.setLngLat(e.lngLat).setHTML(decrire[f.layer.id](f.properties)).addTo(map)
+    else bulle.remove()
+  })
+  map.on("mouseout", () => bulle.remove())
+
+  // Clic : une zone de plus (au plus deux), une zone déjà choisie retirée, rien hors des zones.
+  map.on("click", (e) => {
+    const code = map.queryRenderedFeatures(e.point, {layers: ["zones"]})[0]?.properties.ze
+    const avant = map.etat?.selection ?? []
+    choisir(!code ? []
+      : avant.includes(code) ? avant.filter((x) => x !== code)
+      : avant.length < 2 ? [...avant, code]
+      : [code])
+  })
+  return map
 }
+```
+
+```{ojs}
+//| echo: false
+// Cellules nommées : Quarto n'affiche pas leur valeur.
+miseAJour = {
+  carte.etat = {
+    selection, seuil, internes,
+    couleurs: {arc: couleurArc, pole: couleurPole, eteint: sombre ? "#666" : "#999", contour: sombre ? "#aaa" : "#666"}
+  }
+  carte.appliquer()
+  return selection
+}
+theme = {
+  const style = sombre ? styleSombre : styleClair
+  if (carte.styleCourant !== undefined && carte.styleCourant !== style) {
+    carte.setStyle(style, {diff: false})
+  }
+  carte.styleCourant = style
+  return sombre
+}
+recadrage = carte.fitBounds(cadrage[1], {padding: 20})
 ```
 
 :::
 
-Le recensement retient le lieu de travail déclaré, même lointain : d'où les longs arcs de Lyon, Lille ou Bordeaux vers Paris, des actifs qui n'y vont pas tous les jours. Autour des grandes villes, la carte dessine leur aire d'attraction ; ailleurs, des réseaux de petites villes qui échangent leurs actifs.
+À titre de comparaison, quand on ne fait pas la restriction sur les flux de navetteurs entre zones d'emploi différentes, on obtient :
 
-**On s'appuie pour le J2 sur [le recensement de la population de l'[Insee](https://www.insee.fr/)]{.underline}**, qui demande à chaque actif où il travaille et comment il s'y rend (voir @tip-pour-aller-plus-loin pour quelques publications sur ce sujet).
+| Mode de transport | Part (en %) |
+|-------------------|------------:|
+| Voiture et deux-roues motorisé | 70,4 |
+| Transports en commun | 15,5 |
+| Marche à pied | 6,2 |
+| Pas de déplacement | 4,0 |
+| Vélo | 3,8 |
+
+: Mode de transport principal des actifs ayant un emploi. Source : [Insee, *Tableau de bord de l'économie française*](https://www.insee.fr/fr/outil-interactif/5367857/details/80_AMN/84_MOB/84A_Figure1). {#tbl-modtrans}
+
+
 
 # Making of
 
 ## Les données
 
-La carte croise deux sources publiques :
+La carte croise trois sources publiques :
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Mobilités professionnelles 2023](https://www.insee.fr/fr/statistiques/9004795) (MOBPRO) | Insee, recensement de la population | la commune de résidence, la commune de travail et le mode de transport de chaque actif | Parquet |
-| [Communes et bassins de vie 2026](https://github.com/InseeFrLab/cartiflette) | IGN et Insee, via cartiflette | le bassin de vie de chaque commune, le centre de sa commune-pôle et les contours des bassins de vie | GeoParquet |
+| [Mobilités professionnelles 2023](https://www.insee.fr/fr/statistiques/9004795) (MOBPRO) | Insee, recensement de la population | la commune de résidence, la commune de travail et le mode de transport de chaque actif | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Communes et zones d'emploi 2026](https://github.com/InseeFrLab/cartiflette) | IGN et Insee, via cartiflette | la zone d'emploi de chaque commune, sa population, son centre, et les contours des zones d'emploi | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Zones d'emploi 2020](https://www.insee.fr/fr/information/4652957) | Insee, [API Métadonnées](https://api.insee.fr/catalogue/) | le nom de chaque zone d'emploi | JSON (API) |
 
-Comme pour le J1, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) pour les étapes de travail de données.
+Comme pour le J1, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
@@ -279,6 +506,8 @@ Comme pour le J1, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/)
 import json
 
 import duckdb
+import pandas as pd
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -300,19 +529,19 @@ L'Insee diffuse le [[fichier détail des mobilités professionnelles]{.underline
 - sa commune de résidence (`COMMUNE`, et `ARM` pour l'arrondissement à Paris, Lyon et Marseille) ;
 - sa commune de travail (`DCLT`) ;
 - son mode de transport principal (`TRANS`) ;
-- son poids (`IPONDI`) : le recensement est une enquête par sondage dans les grandes communes, chaque calcul se fait donc en sommant les poids.
+- son poids (`IPONDI`) : le recensement est une enquête par sondage dans les grandes communes, les calculs statistiques doivent s'appuyer sur les poids pour assurer la représentativité des résultats.
 
-La [documentation](https://www.insee.fr/fr/information/2383243) décrit toutes les variables.
-
-Le fichier est publié en Parquet : DuckDB le lit directement à son adresse, en ne gardant que les cinq colonnes utiles.
+Le fichier est publié en {{< iconify vscode-icons file-type-parquet >}} `Parquet` ([documentation](https://www.insee.fr/fr/information/2383243)) : {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` le lit directement à son adresse, en ne gardant que les cinq colonnes utiles.
 
 ```{python}
 #| output: false
 #| filename: "Lecture des navettes (Insee)"
-con.sql(f"""
+con.sql(
+  f"""
 CREATE TABLE mobpro AS
 SELECT COMMUNE, ARM, DCLT, TRANS, IPONDI FROM read_parquet('{SOURCES["mobpro"]}')
-""")
+"""
+)
 ```
 
 ::: {.content-visible when-format="html"}
@@ -335,7 +564,7 @@ Inputs.table(mobpro_apercu, {
 
 :::
 
-Le mode de transport est codé de `1` à `6`. En sommant les poids, on obtient le nombre d'actifs par mode :
+Le mode de transport est codé de `1` à `6`. En sommant les poids, on obtient le nombre d'actifs par mode, et sa part du total :
 
 ```{python}
 #| output: false
@@ -345,11 +574,17 @@ actifs = con.sql("SELECT sum(IPONDI) FROM mobpro").fetchone()[0]
 modes = con.sql("""
 SELECT CASE TRANS WHEN '1' THEN 'Pas de transport' WHEN '2' THEN 'Marche à pied'
                   WHEN '3' THEN 'Vélo' WHEN '4' THEN 'Deux-roues motorisé'
-                  WHEN '5' THEN 'Voiture' WHEN '6' THEN 'Transports en commun' END AS mode,
-       round(sum(IPONDI)) AS actifs
+                  WHEN '5' THEN 'Voiture' WHEN '6' THEN 'Transports en commun' END AS "Mode de transport",
+       round(sum(IPONDI)) AS "Actifs",
+       -- Part du total : la somme de toutes les lignes, par une fenêtre sur le résultat groupé.
+       round(100 * sum(IPONDI) / sum(sum(IPONDI)) OVER (), 1) AS "Part du total (%)"
 FROM mobpro GROUP BY TRANS ORDER BY TRANS
 """).df()
 ```
+
+On retrouve bien les résultats de @tbl-modtrans !
+
+
 
 ::: {.content-visible when-format="html"}
 
@@ -360,27 +595,34 @@ ojs_define(modes_transport=modes.to_dict("records"))
 
 ```{ojs}
 //| echo: false
+// Le résultat de la requête tel quel, les nombres à la française.
 Inputs.table(modes_transport, {
-  header: {mode: "Mode de transport", actifs: "Actifs"},
-  format: {actifs: (x) => x.toLocaleString("fr-FR")},
+  format: {
+    "Actifs": (x) => x.toLocaleString("fr-FR"),
+    "Part du total (%)": (x) => x.toLocaleString("fr-FR", {minimumFractionDigits: 1})
+  },
   layout: "auto"
 })
 ```
 
 :::
 
-### Les communes et les bassins de vie avec `cartiflette`
+### Les communes et les zones d'emploi avec `cartiflette`
 
-Le recensement de 2023 est diffusé dans la géographie de référence en 2026 (le [code officiel géographique](https://www.insee.fr/fr/information/8740222)). Le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) faciltie la récupération des contours officiels de communes. Chaque commune (chaque arrondissement à Paris, Lyon et Marseille) y porte son [bassin de vie](https://www.insee.fr/fr/metadonnees/definition/c2060) 2022 (`BV2022`), le plus petit territoire où les habitants ont accès aux équipements et services courants.
+La **zone d'emploi** est un zonage d'étude de l'Insee, construit à partir des navettes domicile-travail : c'est un regroupement de communes adapté à l'analyse du marché du travail. Chaque zone d'emploi est un ensemble de communes où la plupart des actifs résident et travaillent. 
 
-On lit trois niveaux : 
+Le recensement de 2023 est diffusé dans la géographie de référence en 2026 (le [code officiel géographique](https://www.insee.fr/fr/information/8740222)).
 
-* les communes et arrondissements (le niveau du recensement), 
-* les communes entières (pour les communes-pôles) 
-* et les bassins de vie eux-mêmes (pour le fond de carte).
+Le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) facilite la récupération des contours officiels de communes et l'association à des zonages administratifs ou d'étude de l'Insee. En plus de ses contours, chaque commune (ou arrondissement pour Paris, Lyon et Marseille) propose des métadonnées, notamment sa [zone d'emploi 2020](https://www.insee.fr/fr/metadonnees/definition/c1361) (`ZE2020`).
+
+On va lire trois fonds de carte avec `cartiflette` :
+
+* les communes et arrondissements (le niveau du recensement),
+* les communes entières (pour placer chaque zone sur sa commune la plus peuplée)
+* et les zones d'emploi elles-mêmes (pour le fond de carte).
 
 ```{python}
-#| filename: "Lecture des communes et des bassins de vie (cartiflette)"
+#| filename: "Lecture des communes et des zones d'emploi (cartiflette)"
 from cartiflette import carti_download
 
 parametres = dict(
@@ -395,43 +637,62 @@ parametres = dict(
 
 communes_arrondissements = carti_download(borders="COMMUNE_ARRONDISSEMENT", **parametres)
 communes_entieres = carti_download(borders="COMMUNE", **parametres)
-bassins_vie = carti_download(borders="BASSIN_VIE", **parametres)
+zones_emploi = carti_download(borders="ZONE_EMPLOI", **parametres)
 ```
 
-Le code d'un bassin de vie est celui de sa commune-pôle : elle lui donne son nom, et les arcs partent de son centre.
+### Les noms des zones d'emploi (Insee)
+
+Comme le code d'une zone d'emploi (par exemple `1109` pour Paris) est un peu cryptique, on préfère afficher son nom, mais celui-ci n'est pas dans cartiflette (promis, [ça viendra !](https://github.com/InseeFrLab/cartiflette/issues/128)).
+
+On va utiliser l'[API Métadonnées](https://api.insee.fr/catalogue/) de l'Insee pour cela et l'ajouter aux couches de `cartiflette`.
 
 ```{python}
 #| output: false
-#| filename: "Tables des communes et des pôles"
-# Commune (arrondissement pour Paris, Lyon, Marseille) -> bassin de vie 2022.
+#| filename: "Noms des zones d'emploi (API Métadonnées de l'Insee)"
+reponse = requests.get(
+    "https://api.insee.fr/metadonnees/geo/zonesDEmploi2020",
+    headers={"Accept": "application/json"},
+    timeout=60,
+)
+reponse.raise_for_status()
+noms_ze = pd.DataFrame(reponse.json())[["code", "intitule"]]
+```
+
+Chaque zone est placée au centre de sa commune la plus peuplée, d'où partent ses arcs. Si on prenait le centroid, on prendrait le risque d'avoir nos arcs tombant en pleine campagne.
+
+```{python}
+#| output: false
+#| filename: "Tables des communes et des zones d'emploi"
+# Commune (arrondissement pour Paris, Lyon, Marseille) -> zone d'emploi 2020.
 con.sql("""
 CREATE TABLE communes AS
-SELECT INSEE_COG AS code, BV2022 AS bv FROM communes_arrondissements
+SELECT INSEE_COG AS code, ZE2020 AS ze FROM communes_arrondissements
 """)
 
-# La commune-pôle de chaque bassin de vie : son nom et son centre.
+# Chaque zone d'emploi : son nom, et le centre de sa commune la plus peuplée.
 con.sql("""
 CREATE TABLE poles AS
-SELECT INSEE_COM AS bv, NOM AS nom, AREA AS territoire,
-       round(ST_X(ST_Centroid(geometry)), 4) AS lon,
-       round(ST_Y(ST_Centroid(geometry)), 4) AS lat
-FROM communes_entieres
-WHERE INSEE_COM IN (SELECT bv FROM communes)
+SELECT z.code AS ze, z.intitule AS nom,
+       round(ST_X(ST_Centroid(c.geometry)), 4) AS lon,
+       round(ST_Y(ST_Centroid(c.geometry)), 4) AS lat
+FROM noms_ze z
+JOIN communes_entieres c ON c.ZE2020 = z.code
+QUALIFY row_number() OVER (PARTITION BY z.code ORDER BY c.POPULATION DESC) = 1
 """)
 ```
 
 ```{python}
 #| output: false
-#| filename: "Contours des bassins de vie"
+#| filename: "Contours des zones d'emploi"
 #| echo: false
 contours = {
     "type": "FeatureCollection",
     "features": [
-        {"type": "Feature", "properties": {"bv": bv}, "geometry": json.loads(geojson)}
-        for bv, geojson in con.sql("""
-            SELECT BV2022, ST_AsGeoJSON(ST_ReducePrecision(
+        {"type": "Feature", "properties": {"ze": ze}, "geometry": json.loads(geojson)}
+        for ze, geojson in con.sql("""
+            SELECT ZE2020, ST_AsGeoJSON(ST_ReducePrecision(
                        ST_SimplifyPreserveTopology(geometry, 0.003), 0.0001))
-            FROM bassins_vie
+            FROM zones_emploi
         """).fetchall()
     ],
 }
@@ -439,16 +700,16 @@ contours = {
 
 ## Les traitements
 
-### Agréger les navettes par bassin de vie
+### Agréger les navettes par zone d'emploi
 
-Chaque actif est rattaché au bassin de vie de sa commune de résidence et à celui de sa commune de travail ; on somme les poids pour chaque couple, au total et par mode de transport. Ceux qui travaillent à l'étranger ou dans une collectivité d'outre-mer n'ont pas de bassin de vie de travail : la jointure les écarte.
+Chaque actif est rattaché à la zone d'emploi de sa commune de résidence et à celle de sa commune de travail ; on somme les poids pour chaque couple, au total et pour chaque mode de transport. Ceux qui travaillent à l'étranger ou dans une collectivité d'outre-mer n'ont pas de zone d'emploi de travail : la jointure les écarte.
 
 ```{python}
 #| output: false
-#| filename: "Navettes entre bassins de vie"
+#| filename: "Navettes entre zones d'emploi"
 con.sql("""
 CREATE TABLE navettes AS
-SELECT r.bv AS origine, t.bv AS destination,
+SELECT r.ze AS origine, t.ze AS destination,
        sum(IPONDI) AS n,
        sum(IPONDI) FILTER (WHERE TRANS = '5') AS voiture,
        sum(IPONDI) FILTER (WHERE TRANS = '6') AS transports,
@@ -463,7 +724,7 @@ GROUP BY ALL
 
 ### Garder les liaisons importantes
 
-La carte ne montre que les liaisons d'au moins 100 navetteurs (`SEUIL`) entre deux bassins de vie différents. De la sorte, on évite la variabilité inhérente aux petits échantillons. 
+La carte ne montre que les liaisons d'au moins 100 navetteurs (`SEUIL`) entre deux zones d'emploi différentes. De la sorte, on évite la variabilité inhérente aux petits échantillons. 
 
 ```{python}
 #| output: false
@@ -488,8 +749,8 @@ SELECT f.origine, o.nom AS nom_origine, o.lon AS lon1, o.lat AS lat1,
        round(100 * coalesce(f.transports, 0) / f.n) AS part_transports,
        round(100 * coalesce(f.marche_velo, 0) / f.n) AS part_marche_velo
 FROM navettes f
-JOIN poles o ON o.bv = f.origine
-JOIN poles d ON d.bv = f.destination
+JOIN poles o ON o.ze = f.origine
+JOIN poles d ON d.ze = f.destination
 WHERE f.origine <> f.destination AND f.n >= {SEUIL}
 ORDER BY f.n
 """).df()
@@ -497,9 +758,13 @@ ORDER BY f.n
 
 ```{python}
 #| echo: false
+from IPython.display import Markdown
+
+
 def nombre(x):
-    """Entier avec l'espace des milliers, à la française."""
-    return f"{x:,.0f}".replace(",", " ")
+    """Entier avec l'espace des milliers, à la française. En Markdown : en ligne
+    (`{python}`), une chaîne serait montrée par son repr, qui code cette espace fine."""
+    return Markdown(f"{x:,.0f}".replace(",", " "))
 
 
 actifs_millions = f"{actifs / 1e6:.1f}".replace(".", ",")
@@ -507,25 +772,25 @@ hors_carte_milliers = nombre((actifs - bilan.localises) / 1e3)
 nbre_liaisons = nombre(bilan.liaisons)
 ```
 
-Sur les **`{python} actifs_millions`** millions d'actifs ayant un emploi, **`{python} hors_carte_milliers`** milliers travaillent à l'étranger ou dans une collectivité d'outre-mer et ne sont pas sur la carte. Les **`{python} nbre_liaisons`** liaisons gardées regroupent **`{python} round(100 * bilan.gardes / bilan.sortants)` %** des navetteurs qui changent de bassin de vie.
+Sur les **`{python} actifs_millions`** millions d'actifs ayant un emploi, **`{python} hors_carte_milliers`** milliers travaillent à l'étranger ou dans une collectivité d'outre-mer et ne sont pas sur la carte. Les **`{python} nbre_liaisons`** liaisons gardées regroupent **`{python} round(100 * bilan.gardes / bilan.sortants)` %** des navetteurs qui changent de zone d'emploi.
 
-### Résumer chaque bassin de vie
+### Résumer chaque zone d'emploi
 
-Pour chaque bassin de vie : on va créer les différentes catégories de flux: 
+Pour chaque zone d'emploi, on va créer les différentes catégories de flux:
 
 * ceux qui y vivent et y travaillent,
-* ceux qui viennent d'ailleurs y travailler (la taille des cercles), 
+* ceux qui viennent d'ailleurs y travailler (la taille des cercles),
 * ceux qui en partent.
 
 ```{python}
 #| output: false
-#| filename: "Bilan de chaque bassin de vie"
-bassins = con.sql("""
-SELECT p.bv, p.nom, p.territoire, p.lon, p.lat,
-       coalesce(round(sum(f.n) FILTER (WHERE f.origine = p.bv AND f.destination = p.bv)), 0) AS sur_place,
-       coalesce(round(sum(f.n) FILTER (WHERE f.destination = p.bv AND f.origine <> p.bv)), 0) AS entrants,
-       coalesce(round(sum(f.n) FILTER (WHERE f.origine = p.bv AND f.destination <> p.bv)), 0) AS sortants
-FROM poles p LEFT JOIN navettes f ON p.bv IN (f.origine, f.destination)
+#| filename: "Bilan de chaque zone d'emploi"
+zones = con.sql("""
+SELECT p.ze, p.nom, p.lon, p.lat,
+       coalesce(round(sum(f.n) FILTER (WHERE f.origine = p.ze AND f.destination = p.ze)), 0) AS sur_place,
+       coalesce(round(sum(f.n) FILTER (WHERE f.destination = p.ze AND f.origine <> p.ze)), 0) AS entrants,
+       coalesce(round(sum(f.n) FILTER (WHERE f.origine = p.ze AND f.destination <> p.ze)), 0) AS sortants
+FROM poles p LEFT JOIN navettes f ON p.ze IN (f.origine, f.destination)
 GROUP BY ALL
 """).df()
 ```
@@ -536,7 +801,7 @@ GROUP BY ALL
 #| echo: false
 ojs_define(
     flux=flux.to_dict("records"),
-    bassins=bassins.to_dict("records"),
+    zones=zones.to_dict("records"),
     contours=contours,
     resume={k: float(bilan[k]) for k in ["localises", "sortants", "voiture"]},
 )
@@ -544,10 +809,10 @@ ojs_define(
 
 ```{ojs}
 //| echo: false
-Inputs.table(bassins, {
+Inputs.table(zones, {
   columns: ["nom", "sur_place", "entrants", "sortants"],
   header: {
-    nom: "Bassin de vie", sur_place: "Vivent et travaillent sur place",
+    nom: "Zone d'emploi", sur_place: "Vivent et travaillent sur place",
     entrants: "Viennent y travailler", sortants: "Travaillent ailleurs"
   },
   format: {
@@ -565,7 +830,7 @@ Inputs.table(bassins, {
 
 ## Les données de la carte
 
-Lorsqu'on fait toutes ces étapes, on obtient les liaisons entre bassins de vie d'au moins `{python} SEUIL` navetteurs. Les arcs (courbes de Bézier) et la carte sont faits en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+Après toutes ces étapes, on obtient les liaisons entre zones d'emploi d'au moins `{python} SEUIL` navetteurs. Les arcs (courbes de Bézier) et la carte sont faits en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
 
 <br>
 
@@ -576,7 +841,7 @@ Lorsqu'on fait toutes ces étapes, on obtient les liaisons entre bassins de vie 
 ```{ojs}
 //| echo: false
 viewof recherche = Inputs.search(flux, {
-  placeholder: "Rechercher un bassin de vie…",
+  placeholder: "Rechercher une zone d'emploi…",
   columns: ["nom_origine", "nom_destination"],
   format: (n) => `${n.toLocaleString("fr-FR")} liaisons`
 })
@@ -587,7 +852,7 @@ viewof recherche = Inputs.search(flux, {
 Inputs.table(recherche, {
   columns: ["nom_origine", "nom_destination", "n", "part_voiture", "part_transports", "part_marche_velo"],
   header: {
-    nom_origine: "Bassin de vie de résidence", nom_destination: "Bassin de vie de travail",
+    nom_origine: "Zone d'emploi de résidence", nom_destination: "Zone d'emploi de travail",
     n: "Navetteurs", part_voiture: "Voiture (%)", part_transports: "Transports en commun (%)",
     part_marche_velo: "Marche, vélo (%)"
   },
@@ -602,7 +867,7 @@ Inputs.table(recherche, {
 //| echo: false
 DOM.download(
   () => new Blob([d3.csvFormat(flux)], {type: "text/csv"}),
-  "navettes_bassins_de_vie_2023.csv",
+  "navettes_zones_emploi_2023.csv",
   "Télécharger les liaisons (CSV)"
 )
 ```

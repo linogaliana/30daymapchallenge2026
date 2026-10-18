@@ -442,9 +442,13 @@ SELECT count(*), count(*) - (SELECT count(*) FROM salaries) FROM etablissements
 
 ```{python}
 #| echo: false
+from IPython.display import Markdown
+
+
 def nombre(x):
-    """Entier avec l'espace des milliers, à la française."""
-    return f"{x:,.0f}".replace(",", " ")
+    """Entier avec l'espace des milliers, à la française. En Markdown : en ligne
+    (`{python}`), une chaîne serait montrée par son repr, qui code cette espace fine."""
+    return Markdown(f"{x:,.0f}".replace(",", " "))
 ```
 
 Seuls **`{python} nombre(perdus)`** établissements employeurs sur **`{python} nombre(employeurs)`** n'ont pas de zone d'emploi.

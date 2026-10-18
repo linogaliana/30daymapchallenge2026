@@ -512,6 +512,35 @@ button.ecouter:hover {
   gap: 0.4em;
 }
 
+/* J2 : les navettes de la zone choisie, sous la carte */
+.navettes {
+  margin-top: 1rem;
+}
+
+.navettes h4 {
+  margin-top: 0;
+}
+
+.navettes ol {
+  padding-left: 1.4em;
+}
+
+.modes p {
+  margin-bottom: 0.3em;
+}
+
+.modes .barre {
+  display: flex;
+  height: 14px;
+  margin-bottom: 1rem;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.modes .barre span + span {
+  margin-left: 1px;
+}
+
 /* J13 : la carte des musées et le graphique du musée choisi, côte à côte sur grand écran */
 @media (min-width: 992px) {
   .duo-musees {

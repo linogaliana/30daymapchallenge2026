@@ -11,7 +11,7 @@ charte:
   sombre: "#3fc1c9"
 ---
 
-Comme tout commence par la naissance 👶, pour la première journée du [*30 day map challenge*](https://30daymapchallenge.com/) sur le thème [**"Points"**]{.underline color="#0A5927"}, on va représenter la localisation des [maternités françaises en 2024]{.underline} et [celles qui ont fermé depuis 2000]{.underline color="#ce614a"}. 
+Comme tout commence par la naissance 👶, pour la première journée du [*30 day map challenge*](https://30daymapchallenge.com/) sur le thème [**"Points"**]{.underline color="#0A5927"}, on va représenter la localisation des [maternités françaises en 2024]{.underline} et [celles qui ont fermé depuis 2000]{.underline color="#ce614a"} à partir des données du [SSM Santé (Drees)]{.underline color="#0A5927"}
 
 -------------------------------
 
