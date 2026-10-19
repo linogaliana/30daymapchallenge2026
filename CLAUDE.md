@@ -19,7 +19,7 @@ Ne jamais faire `git commit` ni `git push`, sauf demande explicite. Ne pas non p
 
 ## Ce qui n'est pas versionné
 
-`_site/`, `_freeze/` et les données produites au rendu (`jours/donnees/`, écrites par J3, J7, J9, J10, J11 et J14) : tout se reconstruit à partir des `.qmd`. En CI, `_freeze/` est gardé dans le cache d'Actions. Ne rien écrire de généré ailleurs que dans ces dossiers.
+`_site/`, `_freeze/` et les données produites au rendu (`jours/donnees/`, écrites par J3, J4, J7, J9, J10, J11 et J14) : tout se reconstruit à partir des `.qmd`. En CI, `_freeze/` est gardé dans le cache d'Actions. Ne rien écrire de généré ailleurs que dans ces dossiers.
 
 ## Une page de jour
 

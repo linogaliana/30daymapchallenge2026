@@ -15,8 +15,6 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/RA2020_1013_SAU_Communes.zip
 - source: https://static.data.gouv.fr/resources/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/20261001-073823/stock-stocketablissement-parquet.parquet
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/stock-stocketablissement-parquet.parquet
-- source: https://www.insee.fr/fr/statistiques/fichier/4652957/ZE2020_au_01-01-2026.zip
-  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/ZE2020_au_01-01-2026.zip
 - source: https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/datasets/la-demographie-des-professionnels-de-sante-depuis-2012/attachments/medecins_rpps_2012_2026_xlsx
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/medecins.xlsx
 - source: https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-evaluations_nationales_6eme_departement/exports/parquet

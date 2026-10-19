@@ -440,15 +440,15 @@ Inputs.table(equipements_apercu, {
 
 ### Les lieux d'exemple avec `cartiflette`
 
-Sept communes, de Paris à Langogne (Lozère, moins de 3 000 habitants), servent d'exemples : leurs isochrones sont calculées au rendu, la carte s'ouvre sur la première. On prend le centre géométrique de chaque commune, lue avec le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) ; le filtre `where=` ne lit que ces sept communes.
+Huit communes, de Paris à Langogne (Lozère, moins de 3 000 habitants), servent d'exemples : leurs isochrones sont calculées au rendu, la carte s'ouvre sur la première. On prend le centre géométrique de chaque commune, lue avec le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) ; le filtre `where=` ne lit que ces huit communes.
 
 ```{python}
 #| output: false
 #| filename: "Les lieux d'exemple (cartiflette)"
 from cartiflette import carti_download
 
-# Paris, Lyon, Rennes, Clermont-Ferrand, Guéret, Mende, Langogne.
-LIEUX = ["75056", "69123", "35238", "63113", "23096", "48095", "48080"]
+# Paris, Lyon, Rennes, Grenoble, Clermont-Ferrand, Guéret, Mende, Langogne.
+LIEUX = ["75056", "69123", "35238", "38185", "63113", "23096", "48095", "48080"]
 
 communes = carti_download(
     values="France",

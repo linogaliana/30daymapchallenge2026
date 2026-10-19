@@ -2,6 +2,8 @@
 title: "J4 · Clusters. Les districts industriels"
 description: "Décolletage, coutellerie, horlogerie, lunetterie : des industries regroupées dans quelques vallées, d'après le répertoire Sirene."
 image: vignettes/04-clusters.webp
+resources:
+  - donnees/j4/*.json
 execute:
   echo: true
 code-overflow: wrap
@@ -11,7 +13,9 @@ charte:
   sombre: "#6da7ec"
 ---
 
-Après les champs, les ateliers 🏭. Pour la quatrième journée du [*30 day map challenge*](https://30daymapchallenge.com/), on cherche les [districts industriels]{.underline} : des [établissements]{.underline color="#eb6834"} d'une même activité, très précise, regroupés dans quelques vallées.
+Après les champs, les ateliers 🏭. Pour la quatrième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Clusters"**]{.underline color="#0A5927"}), on cherche les [districts industriels]{.underline} : des [établissements]{.underline color="#eb6834"} d'un même secteur industriel regroupés à proximité. Pour cela, on va utiliser le [[répertoire Sirene]{.underline}](https://www.insee.fr/fr/metadonnees/source/serie/s1236) de l'[Insee]{.underline color="#0A5927"} (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
 
 ::: {.content-visible when-format="html"}
 
@@ -20,9 +24,9 @@ Après les champs, les ateliers 🏭. Pour la quatrième journée du [*30 day ma
 // Les trois activités les plus concentrées dans une seule zone d'emploi.
 concentrees = d3.sort(activites, (a) => -a.pole_part).slice(0, 3)
 html`<p class="lead">
-  <span class="souligne">${pourcent(concentrees[0].pole_part)}</span> des salariés ${concentrees[0].de}
+  <span class="souligne">${majuscule(environ(concentrees[0].pole_part))}</span> des salariés ${concentrees[0].de}
   travaillent dans la zone d'emploi <span class="souligne">${concentrees[0].pole_nom}</span> ; c'est
-  ${concentrees.slice(1).map((a) => `${pourcent(a.pole_part)} en ${a.nom.toLowerCase()}
+  ${concentrees.slice(1).map((a) => `${environ(a.pole_part)} en ${a.nom.toLowerCase()}
   (<span class="souligne">${a.pole_nom}</span>)`).join(" et ")}.
   Ces districts, hérités d'un savoir-faire local, se voient sur la carte comme des
   <span class="souligne" style="--souligne: ${couleurPoint}">amas de points</span> dans quelques
@@ -43,9 +47,9 @@ Plot.legend({color: echelle, width: 320})
 
 ```{ojs}
 //| echo: false
-html`<div class="multiples">${activites.map((a) => html`<figure>
+html`<div class="multiples multiples-centres">${activites.map((a) => html`<figure>
   <figcaption><strong>${a.nom}</strong><br>
-  <small>${pourcent(a.pole_part)} des salariés en zone d'emploi ${a.pole_nom}</small></figcaption>
+  <small>${majuscule(environ(a.pole_part))} des salariés en zone d'emploi ${a.pole_nom}</small></figcaption>
   ${carte(a, {width: 320, domain: metropole})}
 </figure>`)}</div>`
 ```
@@ -107,21 +111,200 @@ viewof choix = Inputs.select(new Map(activites.map((a) => [a.nom, a])), {label: 
 
 ```{ojs}
 //| echo: false
-centres = new Map(zones.features.map((f) => [f.properties.ze, d3.geoCentroid(f)]))
-function dansCadre(ze) {
-  const [lon, lat] = centres.get(ze) ?? [NaN, NaN]
-  const [[o, s], [e, n]] = choix.cadre
-  return lon >= o && lon <= e && lat >= s && lat <= n
+conteneur = html`<div style="height: min(75vh, 620px); border-radius: 4px"></div>`
+```
+
+<small>Fond de carte : Plan IGN. Survolez une commune ou un établissement pour le détail.</small>
+
+```{ojs}
+//| echo: false
+maplibregl = {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
 }
-// Les zones d'emploi les plus spécialisées du cadre, nommées sur la carte.
-voisines = d3.sort(
-  specialisation.filter((d) => d.activite === choix.cle && d.indice >= 5 && dansCadre(d.ze)),
-  (d) => -d.salaries
-).slice(0, 5).map((d) => d.ze)
-// Sens des aiguilles d'une montre : sinon, d3 prend tout le globe sauf le cadre.
-cadreGeo = (([[o, s], [e, n]]) =>
-  ({type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}))(choix.cadre)
-carte(choix, {width: 760, domain: cadreGeo, etiquettes: voisines, inset: 0})
+
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris.
+styleClair = fetch(
+  "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+).then((r) => r.json())
+
+styleSombre = {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
+```
+
+```{ojs}
+//| echo: false
+// La carte n'est créée qu'une fois ; le choix de l'activité change ses données,
+// le thème son style (et les couleurs de nos couches).
+carteZoom = {
+  const map = new maplibregl.Map({
+    container: conteneur,
+    style: document.body.classList.contains("quarto-dark") ? styleSombre : styleClair,
+    bounds: activites[0].cadre,
+    attributionControl: {customAttribution: "Insee, IGN"}
+  })
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+  const vide = {type: "FeatureCollection", features: []}
+  map.donnees = {zones: vide, communes: vide, points: vide}
+  map.couleurs = couleursPour(document.body.classList.contains("quarto-dark"))
+  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre).
+  const ajouterCouches = () => {
+    const c = map.couleurs
+    map.addSource("zones", {type: "geojson", data: map.donnees.zones, promoteId: "ze"})
+    map.addSource("communes", {type: "geojson", data: map.donnees.communes, promoteId: "code"})
+    map.addSource("points", {type: "geojson", data: map.donnees.points})
+    map.addLayer({
+      id: "zones", type: "fill", source: "zones",
+      paint: {
+        "fill-color": ["step", ["get", "indice"], "rgba(0, 0, 0, 0)",
+          ...SEUILS.flatMap((s, i) => [s, c.classes[i]])],
+        "fill-opacity": 0.6
+      }
+    })
+    // Invisible : sert à savoir quelle commune est sous la souris.
+    map.addLayer({id: "communes", type: "fill", source: "communes", paint: {"fill-opacity": 0}})
+    map.addLayer({
+      id: "communes-contours", type: "line", source: "communes",
+      paint: {
+        "line-color": c.trait,
+        "line-opacity": ["case", ["boolean", ["feature-state", "survol"], false], 1, 0.35],
+        "line-width": ["case", ["boolean", ["feature-state", "survol"], false], 2, 0.5]
+      }
+    })
+    map.addLayer({
+      id: "zones-contours", type: "line", source: "zones",
+      paint: {
+        "line-color": c.trait,
+        "line-opacity": 0.8,
+        "line-width": ["case", ["boolean", ["feature-state", "survol"], false], 2.5, 1]
+      }
+    })
+    // Surface proportionnelle aux salariés ; les cercles grossissent quand on zoome.
+    const racine = ["sqrt", ["get", "salaries"]]
+    map.addLayer({
+      id: "points", type: "circle", source: "points",
+      layout: {"circle-sort-key": ["-", 0, ["get", "salaries"]]},
+      paint: {
+        "circle-color": c.point,
+        "circle-opacity": 0.8,
+        "circle-stroke-color": c.fond,
+        "circle-stroke-width": 0.6,
+        "circle-radius": ["interpolate", ["linear"], ["zoom"],
+          7, ["max", 1.5, ["*", 0.3, racine]],
+          12, ["max", 4, ["*", 0.9, racine]]
+        ]
+      }
+    })
+  }
+  map.on("style.load", ajouterCouches)
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  // Survol : l'établissement s'il y en a un sous la souris, sinon la commune et sa zone.
+  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "300px"})
+  let survols = []
+  const eteindre = () => {
+    for (const f of survols) map.setFeatureState(f, {survol: false})
+    survols = []
+  }
+  map.on("mousemove", (e) => {
+    eteindre()
+    const sous = (couche) => map.queryRenderedFeatures(e.point, {layers: [couche]})[0]
+    const point = sous("points"), commune = sous("communes"), zone = sous("zones")
+    if (!point && !commune && !zone) {
+      map.getCanvas().style.cursor = ""
+      bulle.remove()
+      return
+    }
+    for (const [f, source] of [[commune, "communes"], [zone, "zones"]]) {
+      if (f) survols.push({source, id: f.id})
+    }
+    for (const f of survols) map.setFeatureState(f, {survol: true})
+    map.getCanvas().style.cursor = point ? "pointer" : ""
+    bulle.setLngLat(e.lngLat).setHTML(
+      point ? map.decrire.point(point.properties) : map.decrire.lieu(commune?.properties, zone?.properties)
+    ).addTo(map)
+  })
+  map.getCanvas().addEventListener("mouseleave", () => {
+    eteindre()
+    bulle.remove()
+  })
+  return map
+}
+```
+
+```{ojs}
+//| echo: false
+decrirePoint = (p) => `<strong>${choix.nom}</strong><br>${p.commune}<br>
+  ${p.tranche}, soit environ ${entier(p.salaries)} salariés`
+
+function decrireLieu(commune, zone) {
+  const d = zone && indices.get(choix.cle)?.get(zone.ze)
+  const detail = !zone ? ""
+    : d ? `Zone d'emploi <strong>${zone.nom}</strong><br>
+      ${entier(d.salaries)} salariés environ ${choix.de}, ${d.etablissements} établissement${d.etablissements > 1 ? "s" : ""}<br>
+      ${majuscule(environ(d.part))} des salariés de France · indice ${d.indice.toLocaleString("fr-FR", {maximumFractionDigits: 1})}`
+    : `Zone d'emploi <strong>${zone.nom}</strong><br>Aucun établissement employeur ${choix.de}`
+  return `${commune ? `<strong>${commune.nom}</strong><br>` : ""}${detail}`
+}
+
+// Les communes du cadre, chargées quand on choisit l'activité.
+communesZoom = fetch(`donnees/j4/${choix.cle}.json`).then((r) => r.json())
+
+// Les données de l'activité choisie. Cellules nommées : Quarto n'affiche pas leur valeur.
+miseAJour = {
+  carteZoom.decrire = {point: decrirePoint, lieu: decrireLieu}
+  carteZoom.donnees = {
+    zones: {
+      type: "FeatureCollection",
+      features: zones.features.map((f) => ({
+        ...f,
+        properties: {...f.properties, indice: indices.get(choix.cle)?.get(f.properties.ze)?.indice ?? 0}
+      }))
+    },
+    communes: communesZoom,
+    points: {
+      type: "FeatureCollection",
+      features: points.filter((d) => d.activite === choix.cle).map((d) => ({
+        type: "Feature", properties: d, geometry: {type: "Point", coordinates: [d.lon, d.lat]}
+      }))
+    }
+  }
+  for (const [nom, donnees] of Object.entries(carteZoom.donnees)) carteZoom.getSource(nom)?.setData(donnees)
+  carteZoom.fitBounds(choix.cadre, {padding: 10})
+  return choix.cle
+}
+
+theme = {
+  carteZoom.couleurs = couleursPour(sombre)
+  const style = sombre ? styleSombre : styleClair
+  if (carteZoom.styleCourant !== undefined && carteZoom.styleCourant !== style) {
+    carteZoom.setStyle(style, {diff: false})
+  }
+  carteZoom.styleCourant = style
+  return sombre
+}
 ```
 
 ```{ojs}
@@ -131,7 +314,7 @@ carte(choix, {width: 760, domain: cadreGeo, etiquettes: voisines, inset: 0})
   return html`<p style="font-size: 1.1em">En zone d'emploi <strong>${choix.pole_nom}</strong>,
   ${d.etablissements} établissements employeurs ${choix.de} emploient environ
   <span style="color:${texteBleu}">${entier(d.salaries)} salariés</span>, soit
-  ${pourcent(d.part)} de ceux de France et ${pourcent(d.salaries / d.total, 1)}
+  ${environ(d.part)} de ceux de France et ${environ(d.salaries / d.total)}
   des salariés de la zone : <strong>${Math.round(d.indice)} fois plus</strong> qu'en moyenne en France.</p>`
 }
 ```
@@ -151,16 +334,24 @@ stylePlot = `--plot-background: ${fond}; background: transparent`
 // Indice en classes, une teinte de bleu qui fonce (en clair) ou s'éclaircit
 // (en sombre) avec la spécialisation. En dessous de 2, pas de couleur.
 SEUILS = [2, 5, 20, 100]
+// Couleurs d'un thème ; une fonction, pour que la carte du zoom ne soit pas recréée
+// quand le thème change (elle ne fait que changer de style).
+couleursPour = (estSombre) => ({
+  classes: estSombre
+    ? ["#184f95", "#2a78d6", "#6da7ec", "#b7d3f6"]
+    : ["#b7d3f6", "#6da7ec", "#2a78d6", "#184f95"],
+  point: estSombre ? "#d95926" : "#eb6834",
+  fond: estSombre ? "#222" : "#fff",
+  trait: estSombre ? "#ddd" : "#333"
+})
 echelle = ({
   type: "threshold",
   domain: SEUILS,
-  range: ["transparent", ...(sombre
-    ? ["#184f95", "#2a78d6", "#6da7ec", "#b7d3f6"]
-    : ["#b7d3f6", "#6da7ec", "#2a78d6", "#184f95"])],
+  range: ["transparent", ...couleursPour(sombre).classes],
   label: "Indice de spécialisation",
   tickFormat: (d) => `${d}`
 })
-couleurPoint = sombre ? "#d95926" : "#eb6834"
+couleurPoint = couleursPour(sombre).point
 texteBleu = sombre ? "#6da7ec" : "#2a78d6"
 // Taille des points : surface proportionnelle aux salariés, avec un minimum
 // pour que les petits établissements restent visibles.
@@ -169,12 +360,16 @@ indices = d3.index(specialisation, (d) => d.activite, (d) => d.ze)
 // Pourcentages à la française : « 53 % », « 13,8 % ».
 pourcent = (x, chiffres = 0) => x.toLocaleString("fr-FR", {style: "percent", maximumFractionDigits: chiffres})
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
+// Un ordre de grandeur, arrondi à la dizaine : les salariés sont estimés à partir
+// de tranches d'effectif, un pourcentage à l'unité serait trompeusement précis.
+environ = (x) => (x < 0.05 ? "moins de 5 %" : `autour de ${Math.round(10 * x) * 10} %`)
+majuscule = (texte) => texte[0].toUpperCase() + texte.slice(1)
 
 function bulle(activite) {
   return ({properties: p}) => {
     const d = indices.get(activite)?.get(p.ze)
     return d
-      ? `${p.nom}\n${entier(d.salaries)} salariés environ, ${d.etablissements} établissement${d.etablissements > 1 ? "s" : ""}\n${pourcent(d.part)} des salariés de France\nIndice : ${d.indice.toLocaleString("fr-FR", {maximumFractionDigits: 1})}`
+      ? `${p.nom}\n${entier(d.salaries)} salariés environ, ${d.etablissements} établissement${d.etablissements > 1 ? "s" : ""}\n${majuscule(environ(d.part))} des salariés de France\nIndice : ${d.indice.toLocaleString("fr-FR", {maximumFractionDigits: 1})}`
       : `${p.nom}\nAucun établissement employeur`
   }
 }
@@ -199,7 +394,7 @@ function carte(a, {width, domain, etiquettes = [a.pole_ze], inset = 4}) {
         text: (f) => f.properties.nom, dy: -14, fontSize: 11, fontWeight: 600,
         fill: "currentColor", stroke: fond, strokeWidth: 3, clip: "frame"
       })),
-      Plot.tip(zones.features, Plot.pointer(Plot.centroid({title: bulle(a.cle)})))
+      Plot.tip(zones.features, Plot.pointer(Plot.centroid({fill: fond, title: bulle(a.cle)})))
     ]
   })
 }
@@ -207,9 +402,11 @@ function carte(a, {width, domain, etiquettes = [a.pole_ze], inset = 4}) {
 
 :::
 
-Ces activités ont en commun d'être très anciennes et très localisées : le décolletage dans la vallée de l'Arve, la coutellerie à Thiers, l'horlogerie dans le Doubs, la lunetterie dans le Haut-Jura. Le savoir-faire, la main-d'œuvre formée et les sous-traitants se sont concentrés au même endroit, et y sont restés.
+----------------------------
 
-**On s'appuie pour le J4 sur [le répertoire Sirene de l'[Insee](https://www.insee.fr/)]{.underline}**, qui recense tous les établissements avec leur activité, leur position et leur nombre de salariés (voir @tip-pour-aller-plus-loin pour aller plus loin).
+Plusieurs activités industrielles sont concentrées dans des espaces géographiques restreints. Ces activités ont en commun d'être très anciennes et très localisées : le décolletage dans la vallée de l'Arve, la coutellerie à Thiers, l'horlogerie dans le Doubs, la lunetterie dans le Haut-Jura.
+
+La théorie économique de la nouvelle économie géographique, qui a orienté des politiques économiques comme les pôles de compétitivité, a mis en avant ce type de concentration comme étant particulièrement efficace. Comment la concentration des emplois se voit-elle dans les données diffusées par l'Insee ?
 
 # Making of
 
@@ -219,26 +416,26 @@ La carte croise trois sources publiques :
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Base Sirene des établissements](https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/), stock au 1^er^ octobre 2026 | Insee | l'activité, la tranche d'effectif, la commune et la position de chaque établissement | Parquet |
-| [Zones d'emploi 2020](https://www.insee.fr/fr/information/4652957), géographie au 1^er^ janvier 2026 | Insee | le nom de chaque zone d'emploi | Excel |
-| [Communes et zones d'emploi 2026](https://github.com/InseeFrLab/cartiflette) | IGN et Insee, via cartiflette | la zone d'emploi de chaque commune et le contour des zones | GeoParquet |
+| [Base Sirene des établissements](https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/), stock au 1^er^ octobre 2026 | Insee | l'activité, la tranche d'effectif, la commune et la position de chaque établissement | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Zones d'emploi 2020](https://www.insee.fr/fr/information/4652957), API Métadonnées | Insee | le nom de chaque zone d'emploi | {{< iconify vscode-icons file-type-json >}} JSON |
+| [Communes et zones d'emploi 2026](https://github.com/InseeFrLab/cartiflette) | IGN et Insee, via cartiflette | la zone d'emploi de chaque commune et le contour des zones | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les jours précédents, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) pour les étapes de travail de données.
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
 #| filename: "Configuration de l'environnement"
+import itertools
 import json
+import math
 import pathlib
-import tempfile
-import zipfile
 
 import duckdb
+import pandas as pd
 import requests
 
 con = duckdb.connect()
 con.sql("""
-INSTALL excel; LOAD excel;
 INSTALL spatial; LOAD spatial;
 SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
 SET enable_progress_bar = false
@@ -250,19 +447,20 @@ SET enable_progress_bar = false
 {{< include _liens/04-clusters.py >}}
 ```
 
-### Les établissements (Sirene)
+### Les établissements (Insee, répertoire Sirene)
 
-Le [[répertoire Sirene]{.underline}](https://www.insee.fr/fr/metadonnees/source/serie/s1236) immatricule les entreprises et leurs établissements. Le fichier stock des établissements, publié chaque mois en Parquet, compte une ligne par établissement, ouvert ou fermé, avec
+Le [[répertoire Sirene]{.underline}](https://www.insee.fr/fr/metadonnees/source/serie/s1236) immatricule les entreprises et leurs établissements. Le fichier stock des établissements, publié chaque mois, compte une ligne par établissement, ouvert ou fermé, avec
 
-- son activité principale (code [NAF rév. 2](https://www.insee.fr/fr/information/2406147)) ;
-- sa commune et sa position en Lambert 93 ;
-- sa tranche d'effectif salarié.
+- son état administratif (`etatAdministratifEtablissement`), `A` s'il est actif ;
+- son activité principale (`activitePrincipaleEtablissement`), en code [NAF rév. 2](https://www.insee.fr/fr/information/2406147) ;
+- sa commune (`codeCommuneEtablissement`) et sa position en Lambert 93 (`coordonneeLambertAbscisseEtablissement`, `coordonneeLambertOrdonneeEtablissement`) ;
+- sa tranche d'effectif salarié (`trancheEffectifsEtablissement`).
 
-Le serveur de data.gouv.fr répond aux requêtes partielles : DuckDB ne lit que les colonnes utiles du fichier de 2,2 Go. On garde les établissements ouverts qui ont des salariés : la tranche `NN` regroupe ceux qui n'en ont pas (ou dont l'effectif est inconnu), la tranche `00` ceux qui en ont eu dans l'année mais aucun au 31 décembre.
+Le fichier est en {{< iconify vscode-icons file-type-parquet >}} `Parquet` ([documentation](https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/)) : le serveur répond aux requêtes partielles, et {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` ne lit que les colonnes utiles du fichier de 2,2 Go. On garde les établissements ouverts qui ont des salariés : la tranche `NN` regroupe ceux qui n'en ont pas (ou dont l'effectif est inconnu), la tranche `00` ceux qui en ont eu dans l'année mais aucun au 31 décembre.
 
 ```{python}
 #| output: false
-#| filename: "Lecture des établissements (Sirene)"
+#| filename: "Lecture des établissements (Insee, Sirene)"
 con.sql(f"""
 CREATE TABLE etablissements AS
 SELECT siret, codeCommuneEtablissement AS code, activitePrincipaleEtablissement AS naf,
@@ -279,9 +477,11 @@ WHERE etatAdministratifEtablissement = 'A'
 
 ```{python}
 #| echo: false
-ojs_define(etablissements_apercu=con.sql("""
+apercu = con.sql("""
 SELECT * EXCLUDE (siret) FROM etablissements USING SAMPLE 500 ROWS (reservoir, 42)
-""").df().to_dict("records"))
+""").df()
+# NaN n'existe pas en JSON : les coordonnées manquantes passent en null.
+ojs_define(etablissements_apercu=apercu.astype(object).where(apercu.notna(), None).to_dict("records"))
 ```
 
 ```{ojs}
@@ -298,28 +498,21 @@ Inputs.table(etablissements_apercu, {
 
 :::
 
-### Les noms des zones d'emploi (Insee)
+### Les noms des zones d'emploi (Insee, API Métadonnées)
 
-Une [zone d'emploi](https://www.insee.fr/fr/metadonnees/definition/c1361) est un ensemble de communes où la plupart des actifs résident et travaillent : le bon niveau pour repérer un bassin industriel. L'Insee diffuse leur liste, avec leur nom, dans un classeur Excel compressé.
+Une [zone d'emploi](https://www.insee.fr/fr/metadonnees/definition/c1361) est un ensemble de communes où la plupart des actifs résident et travaillent : le bon niveau pour repérer un bassin industriel. Leur code (par exemple `8414` pour la vallée de l'Arve) est un peu cryptique, et leur nom n'est pas dans cartiflette : comme au J2, on le demande à l'[API Métadonnées](https://api.insee.fr/catalogue/) de l'Insee, qui renvoie en {{< iconify vscode-icons file-type-json >}} `JSON` le code (`code`) et le nom (`intitule`) de chaque zone d'emploi 2020.
 
 ```{python}
 #| output: false
-#| filename: "Lecture des noms des zones d'emploi"
-with tempfile.TemporaryDirectory() as dossier:
-    archive = pathlib.Path(dossier) / "ze.zip"
-    reponse = requests.get(SOURCES["ze"], timeout=120)
-    reponse.raise_for_status()
-    archive.write_bytes(reponse.content)
-    with zipfile.ZipFile(archive) as z:
-        z.extractall(dossier)
-    # L'en-tête est en ligne 6.
-    con.sql(f"""
-    CREATE TABLE libelles AS
-    SELECT ZE2020 AS ze, LIBZE2020 AS nom
-    FROM read_xlsx('{dossier}/ZE2020_au_01-01-2026.xlsx', sheet = 'ZE2020',
-                   range = 'A6:C400', header = true, all_varchar = true)
-    WHERE ZE2020 IS NOT NULL
-    """)
+#| filename: "Noms des zones d'emploi (API Métadonnées de l'Insee)"
+reponse = requests.get(
+    "https://api.insee.fr/metadonnees/geo/zonesDEmploi2020",
+    headers={"Accept": "application/json"},
+    timeout=60,
+)
+reponse.raise_for_status()
+noms_ze = pd.DataFrame(reponse.json())[["code", "intitule"]]
+con.sql("CREATE TABLE libelles AS SELECT code AS ze, intitule AS nom FROM noms_ze")
 ```
 
 ### Les communes et les zones d'emploi avec `cartiflette`
@@ -341,11 +534,18 @@ parametres = dict(
     con=con,
 )
 
-communes_arrondissements = carti_download(borders="COMMUNE_ARRONDISSEMENT", **parametres)
-zones_emploi = carti_download(borders="ZONE_EMPLOI", where="AREA = 'metropole'", **parametres)
+communes_arrondissements = carti_download(
+  borders="COMMUNE_ARRONDISSEMENT",
+  **parametres
+)
+zones_emploi = carti_download(
+  borders="ZONE_EMPLOI",
+  where="AREA = 'metropole'",
+  **parametres
+)
 ```
 
-Comme au J1, ces relations DuckDB ne sont pas encore lues : on s'en sert dans `con.sql` par leur nom de variable.
+Comme `cartiflette` renvoie un *dataframe* `DuckDB`, on peut mettre en oeuvre des traitements ultérieurs (ici sélectionner seulement les variables qui nous intéressent) avant même de télécharger les données. `DuckDB` viendra optimiser les requêtes SQL sur ces tables virtuelles.
 
 ```{python}
 #| output: false
@@ -363,7 +563,7 @@ con.sql("CREATE TABLE zones AS SELECT ZE2020 AS ze, geometry FROM zones_emploi")
 
 ### Estimer les salariés de chaque établissement
 
-Sirene ne donne pas l'effectif exact, seulement une tranche (de 1 ou 2 salariés à 10 000 et plus), ici celle de 2024. On prend le milieu de chaque tranche : une estimation grossière pour un établissement, mais qui se compense en partie quand on somme des centaines d'établissements.
+Sirene ne donne pas l'effectif exact, seulement une tranche (de 1 ou 2 salariés à 10 000 et plus), ici celle de 2024. Jusqu'à 9 999 salariés, on prend le milieu de chaque tranche : une estimation grossière pour un établissement, mais qui se compense en partie quand on somme des centaines d'établissements.
 
 ```{python}
 #| output: false
@@ -382,15 +582,45 @@ TRANCHES = [
     ("42", "1 000 à 1 999 salariés", 1499.5),
     ("51", "2 000 à 4 999 salariés", 3499.5),
     ("52", "5 000 à 9 999 salariés", 7499.5),
-    ("53", "10 000 salariés et plus", 10000),
+    ("53", "10 000 salariés et plus", None),  # tiré au hasard, plus bas
 ]
 con.sql("CREATE TABLE tranches (tranche VARCHAR, libelle VARCHAR, salaries DOUBLE)")
 con.executemany("INSERT INTO tranches VALUES (?, ?, ?)", TRANCHES)
 ```
 
+```{python}
+#| echo: false
+from IPython.display import Markdown
+
+
+def nombre(x):
+    """Entier avec l'espace des milliers, à la française. En Markdown : en ligne
+    (`{python}`), une chaîne serait montrée par son repr, qui code cette espace fine."""
+    return Markdown(f"{x:,.0f}".replace(",", " "))
+```
+
+La dernière tranche, 10 000 salariés et plus, n'a pas de milieu. Elle ne compte qu'une dizaine d'établissements (un CHU, Disneyland Paris, Airbus à Toulouse…), mais chacun pèse lourd dans sa zone d'emploi. On tire leur effectif dans une loi de Pareto, celle qu'on utilise d'habitude pour la queue de distribution des tailles d'entreprises et d'établissements : le nombre d'établissements de plus de $x$ salariés décroît comme $x^{-\alpha}$. Le paramètre $\alpha$ est estimé sur Sirene, à partir du nombre d'établissements d'au moins 5 000 et d'au moins 10 000 salariés.
+
+```{python}
+#| output: false
+#| filename: "Loi de Pareto pour les 10 000 salariés et plus"
+au_moins_5000, au_moins_10000 = con.sql("""
+SELECT count(*) FILTER (tranche IN ('52', '53')), count(*) FILTER (tranche = '53')
+FROM etablissements
+""").fetchone()
+# Deux fois plus de salariés, (au_moins_5000 / au_moins_10000) fois moins d'établissements.
+ALPHA = math.log(au_moins_5000 / au_moins_10000) / math.log(2)
+```
+
+Avec **`{python} nombre(au_moins_10000)`** établissements d'au moins 10 000 salariés pour **`{python} nombre(au_moins_5000)`** d'au moins 5 000, $\alpha$ vaut **`{python} Markdown(f"{ALPHA:.1f}".replace(".", ","))`**, et un établissement de cette tranche compte en moyenne $10\,000 \times \alpha / (\alpha - 1)$, soit environ **`{python} nombre(round(10000 * ALPHA / (ALPHA - 1), -2))`** salariés. 
+
+Pour que le résultat ne change pas d'un rendu à l'autre, le tirage n'utilise pas un générateur aléatoire : le nombre « au hasard » entre 0 et 1 est calculé à partir du numéro siret de l'établissement, par une fonction de hachage. Le même établissement reçoit donc toujours le même effectif.
+
 ### Choisir les activités
 
-Six activités dont le code NAF désigne un savoir-faire précis. Les articles en plastique regroupent deux codes : les pièces techniques et les autres articles (emballages exceptés).
+Nous allons garder six activités particulièrement concentrées géographiquement[^naf].
+
+[^naf]: N'étant pas spécialiste de la riche nomenclature des activités françaises, j'ai laissé Claude me sélectionner les codes qu'il jugeait pertinent. 
 
 ```{python}
 #| output: false
@@ -422,14 +652,20 @@ con.executemany(
 
 ### Rattacher chaque établissement à sa zone d'emploi
 
-Par le code de sa commune. Quelques établissements ont un code commune ancien ou étranger et sont laissés de côté.
-
+On localise les établissements à leur commune avec l'appui du COG. 
 ```{python}
 #| output: false
 #| filename: "Zone d'emploi de chaque établissement"
-con.sql("""
+con.sql(f"""
 CREATE TABLE salaries AS
-SELECT e.*, t.salaries, c.ze, c.territoire, a.activite
+SELECT e.*,
+       coalesce(
+           t.salaries,
+           -- 10 000 salariés et plus : tirage dans la loi de Pareto, par l'inverse de sa
+           -- fonction de répartition, avec u entre 0 et 1 tiré du siret.
+           10000 * pow(1 - hash(e.siret) / 18446744073709551616, -1 / {ALPHA})
+       ) AS salaries,
+       c.ze, c.territoire, a.activite
 FROM etablissements e
 JOIN tranches t USING (tranche)
 JOIN communes c USING (code)
@@ -438,17 +674,6 @@ LEFT JOIN activites a USING (naf)
 employeurs, perdus = con.sql("""
 SELECT count(*), count(*) - (SELECT count(*) FROM salaries) FROM etablissements
 """).fetchone()
-```
-
-```{python}
-#| echo: false
-from IPython.display import Markdown
-
-
-def nombre(x):
-    """Entier avec l'espace des milliers, à la française. En Markdown : en ligne
-    (`{python}`), une chaîne serait montrée par son repr, qui code cette espace fine."""
-    return Markdown(f"{x:,.0f}".replace(",", " "))
 ```
 
 Seuls **`{python} nombre(perdus)`** établissements employeurs sur **`{python} nombre(employeurs)`** n'ont pas de zone d'emploi.
@@ -485,8 +710,6 @@ JOIN france f USING (activite)
 JOIN libelles l USING (ze)
 """)
 ```
-
-Pour chaque activité, son pôle : parmi les zones d'emploi au moins cinq fois plus spécialisées que la France, celle qui rassemble le plus de salariés de l'activité. Un district réunit plusieurs entreprises : on écarte les zones où l'activité tient à moins de cinq établissements (à Château-Thierry, un seul fait de la lunetterie une spécialité). Le zoom est centré sur le pôle.
 
 ```{python}
 #| output: false
@@ -533,7 +756,7 @@ Inputs.table(poles_apercu, {
 
 ### Placer les établissements
 
-Chaque établissement des six activités est placé à sa position Sirene, reprojetée de Lambert 93 en longitude, latitude ; à défaut, au milieu de sa commune. La carte se limite à la métropole, où se trouvent les districts.
+Chaque établissement est placé à partir des coordonnées disponibles dans la base de données, reprojetée de Lambert 93 en longitude, latitude (au milieu de sa commune si les coordonnées manquent). 
 
 ```{python}
 #| output: false
@@ -579,7 +802,7 @@ Inputs.table(points_par_activite, {
 
 ### Simplifier les zones d'emploi
 
-Les contours des zones d'emploi sont simplifiés ensemble (`ST_CoverageSimplify`, environ 500 m) : ils restent jointifs, sans trou ni chevauchement, et la page reste légère.
+Les contours des zones d'emploi sont simplifiés ensemble (`ST_CoverageSimplify`, environ 500 m) puisqu'on n'a pas besoin d'une résolution exceptionnelle pour notre carte. 
 
 ```{python}
 #| output: false
@@ -596,6 +819,47 @@ SELECT codes[path[1]] AS ze, l.nom,
 FROM morceaux JOIN libelles l ON l.ze = codes[path[1]]
 GROUP BY ALL
 """).fetchall()
+```
+
+On crée un fichier GeoJSON par zone d'emploi, pour que la carte du zoom n'ait pas à charger toutes les zones d'emploi de France.
+
+```{python}
+#| output: false
+#| filename: "Un fichier GeoJSON de communes par zoom"
+SORTIE = pathlib.Path("donnees/j4")
+SORTIE.mkdir(parents=True, exist_ok=True)
+for ancien in SORTIE.glob("*.json"):
+    ancien.unlink()
+
+cadres = poles[["ouest", "sud", "est", "nord"]].reset_index()
+lignes = con.sql("""
+WITH zoom AS (
+    SELECT z.activite, c.code, c.nom, c.geometry
+    FROM cadres z
+    JOIN communes c ON ST_Intersects(c.geometry, ST_MakeEnvelope(z.ouest, z.sud, z.est, z.nord))
+),
+couverture AS (
+    SELECT activite, list(code ORDER BY code) AS codes, list(nom ORDER BY code) AS noms,
+           ST_CoverageSimplify(list(geometry ORDER BY code), 0.003) AS geom
+    FROM zoom GROUP BY activite
+),
+morceaux AS (SELECT activite, codes, noms, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT activite, codes[path[1]] AS code, noms[path[1]] AS nom,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Collect(list(geom)), 0.0005))
+FROM morceaux
+GROUP BY ALL
+ORDER BY activite
+""").fetchall()
+
+for activite, communes_cadre in itertools.groupby(lignes, key=lambda ligne: ligne[0]):
+    collection = {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": {"code": code, "nom": nom}, "geometry": json.loads(geojson)}
+            for _, code, nom, geojson in communes_cadre
+        ],
+    }
+    (SORTIE / f"{activite}.json").write_text(json.dumps(collection, separators=(",", ":")))
 ```
 
 ::: {.content-visible when-format="html"}
@@ -633,7 +897,7 @@ ojs_define(
 
 ## Les données de la carte
 
-Lorsqu'on fait toutes ces étapes, on obtient pour chaque activité et chaque zone d'emploi où elle est présente : ses établissements employeurs, ses salariés estimés, la part de ceux de France et l'indice de spécialisation. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
 
 <br>
 
@@ -685,12 +949,13 @@ DOM.download(
 
 :::
 
-## Précautions
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
-- Les salariés sont estimés au milieu de la tranche d'effectif : un établissement de 250 à 499 salariés compte pour 374,5. Dans une zone où l'activité tient à un ou deux gros établissements, l'indice est donc approximatif.
-- Sirene classe chaque établissement dans une seule activité, la principale : un décolleteur déclaré en mécanique générale (`25.62B`) n'est pas compté.
-- La tranche d'effectif est celle de 2024, et le répertoire n'est pas toujours à jour des fermetures : quelques établissements peuvent avoir cessé leur activité.
-- Les établissements sans salarié (artisans, auto-entrepreneurs) ne sont pas sur la carte. À Thiers, 36 des 58 établissements de coutellerie ouverts au 1^er^ octobre 2026 n'ont pas de salarié.
+- Les salariés sont estimés au milieu de la tranche d'effectif : un établissement de 250 à 499 salariés compte pour 374,5. Au-delà de 10 000 salariés, l'effectif est tiré au hasard : il peut s'écarter de beaucoup de la réalité pour un établissement donné. Dans une zone où l'activité tient à un ou deux gros établissements, l'indice est donc approximatif ; c'est pourquoi les parts sont données en ordre de grandeur, arrondies à la dizaine.
+- Sirene classe chaque établissement dans une seule activité, la principale.
+- Les établissements sans salarié (artisans, auto-entrepreneurs) ne sont pas sur la carte. 
+:::
 
 ## Références {.unnumbered}
 

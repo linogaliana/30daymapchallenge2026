@@ -581,3 +581,15 @@ button.ecouter:hover {
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 0.8em 1em;
 }
+
+/* Petits multiples dont la dernière ligne, incomplète, est centrée (J4) */
+.multiples-centres {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.multiples-centres figure {
+  flex: 0 1 320px;
+  min-width: 0;
+}
