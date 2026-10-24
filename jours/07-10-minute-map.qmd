@@ -12,7 +12,9 @@ charte:
   sombre: "#9085e9"
 ---
 
-Pour la septième journée du [*30 day map challenge*](https://30daymapchallenge.com/), dix minutes, mais au sens de la durée ⏱️ : qu'est-ce qu'on atteint en [dix minutes]{.underline} depuis chez soi ? On regarde les [équipements sportifs]{.underline color="#2a78d6"} (stades, gymnases, piscines, courts de tennis, boulodromes…), à pied et en voiture.
+Après la carte de 1826, le temps de trajet ⏱️. Pour la septième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"10 minute map"**]{.underline color="#0A5927"}), les dix minutes sont prises au sens de la durée : qu'est-ce qu'on atteint en [dix minutes]{.underline} depuis chez soi ? On regarde les [équipements sportifs]{.underline color="#2a78d6"} (stades, gymnases, piscines, courts de tennis, boulodromes…), à pied et en voiture. Pour cela, on s'appuie sur le [[recensement des équipements sportifs]{.underline}](https://equipements.sports.gouv.fr/explore/dataset/data-es/) de l'[INJEP]{.underline color="#0A5927"}, le service statistique ministériel du sport, et sur le service de calcul d'isochrones de l'[IGN]{.underline color="#0A5927"} (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
 
 ::: {.content-visible when-format="html"}
 
@@ -75,7 +77,12 @@ conteneur = html`<div style="height: min(70vh, 620px); border-radius: 4px"></div
 
 :::
 
-<small>Source : INJEP, [recensement des équipements sportifs (Data ES)](https://equipements.sports.gouv.fr/explore/dataset/data-es/) ; IGN, service de calcul d'isochrones de la Géoplateforme, ADMIN EXPRESS COG CARTO 2026 via cartiflette. Fond de carte : Plan IGN. Survolez un équipement pour le détail.</small>
+<small>
+<i>Survolez un équipement pour le détail, cliquez sur la carte pour changer de point de départ.</i>
+
+Source : INJEP, [recensement des équipements sportifs (Data ES)](https://equipements.sports.gouv.fr/explore/dataset/data-es/) ; IGN, service de calcul d'isochrones de la Géoplateforme, ADMIN EXPRESS COG CARTO 2026 via cartiflette. Fond de carte : Plan IGN.
+
+</small>
 
 ::: {.content-visible when-format="html"}
 
@@ -331,6 +338,8 @@ theme = {
 
 :::
 
+----------------------------
+
 ::: {.content-visible when-format="html"}
 
 ```{ojs}
@@ -349,8 +358,6 @@ theme = {
 
 :::
 
-**On s'appuie pour le J7 sur [le recensement des équipements sportifs de l'[INJEP](https://injep.fr/)]{.underline}**, l'Institut national de la jeunesse et de l'éducation populaire, service statistique ministériel du sport, et sur le service de calcul d'itinéraires de l'IGN (voir @tip-pour-aller-plus-loin pour aller plus loin).
-
 # Making of
 
 ## Les données
@@ -359,11 +366,11 @@ La carte croise trois sources publiques :
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Data ES, recensement des équipements sportifs et lieux de pratique](https://equipements.sports.gouv.fr/explore/dataset/data-es/) | INJEP, ministère des Sports | la position, le type et l'accès libre de chaque équipement | Parquet |
-| [Service de calcul d'isochrones](https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire) | IGN, Géoplateforme | ce qu'on atteint en dix minutes, à pied et en voiture, sur le réseau de la BD TOPO | API |
-| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le centre des communes des lieux d'exemple | GeoParquet |
+| [Data ES, recensement des équipements sportifs et lieux de pratique](https://equipements.sports.gouv.fr/explore/dataset/data-es/) | INJEP, ministère des Sports | la position, le type et l'accès libre de chaque équipement | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Service de calcul d'isochrones](https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire) | IGN, Géoplateforme | ce qu'on atteint en dix minutes, à pied et en voiture, sur le réseau de la BD TOPO | {{< iconify vscode-icons file-type-json >}} GeoJSON (API) |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le centre des communes des lieux d'exemple | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les jours précédents, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) pour les étapes de travail de données.
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
@@ -392,7 +399,7 @@ SET enable_progress_bar = false
 
 ### Les équipements sportifs (INJEP, Data ES)
 
-Le [[recensement des équipements sportifs]{.underline}](https://equipements.sports.gouv.fr/explore/dataset/data-es/) (Data ES) décrit plus de 330 000 équipements, espaces et sites de pratique : leur position, leur type (185 types, du court de tennis au boulodrome), leur famille, leur propriétaire, leur accessibilité. Il est mis à jour en continu par les collectivités et les services de l'État, et diffusé sur un portail Opendatasoft qui l'exporte en Parquet.
+Le [[recensement des équipements sportifs]{.underline}](https://equipements.sports.gouv.fr/explore/dataset/data-es/) (Data ES) décrit plus de 330 000 équipements, espaces et sites de pratique : leur position, leur type (185 types, du court de tennis au boulodrome), leur famille, leur propriétaire, leur accessibilité. Il est mis à jour en continu par les collectivités et les services de l'État, et diffusé sur un portail Opendatasoft qui l'exporte en {{< iconify vscode-icons file-type-parquet >}} `Parquet` : {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` le lit directement à son adresse.
 
 On garde la position, le type et l'accès libre, et on écarte les équipements sans coordonnées et ceux dont l'installation est déclarée hors service.
 
@@ -473,7 +480,15 @@ ORDER BY population DESC
 
 ### Les isochrones (IGN, Géoplateforme)
 
-Une isochrone est la zone qu'on atteint depuis un point en un temps donné. Le [[service de calcul d'isochrones]{.underline}](https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire) de la Géoplateforme de l'IGN la calcule sur le réseau routier et piéton de la BD TOPO, en voiture (`car`) ou à pied (`pedestrian`). Il ne demande pas de clé et renvoie un polygone GeoJSON.
+Une isochrone est la zone qu'on atteint depuis un point en un temps donné. Le [[service de calcul d'isochrones]{.underline}](https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire) de la Géoplateforme de l'IGN la calcule sur le réseau routier et piéton de la BD TOPO, en voiture (`car`) ou à pied (`pedestrian`). Il ne demande pas de clé et renvoie un polygone {{< iconify vscode-icons file-type-json >}} `GeoJSON`.
+
+<details>
+<summary>Détails techniques</summary>
+
+Le service limite le nombre de requêtes : une session `requests` réessaie, en attendant de plus en plus longtemps, quand il refuse (code 429) ou tombe en panne (codes 500 à 504).
+
+</details>
+
 
 ```{python}
 #| output: false
@@ -738,7 +753,7 @@ function dansPolygone([x, y], geometrie) {
 
 ## Les données de la carte
 
-Lorsqu'on fait toutes ces étapes, on obtient pour chaque lieu d'exemple le nombre d'équipements à dix minutes, à pied et en voiture, par groupe. La carte est faite en `Javascript` avec [MapLibre](https://maplibre.org/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+Après toutes ces étapes, on obtient pour chaque lieu d'exemple le nombre d'équipements à dix minutes, à pied et en voiture, par groupe. La carte est faite en `Javascript` avec [MapLibre](https://maplibre.org/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
 
 <br>
 
@@ -809,13 +824,15 @@ DOM.download(
 
 :::
 
-## Précautions
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - Les isochrones sont théoriques : la voiture roule aux vitesses de la BD TOPO, sans embouteillage ni temps pour se garer ; le piéton marche à vitesse constante. Le polygone à pied, peu détaillé, est un ordre de grandeur.
 - Le point de départ des lieux d'exemple est le centre géométrique de la commune, pas sa mairie ni son centre-ville.
 - Le vélo et les transports en commun manquent : le service de l'IGN ne propose que la voiture et la marche.
 - Data ES dépend des déclarations des collectivités : un équipement peut manquer, ou être recensé alors qu'il a fermé. Un « équipement » peut être un grand stade comme un panier de basket : les compter ne dit rien de leur taille ni de leurs horaires d'ouverture.
 - Accès libre ne veut pas dire gratuit ni ouvert à tous : c'est ce que déclare le gestionnaire.
+:::
 
 ## Références {.unnumbered}
 
