@@ -1,0 +1,40 @@
+# Profil par défaut : le site complet, avec les jours dans la barre de navigation.
+website:
+  navbar:
+    left:
+      - text: "Semaine 1 · J1 à J7"
+        menu:
+          - jours/01-points.qmd
+          - jours/02-lines.qmd
+          - jours/03-polygons.qmd
+          - jours/04-clusters.qmd
+          - jours/05-sight.qmd
+          - jours/06-vintage.qmd
+          - jours/07-10-minute-map.qmd
+      - text: "Semaine 2 · J8 à J14"
+        menu:
+          - jours/08-utopia.qmd
+          - jours/09-urban-rural.qmd
+          - jours/10-prompting-only.qmd
+          - jours/11-sound.qmd
+          - jours/12-power.qmd
+          - jours/13-interactions.qmd
+          - jours/14-borgesian-map.qmd
+      - text: "Semaine 3 · J15 à J21"
+        menu:
+          - jours/15-inside-out.qmd
+          - jours/16-collaborative-map.qmd
+          - jours/17-light-dark.qmd
+          - jours/19-smell.qmd
+          - jours/18-null.qmd
+          - jours/21-openstreetmap.qmd
+          - jours/20-hexagons.qmd
+      - text: "Semaine 4 · J22 à J28"
+        menu:
+          - jours/22-projections.qmd
+          - jours/23-taste.qmd
+          - jours/24-network.qmd
+          - jours/25-is-this-a-map.qmd
+          - jours/26-water.qmd
+          - jours/28-feeling.qmd
+      - about.qmd

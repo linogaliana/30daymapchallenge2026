@@ -19,12 +19,17 @@ for (const item of items) {
 // premier point ou point d'interrogation (« Urban-rural. », « Is this a map? »).
 const sujet = (titre) => (titre || "").replace(/^J\d+\s*·\s*.*?[.?]\s+/, "")
 const faites = [...pages.values()].filter((item) => item.image).length
+// Profil wip (`wip: true` dans _quarto-wip.yml) : tous les jours sont « en préparation »,
+// sans lien vers leur page.
+const wip = items.some((item) => item.wip)
 %>
 <div class="calendrier list">
+  <% if (!wip) { %>
   <div class="calendrier-avancement">
     <span><strong><%= faites %></strong> cartes sur 30</span>
     <span class="jauge"><span style="width: <%= (100 * faites / 30).toFixed(1) %>%"></span></span>
   </div>
+  <% } %>
 <% for (let semaine = 0; semaine < 5; semaine++) { %>
   <% const premier = 7 * semaine + 1, dernier = Math.min(premier + 6, 30) %>
   <h2 class="calendrier-semaine anchored" id="semaine-<%= semaine + 1 %>">
@@ -33,10 +38,11 @@ const faites = [...pages.values()].filter((item) => item.image).length
   <div class="calendrier-grille">
   <% for (let jour = premier; jour <= dernier; jour++) { %>
     <% const item = pages.get(jour), date = new Date(2026, 10, jour) %>
-    <% const etat = item && item.image ? "faite" : item ? "en-cours" : "a-venir" %>
-    <% const balise = item ? "a" : "div" %>
-    <<%= balise %> class="case case-<%= etat %>" data-jour="<%= jour %>"<% if (item) { %> href="<%- item.path %>"<% } %>
-      <% if (item && item.description) { %> title="<%= item.description %>"<% } %>>
+    <% const etat = item && item.image && !wip ? "faite" : item ? "en-cours" : "a-venir" %>
+    <% const lien = item && !wip %>
+    <% const balise = lien ? "a" : "div" %>
+    <<%= balise %> class="case case-<%= etat %>" data-jour="<%= jour %>"<% if (lien) { %> href="<%- item.path %>"<% } %>
+      <% if (lien && item.description) { %> title="<%= item.description %>"<% } %>>
       <% if (etat === "faite") { %>
         <img src="<%- item.image %>" alt="Carte du jour <%= jour %> : <%= sujet(item.title) %>" loading="lazy">
       <% } %>

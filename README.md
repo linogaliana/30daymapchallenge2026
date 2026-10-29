@@ -16,7 +16,7 @@ Les calculs sont mis en cache dans `_freeze/` (`freeze: auto`) : une page n'est 
 
 ## Publication
 
-À chaque push sur `main`, GitHub Actions (`.github/workflows/publish.yml`) rend le site et le publie sur GitHub Pages ; sur une pull request, il le rend seulement, pour vérifier qu'il se construit. `_freeze/` est gardé d'une exécution à l'autre dans le cache d'Actions : seules les pages modifiées sont recalculées. Le premier rendu, ou un rendu après expiration du cache (7 jours sans usage), recalcule tout.
+À chaque push sur `main`, GitHub Actions (`.github/workflows/publish.yml`) rend le site et le publie sur GitHub Pages ; sur une pull request, il le rend seulement, pour vérifier qu'il se construit. Pour l'instant, le rendu utilise le profil `wip` (`_quarto-wip.yml`) : les jours de l'accueil sont tous « en préparation », sans lien, et la barre de navigation ne mène pas à leurs pages. Pour voir ce rendu en local : `uv run quarto preview --profile wip`. `_freeze/` est gardé d'une exécution à l'autre dans le cache d'Actions : seules les pages modifiées sont recalculées. Le premier rendu, ou un rendu après expiration du cache (7 jours sans usage), recalcule tout.
 
 Dans les réglages du dépôt, *Settings > Pages > Build and deployment*, la source doit être *GitHub Actions*.
 

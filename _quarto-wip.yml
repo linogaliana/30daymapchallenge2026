@@ -1,0 +1,9 @@
+# Profil wip (quarto render --profile wip), utilisé pour l'instant par GitHub Actions :
+# tous les jours de l'accueil sont « en préparation », sans lien, et la barre de
+# navigation ne mène pas aux pages des jours.
+wip: true
+
+website:
+  navbar:
+    left:
+      - about.qmd

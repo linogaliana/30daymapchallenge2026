@@ -42,8 +42,10 @@ jobs:
             freeze-${{ github.ref_name }}-
             freeze-main-
 
+      # Profil wip (_quarto-wip.yml) : cartes masquées sur l'accueil et dans la barre
+      # de navigation, le temps de la préparation.
       - name: Rendu
-        run: uv run quarto render
+        run: uv run quarto render --profile wip
 
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
