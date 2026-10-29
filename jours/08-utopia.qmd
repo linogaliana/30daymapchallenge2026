@@ -1,6 +1,7 @@
 ---
 title: "J8 · Utopia. Nulle part en France"
 description: "Utopia, c'est le lieu qui n'est nulle part : les carreaux de 1 km de France métropolitaine où personne n'habite, d'après les données carroyées de l'Insee."
+image: vignettes/08-utopia.webp
 execute:
   echo: true
 code-overflow: wrap

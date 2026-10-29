@@ -1,6 +1,7 @@
 ---
 title: "J7 · 10 minute map. Le sport à dix minutes"
 description: "Les équipements sportifs qu'on atteint en dix minutes, à pied ou en voiture, d'après le recensement des équipements sportifs."
+image: vignettes/07-10-minute-map.webp
 resources:
   - donnees/j7/*.json
 execute:

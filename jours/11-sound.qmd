@@ -1,6 +1,7 @@
 ---
 title: "J11 · Sound. Un suffixe, six prononciations"
 description: "Cognac, Choisy, Vitré, Vénissieux : le même suffixe gaulois -acum s'entend différemment d'une région à l'autre. Les noms des 35 000 communes, classés par leur terminaison."
+image: vignettes/11-sound.webp
 resources:
   - donnees/j11/*.csv
 execute:

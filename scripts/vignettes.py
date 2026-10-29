@@ -2,7 +2,8 @@
 
 Lit le site déjà rendu (`_site/`, après `quarto render`), le sert en local, et
 capture la première carte de chaque page (MapLibre ou Observable Plot), écrite
-en WebP dans `jours/vignettes/`. Les pages sans carte sont ignorées.
+en WebP dans `jours/vignettes/`. Les pages sans carte sont ignorées ; celles
+dont la carte a une bascule « Sans fond » sont capturées sans fond de carte.
 
     uv run --with playwright --with pillow python scripts/vignettes.py
 
@@ -27,6 +28,18 @@ LARGEUR = 800
 CARTES = ".maplibregl-map, svg[class^='plot']"
 # Rang de la carte à capturer quand ce n'est pas la première de la page.
 RANG = {}
+# Pages dont la vignette est un autre élément qu'une carte : son sélecteur, et le style
+# qui le met en forme pour la vignette.
+ELEMENTS = {
+    # J10 : la mosaïque des seize cartes, en 4 × 4, sans les sigles ni les cadres.
+    "10-prompting-only.html": (
+        ".mosaique",
+        """.mosaique { grid-template-columns: repeat(4, 1fr); width: 760px; gap: 0; margin: 0;
+                       padding: 8px; background: white }
+           .mosaique button, .mosaique button.actif { border: none; background: none; padding: 4px }
+           .mosaique-sigle, .mosaique-ministere { display: none }""",
+    ),
+}
 
 
 class Silencieux(http.server.SimpleHTTPRequestHandler):
@@ -47,7 +60,20 @@ def capturer(navigateur, url):
     )
     page.goto(url, wait_until="networkidle", timeout=180_000)
     page.add_style_tag(content=".maplibregl-ctrl-top-right { display: none }")
+    # Les cartes qui proposent de retirer le fond de carte sont capturées sans.
+    sans_fond = page.locator(".bascule .choix", has_text="Sans fond")
+    if sans_fond.count():
+        sans_fond.first.click()
     page.wait_for_timeout(5000)
+    if (nom := url.rsplit("/", 1)[-1]) in ELEMENTS:
+        selecteur, style = ELEMENTS[nom]
+        page.add_style_tag(content=style)
+        element = page.locator(selecteur).first
+        element.scroll_into_view_if_needed()
+        page.wait_for_timeout(1500)
+        image = element.screenshot()
+        page.close()
+        return image
     cartes = [
         e
         for e in page.query_selector_all(CARTES)
@@ -55,7 +81,7 @@ def capturer(navigateur, url):
     ]
     image = None
     if cartes:
-        carte = cartes[min(RANG.get(url.rsplit("/", 1)[-1], 0), len(cartes) - 1)]
+        carte = cartes[min(RANG.get(nom, 0), len(cartes) - 1)]
         carte.scroll_into_view_if_needed()
         page.wait_for_timeout(1500)
         image = carte.screenshot()

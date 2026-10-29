@@ -1,0 +1,12 @@
+/*-- scss:defaults --*/
+
+// Thème sombre : une ardoise bleutée plutôt que le gris neutre de darkly.
+$body-bg: #14171c;
+$body-color: #e4e2dc;
+$primary: #82b6e0;
+$link-color: $primary;
+$navbar-bg: $body-bg;
+$navbar-fg: $body-color;
+$navbar-hl: $primary;
+$footer-bg: $body-bg;
+$footer-fg: rgba($body-color, 0.65);

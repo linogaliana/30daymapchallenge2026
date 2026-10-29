@@ -1,6 +1,7 @@
 ---
 title: "J9 · Urban-rural. Rural, selon qui compte"
 description: "La même France est rurale à 21 % ou à 32 % selon la définition : les communes classées par le bâti continu (unités urbaines) et par la grille de densité de l'Insee."
+image: vignettes/09-urban-rural.webp
 resources:
   - donnees/j9/*.csv
 execute:

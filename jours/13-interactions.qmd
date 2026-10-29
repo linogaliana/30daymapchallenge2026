@@ -1,6 +1,7 @@
 ---
 title: "J13 · Interactions. Qui va au musée ?"
 description: "Les entrées dans les musées de France, de 2001 à 2024, musée par musée : cliquez sur la carte, le graphique suit."
+image: vignettes/13-interactions.webp
 resources:
   - donnees/j13/*.csv
   - donnees/j13/*.geojson

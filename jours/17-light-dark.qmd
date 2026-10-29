@@ -1,6 +1,7 @@
 ---
 title: "J17 · Light & dark. La France de jour, la France de nuit"
 description: "Où dorment les Français, où passent-ils la journée ? La population de chaque commune la nuit et le jour, d'après les navettes domicile-travail et domicile-études du recensement de 2023."
+image: vignettes/17-light-dark.webp
 resources:
   - donnees/j17/*.csv
 execute:

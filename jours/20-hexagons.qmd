@@ -1,6 +1,7 @@
 ---
 title: "J20 · Hexagons. L'école d'à côté"
 description: "La France métropolitaine en hexagones de 42 km² : d'où viennent les élèves des écoles publiques et privées qui s'y côtoient, d'après l'indice de position sociale de la DEPP."
+image: vignettes/20-hexagons.webp
 resources:
   - donnees/j20/*.csv
 execute:

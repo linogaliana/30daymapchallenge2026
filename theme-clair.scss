@@ -1,0 +1,13 @@
+/*-- scss:defaults --*/
+
+// Thème clair : un fond papier plutôt que le blanc de cosmo, une encre bleu
+// nuit pour les liens.
+$body-bg: #fbfaf6;
+$body-color: #1d2127;
+$primary: #1f5a87;
+$link-color: $primary;
+$navbar-bg: $body-bg;
+$navbar-fg: $body-color;
+$navbar-hl: $primary;
+$footer-bg: $body-bg;
+$footer-fg: rgba($body-color, 0.7);

@@ -12,13 +12,19 @@ const joursSemaine = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."]
 // Une page par jour : jours/01-points.qmd est le jour 1.
 const pages = new Map()
 for (const item of items) {
-  const numero = parseInt((item.path || "").split("/").pop(), 10)
+  const numero = parseInt((item.path || "").split(/[\\/]/).pop(), 10)
   if (numero) pages.set(numero, item)
 }
-// Sujet de la carte : le titre sans le préfixe « J1 · Points. ».
-const sujet = (titre) => (titre || "").replace(/^J\d+\s*·\s*[^.—–-]*[.—–-]\s*/, "")
+// Sujet de la carte : le titre sans le préfixe « J1 · Points. », jusqu'au
+// premier point ou point d'interrogation (« Urban-rural. », « Is this a map? »).
+const sujet = (titre) => (titre || "").replace(/^J\d+\s*·\s*.*?[.?]\s+/, "")
+const faites = [...pages.values()].filter((item) => item.image).length
 %>
 <div class="calendrier list">
+  <div class="calendrier-avancement">
+    <span><strong><%= faites %></strong> cartes sur 30</span>
+    <span class="jauge"><span style="width: <%= (100 * faites / 30).toFixed(1) %>%"></span></span>
+  </div>
 <% for (let semaine = 0; semaine < 5; semaine++) { %>
   <% const premier = 7 * semaine + 1, dernier = Math.min(premier + 6, 30) %>
   <h2 class="calendrier-semaine anchored" id="semaine-<%= semaine + 1 %>">
@@ -29,7 +35,7 @@ const sujet = (titre) => (titre || "").replace(/^J\d+\s*·\s*[^.—–-]*[.—�
     <% const item = pages.get(jour), date = new Date(2026, 10, jour) %>
     <% const etat = item && item.image ? "faite" : item ? "en-cours" : "a-venir" %>
     <% const balise = item ? "a" : "div" %>
-    <<%= balise %> class="case case-<%= etat %>"<% if (item) { %> href="<%- item.path %>"<% } %>
+    <<%= balise %> class="case case-<%= etat %>" data-jour="<%= jour %>"<% if (item) { %> href="<%- item.path %>"<% } %>
       <% if (item && item.description) { %> title="<%= item.description %>"<% } %>>
       <% if (etat === "faite") { %>
         <img src="<%- item.image %>" alt="Carte du jour <%= jour %> : <%= sujet(item.title) %>" loading="lazy">
@@ -46,4 +52,13 @@ const sujet = (titre) => (titre || "").replace(/^J\d+\s*·\s*[^.—–-]*[.—�
   </div>
 <% } %>
 </div>
+<script>
+// Le jour du défi, en novembre 2026 : la case est mise en évidence chez le lecteur.
+(function () {
+  const aujourdhui = new Date()
+  if (aujourdhui.getFullYear() !== 2026 || aujourdhui.getMonth() !== 10) return
+  const caseDuJour = document.querySelector('.case[data-jour="' + aujourdhui.getDate() + '"]')
+  if (caseDuJour) caseDuJour.classList.add("case-aujourdhui")
+})()
+</script>
 ```

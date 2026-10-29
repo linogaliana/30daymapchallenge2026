@@ -63,6 +63,46 @@ viewof internes = Inputs.toggle({label: "Navettes au sein de chaque zone", value
 
 ```{ojs}
 //| echo: false
+// Interrupteur à deux positions, d'après https://observablehq.com/@linogaliana/sliding-radio-button
+function bascule({libelles, valeurs, valeur = valeurs[0]}) {
+  const noeud = html`<div class="bascule">
+    <span class="choix">${libelles[0]}</span>
+    <label class="glissiere">
+      <input type="checkbox" aria-label="${libelles[0]} ou ${libelles[1]}">
+      <span></span>
+    </label>
+    <span class="choix">${libelles[1]}</span>
+  </div>`
+  const caseACocher = noeud.querySelector("input")
+  const [gauche, droite] = noeud.querySelectorAll(".choix")
+  const afficher = () => {
+    gauche.classList.toggle("actif", !caseACocher.checked)
+    droite.classList.toggle("actif", caseACocher.checked)
+  }
+  const choisir = (cochee) => {
+    caseACocher.checked = cochee
+    afficher()
+    noeud.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  caseACocher.onchange = () => choisir(caseACocher.checked)
+  gauche.onclick = () => choisir(false)
+  droite.onclick = () => choisir(true)
+  Object.defineProperty(noeud, "value", {
+    get: () => valeurs[caseACocher.checked ? 1 : 0],
+    set: (v) => {
+      caseACocher.checked = v === valeurs[1]
+      afficher()
+    }
+  })
+  noeud.value = valeur
+  return noeud
+}
+
+viewof fond = bascule({libelles: ["Plan IGN", "Sans fond"], valeurs: ["plan", "sans"]})
+```
+
+```{ojs}
+//| echo: false
 // Le conteneur de la carte ; la carte y écrit les zones cliquées (une ou deux).
 viewof selection = {
   const div = html`<div style="height: min(80vh, 760px); border-radius: 4px"></div>`
@@ -218,6 +258,25 @@ styleSombre = {
   return style
 }
 
+// Sans fond : du Plan IGN, on ne garde que les terres, la mer et les frontières.
+function styleSansFond(sombre) {
+  const terre = sombre ? "#3a3a3a" : "#ececec"
+  const eau = sombre ? "#222" : "white"
+  const peintures = {
+    "bckgrd": {"fill-color": terre},
+    "hydro surfacique": {"fill-color": eau, "fill-outline-color": eau},
+    "limite etat 1": {"line-color": sombre ? "#555" : "#d0d0d0", "line-width": 0.8}
+  }
+  return {
+    ...styleClair,
+    layers: styleClair.layers
+      .filter((couche) => couche.id in peintures)
+      .map((couche) => ({...couche, paint: peintures[couche.id]}))
+  }
+}
+sansFondClair = styleSansFond(false)
+sansFondSombre = styleSansFond(true)
+
 maplibregl = {
   const lien = document.createElement("link")
   lien.rel = "stylesheet"
@@ -337,7 +396,7 @@ carte = {
     }
   }
 
-  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre).
+  // Nos couches, à rajouter à chaque changement de style (thème clair/sombre, fond).
   const ajouterCouches = () => {
     const vide = {type: "FeatureCollection", features: []}
     map.addSource("zones", {type: "geojson", data: contours})
@@ -460,7 +519,9 @@ miseAJour = {
   return selection
 }
 theme = {
-  const style = sombre ? styleSombre : styleClair
+  const style = fond === "plan"
+    ? (sombre ? styleSombre : styleClair)
+    : (sombre ? sansFondSombre : sansFondClair)
   if (carte.styleCourant !== undefined && carte.styleCourant !== style) {
     carte.setStyle(style, {diff: false})
   }

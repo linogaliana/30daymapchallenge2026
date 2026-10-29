@@ -1,9 +1,12 @@
 project:
   type: website
 
+lang: fr
+
 website:
   title: "30daymapchallenge"
   navbar:
+    title: '30daymapchallenge<span class="navbar-sous-titre">2026 · Lino Galiana</span>'
     left:
       - href: index.qmd
         text: Accueil
@@ -47,6 +50,9 @@ website:
       - icon: github
         href: https://github.com/linogaliana/30daymapchallenge2026
         aria-label: Code du site
+  page-footer:
+    left: "Lino Galiana · #30DayMapChallenge 2026"
+    right: "Données de la statistique publique · [Code source](https://github.com/linogaliana/30daymapchallenge2026)"
 
 execute:
   freeze: auto
@@ -54,8 +60,8 @@ execute:
 format:
   html:
     theme:
-      light: [cosmo, theme.scss]
-      dark: [darkly, theme.scss]
+      light: [cosmo, theme.scss, theme-clair.scss]
+      dark: [darkly, theme.scss, theme-sombre.scss]
     respect-user-color-scheme: true
     css: styles.css
     # Le même thème de code, sombre, en clair et en sombre (voir theme.scss).
@@ -67,6 +73,7 @@ format:
       - approche.lua
       - copies.lua
       - charte.lua
+      - entete.lua
     toc: true
     author: Lino Galiana
 

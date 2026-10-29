@@ -1,6 +1,7 @@
 ---
 title: "J12 · Power. Qui sont les maires ?"
 description: "Sexe, âge, profession : les maires élus en 2026, commune par commune, d'après le répertoire national des élus."
+image: vignettes/12-power.webp
 resources:
   - donnees/j12/*.csv
   - donnees/j12/*.geojson

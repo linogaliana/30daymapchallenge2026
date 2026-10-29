@@ -1,5 +1,64 @@
 ---
-title: "About"
+title: "À propos"
+description: "Le défi, les données, les outils, et comment refaire les cartes chez soi."
 ---
 
-About this site
+## Le défi
+
+Le [#30DayMapChallenge](https://30daymapchallenge.com/) est un défi cartographique ouvert à tous : chaque jour de novembre, une carte sur un thème imposé (*Points*, *Lines*, *Polygons*, *NULL*, *Water*...). Chacun choisit ses données, ses outils et son style, et partage sa carte avec le mot-clé du défi.
+
+Pour l'édition 2026, ce site propose une carte par jour, du 1^er^ au 30 novembre. Le [calendrier de l'accueil](index.qmd) montre où en est le défi : les cartes publiées, celles en préparation et celles à venir.
+
+## Pourquoi la statistique publique
+
+Je veux montrer l'étendue des sujets que l'on peut explorer avec les données de la statistique publique française.
+
+Chaque carte repose sur des données ouvertes diffusées par l'une des 17 institutions du [service statistique public](https://www.insee.fr/fr/information/1302192) : l'Insee et les services statistiques des ministères (Drees, Depp, Dares, SDES, SSMSI...). D'autres  producteurs de données publiques, généralement diffusées sur [data.gouv](https://www.data.gouv.fr/) sont aussi mis à contribution quand le thème l'appelle : le principal est l'IGN puique ce site utilise à de nombreuses reprises les fonds de carte ou services de la géoplateforme (tuiles vectorielles et isochrones notamment).
+
+Au total, le site lit près de 75 fichiers sources. Le [tableau de l'accueil](index.qmd#les-sources-jour-par-jour) les reprend jour par jour, avec leurs producteurs.
+
+Le J10 est un jour un peu spécial, sur le thème *Prompting only*. Au lieu de se contenter d'une seule carte, il fait le tour de seize services statistiques ministériels, une carte chacun. Cela permet d'illustrer la manière dont les IA génératives peuvent aider à trouver des données et à les préparer pour la cartographie, mais aussi de montrer la diversité des sujets pour lesquels on peut être assisté par une IA.
+
+
+## Ce que contient une page
+
+Chaque jour suit le même plan :
+
+- la **carte interactive**, résultat final du travail. On peut généralement la survoler, zoomer ou filtrer. Le reste de la page explique comment on y est arrivé ;
+- **les données** : le tableau des sources, leur producteur, ce qu'on en tire et leur format ;
+- **les traitements** : tout le code, du téléchargement du fichier source à la table qui alimente la carte, avec des explications pas à pas ;
+- **les données de la carte** : un tableau consultable et un fichier CSV à télécharger ;
+- quand il le faut, des **précautions** de lecture, et des pistes **pour aller plus loin** : publications du producteur, études sur le même sujet.
+
+## Les outils
+
+Ce site s'appuie sur les outils que j'utilise au quotidien et qui constituent un ensemble d'outils complémtentaires pour créer des analyses de données reproductibles. 
+
+- **[Python](https://www.python.org/) et [DuckDB](https://duckdb.org/)** pour le traitement des données. DuckDB est un outil vraiment très efficace et malléable pour l'analyse de données spatiales. 
+- **[`cartiflette`](https://inseefrlab.github.io/cartiflette/)** pour simplifier la récupération des fonds de carte de l'IGN selon différents zonages (contours des communes, départements, zones d'emploi, etc.).
+- **[Observable Plot](https://observablehq.com/plot/)** pour la plupart des cartes, et **[MapLibre](https://maplibre.org/)** quand il faut un fond de carte zoomable (le [Plan IGN](https://geoservices.ign.fr/services-geoplateforme-diffusion) de la Géoplateforme me sert de tuiles).
+- **[Quarto](https://quarto.org/)** pour assembler le texte, le code et les cartes en un site reproductible.
+
+## Refaire les cartes chez soi
+
+Tout le site est reproductible : rien n'est préparé à la main, chaque page repart des fichiers diffusés en *open data*. Le code complet est sur [GitHub](https://github.com/linogaliana/30daymapchallenge2026). Avec [uv](https://docs.astral.sh/uv/), qui installe Python, Quarto et les packages nécessaires :
+
+```bash
+git clone https://github.com/linogaliana/30daymapchallenge2026.git
+cd 30daymapchallenge2026
+uv sync
+uv run quarto render jours/01-points.qmd   # une page
+uv run quarto render                       # tout le site, dans _site/
+```
+
+Télécharger plus de 70 fichiers à chaque rendu expose à des blocages temporaires de certains sites. Les fichiers sont donc lus, par défaut, depuis une copie sur le stockage du [SSP Cloud](https://datalab.sspcloud.fr/). Leur adresse officielle reste toujours indiquée : elle figure en commentaire dans la cellule « Les sources » de chaque page, au-dessus de la copie, et il suffit de la reprendre pour repartir de la source originale.
+
+## Précautions
+
+Ces cartes sont des exercices de cartographie, pas des publications officielles. Les traitements font des choix (géographie communale de référence, seuils, regroupements) qui peuvent donner des chiffres différents de ceux des producteurs. Chaque page signale les choix qui comptent dans sa partie « Précautions ».
+
+## L'usage de l'IA
+
+Le code de ce site a majoritairement été généré avec l'appui d'une IA générative. Le texte a quant à lui été majoritairement écrit par moi.
+
+L'utilisation massive d'agents m'a permis de produire de nombreuses pages rapidement. Cependant, les agents faisant souvent des raccourcis douteux, des erreurs d'interprétation, ou ayant tendance à prendre des détours quand une ligne droite existe, j'ai souvent dû reprendre le code ou le texte généré (principalement le texte).  

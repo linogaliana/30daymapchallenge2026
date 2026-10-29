@@ -15,11 +15,13 @@ listing:
 
 # #30DayMapChallenge 2026 {.unnumbered .unlisted}
 
-[Le *30 day map challenge* illustré avec des données de la statistique publique, **reproductible entièrement**.]{.accueil-pitch}
+[Trente cartes, trente thèmes, toutes tirées de la statistique publique, et **entièrement reproductibles**.]{.accueil-pitch}
 
-Une carte par jour, du 1^er^ au 30 novembre, sur les thèmes du [défi](https://30daymapchallenge.com/). Les données viennent de l'Insee, de la Drees, de l'IGN et des autres producteurs de la statistique publique ; chaque page donne le code qui va du fichier source à la carte (DuckDB, Observable Plot), à refaire chez soi.
+Le [#30DayMapChallenge](https://30daymapchallenge.com/), c'est une carte par jour du 1^er^ au 30 novembre, chacune sur un thème imposé. Avec tout ce que diffuse la statistique publique française, la matière ne manque pas.
 
-[Le code du site](https://github.com/linogaliana/30daymapchallenge2026){.btn .btn-outline-primary .btn-sm}
+Chaque page part de données diffusées par une institution de la statistique publique et montre le code permettant de préparer la carte. De quoi la refaire chez soi, ou s'en inspirer pour faire la sienne.
+
+[Le code complet sur GitHub {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026){.btn .btn-outline-primary .btn-sm}
 
 :::
 
