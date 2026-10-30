@@ -6,6 +6,8 @@ execute:
   echo: true
 code-overflow: wrap
 number-sections: true
+resources:
+  - docs/*.pdf
 charte:
   couleur: "#009099"
   sombre: "#3fc1c9"
@@ -119,6 +121,7 @@ territoires = [
 
 ```{ojs}
 //| echo: false
+//| label: radio-button-territoire
 viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
 ```
 
@@ -422,7 +425,7 @@ Lire la dernière fiche sur les maternités dans la panorama des établissements
 </summary>
 
 ```{=html}
-<embed title="Fiche n°19, les établissements de santé en 2024" src="https://drees.solidarites-sante.gouv.fr/sites/default/files/2026-05/ES2026%20-%20Fiche%2019%20-%20Les%20maternit%C3%A9s_0.pdf" width="100%" height="480" />
+<embed title="Fiche n°19, les établissements de santé en 2024" src="docs/drees-fiche19-maternites-2026.pdf" type="application/pdf" width="100%" height="480" />
 ```
 
 </details>
@@ -446,6 +449,7 @@ En résumé, le code utilisé pour récupérer ces données s'appuie sur `Python
 ```{python}
 #| output: false
 #| filename: "Configuration de l'environnement"
+#| label: config-env
 import json
 
 import duckdb
@@ -564,6 +568,7 @@ On va avoir besoin de deux jeux de données :
 
 ```{python}
 #| filename: "Requête de lecture du FINESS géolocalisé"
+#| label: read-csv-finess-geoloc
 # Le CSV mêle deux types de lignes : "structureet" (l'établissement) et
 # "geolocalisation" (ses coordonnées), avec le système de coordonnées en clair.
 requete_finess = f"""CREATE TABLE finess AS
