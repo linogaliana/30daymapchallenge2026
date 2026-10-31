@@ -4,6 +4,7 @@ description: "La même France est rurale à 21 % ou à 32 % selon la définition
 image: vignettes/09-urban-rural.webp
 resources:
   - donnees/j9/*.csv
+  - donnees/j9/*.json
 execute:
   echo: true
 code-overflow: wrap
@@ -13,7 +14,7 @@ charte:
   sombre: "#f0a35e"
 ---
 
-Après les carreaux où personne n'habite, la frontière entre [la ville]{.underline color="#3a6aa8"} et [la campagne]{.underline color="#7fb069"} 🏘️🌾. Pour la neuvième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Urban-rural"**]{.underline color="#0A5927"}), on regarde la frontière elle-même : où passe-t-elle, et qui la trace ? La statistique publique en a eu [deux définitions]{.underline}, qui ne coupent pas la France au même endroit. Pour les comparer, on s'appuie sur la [[grille communale de densité]{.underline}](https://www.insee.fr/fr/information/8571524) et sur le zonage en unités urbaines de l'[Insee]{.underline color="#0A5927"} (voir @tip-pour-aller-plus-loin pour aller plus loin).
+Pour la neuvième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Urban-rural"**]{.underline color="#0A5927"}), on regarde l'évolution récente de la définition du rural en France. Pour comparer l'ancienne et la nouvelle définition, on s'appuie sur la [[grille communale de densité]{.underline}](https://www.insee.fr/fr/information/8571524) et sur le zonage en unités urbaines de l'[Insee]{.underline color="#0A5927"} (voir @tip-pour-aller-plus-loin pour aller plus loin).
 
 ---------------------------------
 
@@ -30,11 +31,8 @@ html`<p class="lead">
   zone de bâti continu de 2 000 habitants ou plus :
   <span class="souligne" style="--souligne: ${teintes.campagne}">${pourcent(totaux.rural_bati)} des habitants</span>
   vivaient alors à la campagne. Depuis, la définition officielle repose sur la densité de
-  population, et la part du rural passe à
+  population et la part du rural passe à
   <span class="souligne" style="--souligne: ${teintes.campagne}">${pourcent(totaux.rural_densite)}</span>.
-  Entre les deux, <span class="souligne">${entier(desaccords.rural_densite.communes)} communes et
-  ${millions(desaccords.rural_densite.population)} d'habitants</span> sont rurales par la densité,
-  mais urbaines par le bâti.
 </p>`
 ```
 
@@ -102,6 +100,49 @@ vues = [
 
 ```{ojs}
 //| echo: false
+// Interrupteur à deux positions, d'après https://observablehq.com/@linogaliana/sliding-radio-button
+function bascule({libelles, valeurs, valeur = valeurs[0]}) {
+  const noeud = html`<div class="bascule">
+    <span class="choix">${libelles[0]}</span>
+    <label class="glissiere">
+      <input type="checkbox" aria-label="${libelles[0]} ou ${libelles[1]}">
+      <span></span>
+    </label>
+    <span class="choix">${libelles[1]}</span>
+  </div>`
+  const caseACocher = noeud.querySelector("input")
+  const [gauche, droite] = noeud.querySelectorAll(".choix")
+  const afficher = () => {
+    gauche.classList.toggle("actif", !caseACocher.checked)
+    droite.classList.toggle("actif", caseACocher.checked)
+  }
+  const choisir = (cochee) => {
+    caseACocher.checked = cochee
+    afficher()
+    noeud.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  caseACocher.onchange = () => choisir(caseACocher.checked)
+  gauche.onclick = () => choisir(false)
+  droite.onclick = () => choisir(true)
+  Object.defineProperty(noeud, "value", {
+    get: () => valeurs[caseACocher.checked ? 1 : 0],
+    set: (v) => {
+      caseACocher.checked = v === valeurs[1]
+      afficher()
+    }
+  })
+  noeud.value = valeur
+  return noeud
+}
+
+// L'explorateur (MapLibre) est la vue par défaut ; la vignette capture la synthèse (Observable Plot).
+viewof affichage = bascule({
+  libelles: ["Synthèse", "Explorer"], valeurs: ["synthese", "explorer"], valeur: "explorer"
+})
+```
+
+```{ojs}
+//| echo: false
 viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[2]})
 ```
 
@@ -114,6 +155,7 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[2]}
 ```{ojs}
 //| echo: false
 {
+  if (affichage !== "synthese") return html``
   const couleur = (f) => vue.couleurs[vue.classe(f.properties)]
   return Plot.plot({
     width: 820,
@@ -126,7 +168,7 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[2]}
       Plot.geo(groupes, {fill: couleur}),
       Plot.geo(departements, {stroke: fond, strokeWidth: 0.6}),
       Plot.tip(communes, Plot.pointer({
-        x: "lon", y: "lat", maxRadius: 10,
+        x: "lon", y: "lat", maxRadius: 10, fill: fond,
         title: (c) => `${c.nom} (${c.code})\n${entier(c.population)} habitants\n` +
           `Densité : ${libelles7[c.densite7 - 1].toLowerCase()}\n` +
           (c.rural_bati ? "Hors unité urbaine" : "Dans une unité urbaine")
@@ -136,20 +178,239 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[2]}
 }
 ```
 
+```{ojs}
+//| echo: false
+// Raccourcis vers chaque territoire, comme pour les maternités (J1).
+territoires = [
+  ["Métropole", [[-5.2, 41.3], [9.6, 51.1]]],
+  ["Guadeloupe", [[-61.85, 15.8], [-61.0, 16.55]]],
+  ["Martinique", [[-61.25, 14.38], [-60.8, 14.9]]],
+  ["Guyane", [[-54.6, 2.1], [-51.6, 5.8]]],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]]],
+  ["Mayotte", [[44.95, -13.05], [45.35, -12.6]]]
+]
+viewof territoire = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+```
+
+```{ojs}
+//| echo: false
+conteneurExplorer = html`<div style="display: none; height: min(75vh, 680px); border-radius: 4px"></div>`
+```
+
+```{ojs}
+//| echo: false
+// L'explorateur (MapLibre) n'est chargé qu'à la première demande, puis gardé.
+explorerOuvert = Generators.observe((notifier) => {
+  const interrupteur = viewof affichage
+  const ecouter = () => {
+    if (interrupteur.value !== "explorer") return
+    notifier(true)
+    interrupteur.removeEventListener("input", ecouter)
+  }
+  notifier(interrupteur.value === "explorer")
+  interrupteur.addEventListener("input", ecouter)
+  return () => interrupteur.removeEventListener("input", ecouter)
+})
+afficherExplorer = {
+  for (const element of [conteneurExplorer, viewof territoire]) {
+    element.style.display = affichage === "explorer" ? "" : "none"
+  }
+  return affichage
+}
+redimensionner = {
+  afficherExplorer
+  carteExplorer?.resize()
+  return null
+}
+
+// En deçà de ce zoom, les groupes de communes fusionnés ; au-delà, les communes des
+// tuiles vectorielles de l'IGN (trop lourdes pour la France entière).
+ZOOM_COMMUNES = 8
+TUILES_ADMIN = "https://data.geopf.fr/tms/1.0.0/ADMIN_EXPRESS/{z}/{x}/{y}.pbf"
+parCode = new Map(communes.map((c) => [c.code, c]))
+sansClasse = sombre ? "#555" : "#bbb"
+
+chargerMaplibre = () => {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
+}
+
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris.
+assombrir = (styleClair) => {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
+
+// Couleurs de la vue choisie, sur les couches de la carte (rappelé à chaque changement de style).
+peindre = (map) => {
+  if (!map.peinture || !map.getSource("groupes")) return
+  const {groupes, communes, trait} = map.peinture
+  map.getSource("groupes").setData(groupes)
+  map.setPaintProperty("communes", "fill-color", communes)
+  for (const couche of ["communes-contours", "departements-bas", "departements-haut"]) {
+    map.setPaintProperty(couche, "line-color", trait)
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// La carte n'est créée qu'une fois ; le thème change son style, la vue ses couleurs.
+carteExplorer = {
+  if (!explorerOuvert) return null
+  const maplibregl = await chargerMaplibre()
+  const styleClair = await fetch(
+    "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+  ).then((r) => r.json())
+  const reels = await d3.json("donnees/j9/explorer.json")
+  const map = new maplibregl.Map({
+    container: conteneurExplorer,
+    style: document.body.classList.contains("quarto-dark") ? assombrir(styleClair) : styleClair,
+    bounds: territoires[0][1],
+    attributionControl: {customAttribution: "Insee, IGN"}
+  })
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+  map.styles = {clair: styleClair, sombre: null}
+  map.reels = reels
+  // Nos couches, sous les libellés du Plan IGN, à rajouter à chaque changement de style.
+  const ajouterCouches = () => {
+    const libelles = map.getStyle().layers.find((c) => c.type === "symbol")?.id
+    map.addSource("groupes", {type: "geojson", data: reels.groupes})
+    map.addSource("departements", {type: "geojson", data: reels.departements})
+    map.addSource("admin", {
+      type: "vector", tiles: [TUILES_ADMIN], minzoom: ZOOM_COMMUNES, maxzoom: 16,
+      promoteId: {commune: "code_insee"}
+    })
+    map.addLayer({
+      id: "groupes", type: "fill", source: "groupes", maxzoom: ZOOM_COMMUNES,
+      paint: {"fill-color": ["get", "couleur"], "fill-opacity": 0.75}
+    }, libelles)
+    map.addLayer({
+      id: "communes", type: "fill", source: "admin", "source-layer": "commune", minzoom: ZOOM_COMMUNES,
+      paint: {"fill-color": sansClasse, "fill-opacity": 0.7}
+    }, libelles)
+    map.addLayer({
+      id: "communes-contours", type: "line", source: "admin", "source-layer": "commune",
+      minzoom: ZOOM_COMMUNES,
+      paint: {
+        "line-color": "#333",
+        "line-opacity": ["case", ["boolean", ["feature-state", "survol"], false], 1, 0.25],
+        "line-width": ["case", ["boolean", ["feature-state", "survol"], false], 2.5, 0.5]
+      }
+    }, libelles)
+    map.addLayer({
+      id: "departements-bas", type: "line", source: "departements", maxzoom: ZOOM_COMMUNES,
+      paint: {"line-color": "#333", "line-opacity": 0.5, "line-width": 0.6}
+    }, libelles)
+    map.addLayer({
+      id: "departements-haut", type: "line", source: "admin", "source-layer": "departement",
+      minzoom: ZOOM_COMMUNES, paint: {"line-color": "#333", "line-opacity": 0.6, "line-width": 1.2}
+    }, libelles)
+    peindre(map)
+  }
+  map.on("style.load", ajouterCouches)
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "300px"})
+  let survol = null
+  const eteindre = () => {
+    if (survol !== null) map.setFeatureState({source: "admin", sourceLayer: "commune", id: survol}, {survol: false})
+    survol = null
+  }
+  map.on("mousemove", "communes", (e) => {
+    const {code_insee: code, nom_officiel: nom} = e.features[0].properties
+    eteindre()
+    survol = code
+    map.setFeatureState({source: "admin", sourceLayer: "commune", id: code}, {survol: true})
+    const c = parCode.get(code)
+    bulle.setLngLat(e.lngLat).setHTML(c
+      ? `<strong>${c.nom}</strong> (${c.code})<br>${entier(c.population)} habitants<br>` +
+        `Densité : ${libelles7[c.densite7 - 1].toLowerCase()}<br>` +
+        (c.rural_bati ? "Hors unité urbaine" : "Dans une unité urbaine")
+      : `<strong>${nom}</strong> (${code})<br>Absente de la grille 2025 : commune créée depuis`
+    ).addTo(map)
+  })
+  map.on("mouseleave", "communes", () => {
+    eteindre()
+    bulle.remove()
+  })
+  map.on("mousemove", "groupes", (e) => {
+    bulle.setLngLat(e.lngLat).setHTML(`${e.features[0].properties.description}<br>` +
+      `<i>Zoomez pour voir les communes.</i>`).addTo(map)
+  })
+  map.on("mouseleave", "groupes", () => bulle.remove())
+  return map
+}
+
+cadrage = carteExplorer?.fitBounds(territoire, {padding: 20})
+
+themeExplorer = {
+  if (!carteExplorer) return null
+  const styles = carteExplorer.styles
+  if (sombre && !styles.sombre) styles.sombre = assombrir(styles.clair)
+  const style = sombre ? styles.sombre : styles.clair
+  if (carteExplorer.styleCourant !== undefined && carteExplorer.styleCourant !== style) {
+    carteExplorer.setStyle(style, {diff: false})
+  }
+  carteExplorer.styleCourant = style
+  return sombre
+}
+
+peintureExplorer = {
+  if (!carteExplorer) return null
+  // Les groupes portent leur couleur ; les communes des tuiles la trouvent par leur code.
+  const groupes = {
+    ...carteExplorer.reels.groupes,
+    features: carteExplorer.reels.groupes.features.map((f) => {
+      const g = f.properties
+      return {...f, properties: {
+        couleur: vue.couleurs[vue.classe(g)],
+        description: `<strong>${libelles7[g.densite7 - 1]}</strong><br>` +
+          (g.rural_bati ? "Hors unité urbaine" : "Dans une unité urbaine")
+      }}
+    })
+  }
+  const classes = d3.groups(communes, (c) => vue.classe(c))
+  const communesCouleur = ["match", ["get", "code_insee"],
+    ...classes.flatMap(([k, liste]) => [liste.map((c) => c.code), vue.couleurs[k]]), sansClasse]
+  carteExplorer.peinture = {groupes, communes: communesCouleur, trait: sombre ? "#eee" : "#333"}
+  peindre(carteExplorer)
+  return vue.nom
+}
+```
+
 :::
 
 :::
 
 <small>
-<i>Survolez une commune pour le détail. Les départements d'outre-mer sont rapprochés de la métropole.</i>
+<i>Survolez une commune pour le détail. En synthèse, les départements d'outre-mer sont rapprochés de la métropole. Pour explorer, ils sont à leur place, sur le Plan IGN : les contours des communes apparaissent en zoomant.</i>
 
-Source : Insee, [grille communale de densité 2025](https://www.insee.fr/fr/information/8571524) et zonage en unités urbaines 2020 ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.
+Source : Insee, [grille communale de densité 2025](https://www.insee.fr/fr/information/8571524) et zonage en unités urbaines 2020 ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette, et ADMIN EXPRESS (tuiles vectorielles de la Géoplateforme) ; fond de carte : Plan IGN.
 
 </small>
 
-## Deux partages de la même population {.unnumbered}
-
-Une commune peut être dans une unité urbaine sans être dense : c'est le cas des bourgs et des petites villes, dont le bâti continu dépasse 2 000 habitants mais qui restent entourés de champs. Ce sont eux qui changent de camp. L'inverse est rare : quelques communes assez denses n'appartiennent à aucune unité urbaine.
+Une commune peut être dans une unité urbaine (ancienne définition) sans être dense (nouvelle définition) : c'est le cas des bourgs et des petites villes, dont le bâti continu dépasse 2 000 habitants mais qui sont peu denses et sont, ainsi, considérés comme ruraux dans la nouvelle définition.
 
 ::: {.content-visible when-format="html"}
 
@@ -182,42 +443,8 @@ Une commune peut être dans une unité urbaine sans être dense : c'est le cas d
 
 :::
 
-<small>Les couleurs sont celles de la carte. Population municipale 2022.</small>
-
-## Rurales, mais dans une ville {.unnumbered}
-
-Les plus peuplées des [communes rurales par la densité qui appartiennent à une unité urbaine]{.underline}. La plupart sont des communes nouvelles, nées de la fusion de plusieurs communes rurales autour d'un bourg : Sèvremoine, Beaupréau-en-Mauges ou Chemillé-en-Anjou, dans les Mauges, en regroupent chacune une dizaine. L'appartenance à une unité urbaine se décide pour la commune entière : il suffit que le bourg aggloméré compte 2 000 habitants pour que toute la commune, campagne comprise, soit urbaine au sens du bâti. La densité, elle, regarde l'ensemble du territoire communal. C'est la grande tache orange de l'Anjou sur la carte.
-
-::: {.content-visible when-format="html"}
-
-```{ojs}
-//| echo: false
-tableauCommunes = (lignes) => html`<table class="table">
-  <thead><tr><th>Commune</th><th>Département</th><th>Habitants</th><th>Niveau de densité</th></tr></thead>
-  <tbody>${lignes.map((c) => html`<tr><td>${c.nom}</td><td>${c.departement}</td>
-    <td>${entier(c.population)}</td><td>${libelles7[c.densite7 - 1]}</td></tr>`)}</tbody>
-</table>`
-tableauCommunes(exemples.rural_densite)
-```
-
-:::
-
-## Urbaines, mais hors de toute ville {.unnumbered}
-
-Les plus peuplées des [communes urbaines par la densité qui n'appartiennent à aucune unité urbaine]{.underline color="#8e44ad"}. Ce sont surtout des ceintures urbaines, autour de Lyon, de Paris ou de Caen : leurs carreaux font partie d'un agrégat assez dense, mais leur bâti, séparé de celui de la ville voisine, ne forme pas une zone continue de 2 000 habitants.
-
-::: {.content-visible when-format="html"}
-
-```{ojs}
-//| echo: false
-tableauCommunes(exemples.urbain_densite)
-```
-
-:::
 
 ----------------------------
-
-Aucune des deux définitions n'a tort : elles ne posent pas la même question. L'unité urbaine regarde si les maisons se touchent, la grille de densité combien d'habitants vivent sur chaque kilomètre carré. Les campagnes n'ont pas gagné d'habitants en 2020 : c'est la façon de les compter qui a changé, et avec elle les bourgs entourés de champs, rendus au rural.
 
 # Making of
 
@@ -228,7 +455,8 @@ La carte croise deux sources publiques :
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
 | [La grille communale de densité 2025](https://www.insee.fr/fr/information/8571524) | Insee | le niveau de densité de chaque commune (3 et 7 postes) et sa population municipale 2022 | {{< iconify vscode-icons file-type-excel >}} Excel |
-| [Communes 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune, outre-mer rapproché, et son unité urbaine 2020 | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Communes 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune, outre-mer rapproché ou à sa place, et son unité urbaine 2020 | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [ADMIN EXPRESS](https://cartes.gouv.fr/rechercher-une-donnee/dataset/IGNF_ADMIN-EXPRESS) | IGN, Géoplateforme | les contours détaillés des communes, lus par la carte à explorer | tuiles vectorielles |
 
 Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
@@ -257,9 +485,9 @@ SET enable_progress_bar = false
 
 ### La grille de densité (Insee)
 
-La [[grille communale de densité]{.underline}](https://www.insee.fr/fr/information/8571524) découpe le territoire en carreaux de 1 km de côté, peuplés d'après le recensement de 2021. Les carreaux contigus assez denses forment des agrégats : des centres urbains (au moins 1 500 habitants par km² et 50 000 habitants en tout) et des agrégats intermédiaires (au moins 300 habitants par km² et 5 000 habitants). Chaque commune est ensuite classée selon la part de sa population qui vit dans chaque type d'agrégat : urbaine dense, urbaine intermédiaire ou rurale. Une version en sept niveaux détaille l'urbain (grands centres urbains, centres intermédiaires, petites villes, ceintures urbaines) et le rural (bourgs ruraux, rural à habitat dispersé et très dispersé). C'est la définition européenne ([*degree of urbanisation*](https://ec.europa.eu/eurostat/web/degree-of-urbanisation)) que l'Insee a adoptée en 2020 pour définir le rural.
+La [[grille communale de densité]{.underline}](https://www.insee.fr/fr/information/8571524) découpe le territoire en carreaux de 1 km de côté à partir du recensement de 2021 (données carroyées que nous avons utilisées [hier](/jours/08-utopia.qmd)). Les carreaux contigus assez denses forment des agrégats : des centres urbains (au moins 1 500 habitants par km² et 50 000 habitants en tout) et des agrégats intermédiaires (au moins 300 habitants par km² et 5 000 habitants). Chaque commune est ensuite classée selon la part de sa population qui vit dans chaque type d'agrégat : urbaine dense, urbaine intermédiaire ou rurale. Une version en sept niveaux détaille l'urbain (grands centres urbains, centres intermédiaires, petites villes, ceintures urbaines) et le rural (bourgs ruraux, rural à habitat dispersé et très dispersé). La grille reprend la méthode européenne ([*degree of urbanisation*](https://ec.europa.eu/eurostat/web/degree-of-urbanisation)) ; c'est sur elle que l'Insee fonde depuis 2020 sa définition du rural, qui n'est plus pensée « en creux » de la ville ([D'Alessandro, Levy et Regnier, 2021](https://www.insee.fr/fr/statistiques/5039991?sommaire=5040030)).
 
-L'Insee publie un classeur {{< iconify vscode-icons file-type-excel >}} `Excel` par millésime du code officiel géographique : on prend celui de 2025, comme les contours. {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` le lit directement à son adresse.
+L'Insee publie un {{< iconify vscode-icons file-type-excel >}} `Excel` de sa typologie pour chaque millésime du code officiel géographique : on prend celui de 2025, comme les contours. {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` permet la lecture directe.
 
 <details>
 <summary>Détails techniques</summary>
@@ -399,13 +627,17 @@ ojs_define(croisement=croisement.to_dict("records"))
 
 ```{ojs}
 //| echo: false
+// Coche verte ou croix rouge, plus vives sur fond sombre.
+ouiNon = (b) => b
+  ? html`<span role="img" aria-label="oui" title="oui" style="color: ${sombre ? "#5fd07a" : "#1e8e3e"}; font-weight: bold">✓</span>`
+  : html`<span role="img" aria-label="non" title="non" style="color: ${sombre ? "#ff7b72" : "#d93025"}; font-weight: bold">✗</span>`
 Inputs.table(croisement, {
   header: {
-    rural_densite: "Rurale par la densité", rural_bati: "Rurale par le bâti",
+    rural_densite: "Rurale par la densité (nouvelle définition)", rural_bati: "Rurale par le bâti (ancienne définition)",
     communes: "Communes", population: "Population 2022", part: "Part de la population"
   },
   format: {
-    rural_densite: (b) => (b ? "oui" : "non"), rural_bati: (b) => (b ? "oui" : "non"),
+    rural_densite: ouiNon, rural_bati: ouiNon,
     communes: entier, population: entier, part: pourcent
   },
   layout: "auto"
@@ -440,50 +672,15 @@ desaccords = {
 }
 ```
 
-Les communes les plus peuplées de chaque désaccord, montrées dans les tableaux du haut de la page :
-
-```{python}
-#| output: false
-#| filename: "Les communes les plus peuplées de chaque désaccord"
-exemples = {
-    nom: con.sql(f"""
-    SELECT nom, departement, population, densite7 FROM communes
-    WHERE {condition} ORDER BY population DESC LIMIT 10
-    """).df().to_dict("records")
-    for nom, condition in [
-        ("rural_densite", "densite = 3 AND NOT rural_bati"),
-        ("urbain_densite", "densite < 3 AND rural_bati"),
-    ]
-}
-```
-
 ### Les contours de la carte
 
-Dessiner 35 000 communes alourdirait la page. Or la carte n'a besoin que de leur classe : on fusionne donc les communes qui ont le même niveau de densité (en sept postes) et la même situation par rapport aux unités urbaines, soit au plus quatorze groupes. Chaque vue de la carte colore ensuite ces groupes à sa façon.
+On fusionne les communes qui ont le même niveau de densité (en sept postes) et la même situation par rapport aux unités urbaines, soit au plus quatorze groupes. Chaque vue de la carte colore ensuite ces groupes à sa façon.
 
-<details>
-<summary>Détails techniques</summary>
-
-Les communes sont d'abord simplifiées ensemble, à 1 km environ (`ST_CoverageSimplify`), pour que les groupes restent jointifs, puis fusionnées (`ST_CoverageUnion_Agg`). La simplification renvoie une collection dans l'ordre des communes : chaque morceau retrouve sa commune par son rang (`path[1]`).
-
-</details>
+Il y a certainement moyen de faire plus simple, mais voici la proposition de mon IA générative pour réaliser ceci:
 
 ```{python}
 #| output: false
 #| filename: "Groupes de communes et départements"
-con.sql("""
-CREATE TABLE simplifiees AS
-WITH couverture AS (
-    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.01) AS geom
-    FROM communes
-),
--- Le résultat est une collection, dans l'ordre des communes : chaque morceau garde le rang
--- de sa commune (path[1]).
-morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
-SELECT codes[path[1]] AS code, geom FROM morceaux
-""")
-
-
 def en_geojson(requete, proprietes):
     return {
         "type": "FeatureCollection",
@@ -498,22 +695,41 @@ def en_geojson(requete, proprietes):
     }
 
 
-groupes = en_geojson("""
-SELECT c.densite7, c.rural_bati, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
-FROM simplifiees s JOIN communes c USING (code)
-GROUP BY ALL
-""", ["densite7", "rural_bati"])
+def fusionner(contours):
+    """Groupes de communes et départements, à partir d'une table de contours (code, geom)."""
+    con.sql(f"""
+    CREATE OR REPLACE TABLE simplifiees AS
+    WITH couverture AS (
+        SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.01) AS geom
+        FROM {contours}
+    ),
+    -- Le résultat est une collection, dans l'ordre des communes : chaque morceau garde le rang
+    -- de sa commune (path[1]).
+    morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+    SELECT codes[path[1]] AS code, geom FROM morceaux
+    """)
+    groupes = en_geojson("""
+    SELECT c.densite7, c.rural_bati, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
+    FROM simplifiees s JOIN communes c USING (code)
+    GROUP BY ALL
+    """, ["densite7", "rural_bati"])
+    departements = en_geojson("""
+    SELECT c.code_departement, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
+    FROM simplifiees s JOIN communes c USING (code)
+    GROUP BY ALL
+    """, ["code"])
+    return groupes, departements
 
-departements = en_geojson("""
-SELECT c.code_departement, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
-FROM simplifiees s JOIN communes c USING (code)
-GROUP BY ALL
-""", ["code"])
+
+groupes, departements = fusionner("communes")
 ```
 
-La carte ne dessine plus que **`{python} len(groupes["features"])`** groupes et **`{python} len(departements["features"])`** départements.
 
-Pour la bulle d'information, chaque commune est réduite à un point intérieur (`ST_PointOnSurface`). Cette table de 35 000 lignes est écrite à part, en CSV, dans `donnees/j9/` : la page la charge après coup, sans s'alourdir.
+<details>
+<summary>
+</summary>
+Pour le *mouseover*, chaque commune est réduite à un point intérieur (`ST_PointOnSurface`) sur lequel on passe la souris. Cette table de 35 000 lignes est écrite à part, en CSV: la page la charge lors du passage de souris, ce qui permet d'embarquer moins de données avec la page.
+</details>
 
 ```{python}
 #| output: false
@@ -530,6 +746,41 @@ COPY (
 """)
 ```
 
+### La carte à explorer
+
+La carte interactive, réalisée avec [MapLibre](https://maplibre.org/) nécessite que les départements d'outre-mer soient à leur vraie place sur le globe. On reprend donc les contours de `cartiflette`, cette fois sans rapprochement (`filter_by="FRANCE_ENTIERE"`), et on les fusionne de la même façon. Ces groupes ne servent qu'à la vue d'ensemble : à partir du zoom 8, la carte dessine les communes elles-mêmes, tirées des [tuiles vectorielles ADMIN EXPRESS](https://cartes.gouv.fr/rechercher-une-donnee/dataset/IGNF_ADMIN-EXPRESS) de la Géoplateforme de l'IGN, et colore chacune d'après son code. Les tuiles ne sont chargées que pour la zone affichée : la page n'a pas à porter les 35 000 contours.
+
+```{python}
+#| output: false
+#| filename: "Groupes de communes à leur place, pour l'explorateur"
+communes_france = carti_download(
+    values="France",
+    borders="COMMUNE",
+    filter_by="FRANCE_ENTIERE",
+    year=2025,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
+)
+con.sql("CREATE TABLE contours_reels AS SELECT INSEE_COM AS code, geometry AS geom FROM communes_france")
+
+groupes_reels, departements_reels = fusionner("contours_reels")
+(SORTIE / "explorer.json").write_text(
+    json.dumps({"groupes": groupes_reels, "departements": departements_reels})
+)
+```
+
+```{python}
+#| echo: false
+# Pour le texte des précautions.
+part_communes_rurales = croisement.query("rural_densite").communes.sum() / croisement.communes.sum()
+
+
+def en_pourcent(x):
+    return f"{100 * x:.1f} %".replace(".", ",")
+```
+
 ::: {.content-visible when-format="html"}
 
 ```{python}
@@ -541,7 +792,6 @@ ojs_define(
     totaux=totaux,
     desaccords=desaccords,
     partages=partages.to_dict("records"),
-    exemples=exemples,
 )
 ```
 
@@ -549,7 +799,7 @@ ojs_define(
 
 ## Les données de la carte
 
-Après toutes ces étapes, on obtient pour chaque commune son niveau de densité et sa situation par rapport aux unités urbaines. La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+Après toutes ces étapes, on obtient pour chaque commune son niveau de densité et sa situation par rapport aux unités urbaines. Les cartes sont faites en `Javascript`, la synthèse avec [Observable Plot](https://observablehq.com/plot/), la carte à explorer avec [MapLibre](https://maplibre.org/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
 
 <br>
 
@@ -601,10 +851,11 @@ DOM.download(
 ## Précautions d'analyse
 
 - Les deux définitions ne mesurent pas la même chose. L'unité urbaine regarde la continuité du bâti, sans tenir compte de la densité : une commune très étendue autour d'un bourg aggloméré de 2 000 habitants est urbaine. La grille de densité regarde la concentration de la population dans les carreaux de 1 km, sans tenir compte du bâti.
-- La grille 2025 repose sur le recensement carroyé de 2021, les unités urbaines sur celui de 2017. La population affichée est la population municipale 2022.
+- La grille 2025 repose sur le recensement carroyé de 2021, les unités urbaines sur celui de 2017. La population affichée est la population municipale 2022. On jongle avec les années ici mais l'objectif est principalement d'illustrer l'implication de l'évolution de la définition du rural.
 - La grille 2025 compte trois niveaux ; celle de 2022 en comptait quatre, le rural regroupant les communes « peu denses » et « très peu denses ». La méthode a aussi été revue : la part du rural ne se compare pas exactement d'une grille à l'autre.
-- L'Insee croise aussi la grille avec le zonage en aires d'attraction des villes, pour distinguer le rural périurbain du rural non périurbain : une troisième façon de découper le rural, non représentée ici.
-- Une commune est classée en entier : un quartier dense dans une grande commune rurale, ou un hameau dans une commune urbaine, prend la classe de sa commune.
+- Avec la grille de 2020 et la population de 2017, l'Insee comptait 88 % de communes rurales et 33 % de la population ([D'Alessandro, Levy et Regnier, 2021](https://www.insee.fr/fr/statistiques/5039991?sommaire=5040030)). Avec la grille 2025 et la population 2022, on trouve ici `{python} en_pourcent(part_communes_rurales)` des communes et `{python} en_pourcent(totaux["rural_densite"])` de la population : les ordres de grandeur sont les mêmes.
+- L'Insee croise aussi la grille avec le zonage en aires d'attraction des villes : le rural sous forte ou sous faible influence d'un pôle (le rural périurbain) se distingue du rural autonome, hors de l'influence des villes. C'est une troisième façon de découper le rural, non représentée ici.
+- Les tuiles ADMIN EXPRESS de la carte à explorer suivent le découpage communal le plus récent, et non celui de 2025 : une commune créée depuis n'a pas de code dans la grille 2025 et reste en gris.
 :::
 
 ## Références {.unnumbered}
@@ -612,6 +863,7 @@ DOM.download(
 ::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
+- C. D'Alessandro, D. Levy et T. Regnier, [« Une nouvelle définition du rural pour mieux rendre compte des réalités des territoires et de leurs transformations »](https://www.insee.fr/fr/statistiques/5039991?sommaire=5040030), dans *La France et ses territoires*, Insee Références, édition 2021.
 - Insee, [La grille de densité 2025](https://www.insee.fr/fr/information/8571524) et sa [note complémentaire](https://www.insee.fr/fr/statistiques/fichier/8571524/note_complementaire.pdf).
 - Insee, [La grille communale de densité à 7 niveaux](https://www.insee.fr/fr/statistiques/6686472).
 - Insee, définition de l'[unité urbaine](https://www.insee.fr/fr/metadonnees/definition/c1501).

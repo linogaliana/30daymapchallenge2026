@@ -3,7 +3,8 @@
 Lit le site déjà rendu (`_site/`, après `quarto render`), le sert en local, et
 capture la première carte de chaque page (MapLibre ou Observable Plot), écrite
 en WebP dans `jours/vignettes/`. Les pages sans carte sont ignorées ; celles
-dont la carte a une bascule « Sans fond » sont capturées sans fond de carte.
+dont la carte a une bascule « Sans fond » sont capturées sans fond de carte,
+celles qui ont une bascule « Synthèse » (J9) sur leur carte de synthèse.
 
     uv run --with playwright --with pillow python scripts/vignettes.py
 
@@ -64,6 +65,10 @@ def capturer(navigateur, url):
     sans_fond = page.locator(".bascule .choix", has_text="Sans fond")
     if sans_fond.count():
         sans_fond.first.click()
+    # Celles qui proposent une synthèse à côté d'une carte à explorer, sur la synthèse.
+    synthese = page.locator(".bascule .choix", has_text="Synthèse")
+    if synthese.count():
+        synthese.first.click()
     page.wait_for_timeout(5000)
     if (nom := url.rsplit("/", 1)[-1]) in ELEMENTS:
         selecteur, style = ELEMENTS[nom]
