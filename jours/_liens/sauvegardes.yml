@@ -21,8 +21,8 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/evaluations.parquet
 - source: https://equipements.sports.gouv.fr/api/explore/v2.1/catalog/datasets/data-es/exports/parquet
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/data_es.parquet
-- source: https://www.insee.fr/fr/statistiques/fichier/8735171/Filosofi2021_carreaux_1km_csv.zip
-  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/Filosofi2021_carreaux_1km_csv.zip
+- source: https://www.insee.fr/fr/statistiques/fichier/9058700/rp2023_carreaux_1km_csv.zip
+  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/rp2023_carreaux_1km_csv.zip
 - source: https://www.insee.fr/fr/statistiques/fichier/8571524/fichier_diffusion_2025.xlsx
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/fichier_diffusion_2025.xlsx
 - source: https://www.insee.fr/fr/statistiques/fichier/2510634/epci_au_01-01-2026.zip

@@ -11,7 +11,7 @@ charte:
   sombre: "#ec8a74"
 ---
 
-Pour la huitième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Utopia"**]{.underline color="#0A5927"}), on prend le mot au pied de la lettre : l'utopie est le lieu qui n'est nulle part, et on cherche [les endroits où personne ne vit]{.underline}. Tout cela grâce aux [[données carroyées de Filosofi]{.underline}](https://www.insee.fr/fr/statistiques/8735171) de l'[Insee]{.underline color="#0A5927"}, qui comptent les habitants de chaque carreau de 1 km de côté à partir des déclarations fiscales (voir @tip-pour-aller-plus-loin pour aller plus loin).
+Pour la huitième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Utopia"**]{.underline color="#0A5927"}), on prend le mot au pied de la lettre : l'utopie est le lieu qui n'est nulle part, et on cherche [les endroits où personne ne vit]{.underline}. Tout cela grâce aux [[données carroyées du recensement de la population]{.underline}](https://www.insee.fr/fr/statistiques/9058700) de l'[Insee]{.underline color="#0A5927"}, qui comptent les habitants de chaque carreau de 1 km de côté (voir @tip-pour-aller-plus-loin pour aller plus loin).
 
 ---------------------------------
 
@@ -141,54 +141,12 @@ viewof grandsBlocs = Inputs.toggle({label: "Les cinq plus grands blocs vides", v
 :::
 
 <small>
-<i>Choisissez les carreaux dessinés au-dessus de la carte ; l'interrupteur montre ou cache les cinq plus grands blocs vides.</i>
+Un pixel par carreau de 1 km de côté. Un carreau est vide quand personne n'y a sa résidence habituelle. Les carreaux sous le seuil choisi sont en bleu ciel, les autres restent couleur du fond (voir l'exemple du Pays basque, @sec-pays-basque). Les nombres donnent la superficie des cinq plus grands blocs de carreaux vides qui se touchent par un côté, placés en leur point le plus éloigné d'un carreau habité. La croix marque le point de métropole le plus loin de tout habitant.
 
-Un pixel par carreau de 1 km de côté. Un carreau est vide quand aucun ménage fiscal n'y a sa résidence principale. Les carreaux sous le seuil choisi sont en bleu ciel, les autres restent couleur du fond (voir l'exemple du Pays basque, @sec-pays-basque). Les nombres donnent la superficie des cinq plus grands blocs de carreaux vides qui se touchent par un côté, placés en leur point le plus éloigné d'un carreau habité. La croix marque le point de métropole le plus loin de tout ménage.
-
-Source : Insee, [Filosofi 2021, données carroyées](https://www.insee.fr/fr/statistiques/8735171) ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.
+Source : Insee, [recensement de la population 2023, données carroyées](https://www.insee.fr/fr/statistiques/9058700) ; IGN, ADMIN EXPRESS COG CARTO 2023, via cartiflette.
 </small>
 
-## Les plus grands blocs vides {.unnumbered}
-
-Le vide n'est pas seulement en montagne. Le plus grand bloc d'un seul tenant traverse les plaines de Champagne et du Barrois. Dans ces régions de grandes cultures, l'habitat est groupé en villages espacés : entre deux villages, des kilomètres de champs sans une maison. S'y ajoutent les camps militaires de Champagne (Suippes, Mourmelon, Mailly), où personne ne réside.
-
-::: {.content-visible when-format="html"}
-
-```{ojs}
-//| echo: false
-html`<table class="table">
-  <thead><tr><th>Rang</th><th style="white-space: nowrap">Superficie</th><th>Départements les plus couverts</th>
-    <th>Point le plus éloigné d'un carreau habité</th></tr></thead>
-  <tbody>${blocs.map((b, i) => html`<tr><td>${i + 1}</td><td style="white-space: nowrap">${entier(b.superficie)} km²</td>
-    <td>${b.departements}</td><td>${virgule(b.distance)} km, à ${b.commune}</td></tr>`)}</tbody>
-</table>`
-```
-
-```{ojs}
-//| echo: false
-html`<p>Le point de métropole le plus éloigné d'un carreau habité est à
-  <span class="souligne">${virgule(pole.distance)} km</span> du premier ménage, sur la commune de
-  ${pole.commune} (${pole.departement}).</p>`
-```
-
-:::
-
-## Six communes sans habitant {.unnumbered}
-
-::: {.content-visible when-format="html"}
-
-```{ojs}
-//| echo: false
-html`<p>En métropole, ${communesVides.length} communes n'ont aucun habitant, toutes dans la
-  Meuse, près de Verdun : ${communesVides.map((c) => c.nom).join(", ")}. Détruits pendant la
-  bataille de Verdun en 1916, ces villages n'ont jamais été reconstruits. Ils ont été déclarés
-  « morts pour la France » et gardent une existence administrative : chacun est administré par
-  un conseil de trois membres nommés par le préfet.</p>`
-```
-
-:::
-
-## Le vide, département par département {.unnumbered}
+Le vide n'est pas seulement en montagne. Le plus grand bloc d'un seul tenant traverse les plaines de Champagne et du Barrois. Dans ces régions de grandes cultures, l'habitat est groupé en villages espacés.
 
 ::: {.content-visible when-format="html"}
 
@@ -219,9 +177,11 @@ html`<p>En métropole, ${communesVides.length} communes n'ont aucun habitant, to
 
 :::
 
-<small>Les vingt départements où la part du territoire est la plus grande, pour le seuil choisi au-dessus de la carte. Les pointillés marquent la France métropolitaine. Un carreau est rattaché au département qui contient son centre.
+<small>Les vingt départements où la part du territoire est la plus grande, pour le seuil choisi au-dessus de la carte. Les pointillés représentent la moyenne en France métropolitaine[^rattachement].
 
-Source : Insee, Filosofi 2021, données carroyées ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.</small>
+[^rattachement]: Si un carreau est à cheval sur plusieurs départements, il est rattaché au département qui contient son centre.
+
+Source : Insee, recensement de la population 2023, données carroyées ; IGN, ADMIN EXPRESS COG CARTO 2023, via cartiflette.</small>
 
 ----------------------------
 
@@ -233,8 +193,8 @@ La carte croise deux sources publiques :
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Revenus, pauvreté et niveau de vie en 2021, données carroyées](https://www.insee.fr/fr/statistiques/8735171) | Insee, Filosofi | les carreaux de 1 km habités et leur nombre d'habitants | {{< iconify vscode-icons file-type-csv >}} CSV (zip) |
-| [Départements et communes 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque département, la population et le contour de chaque commune | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Recensement de la population en 2023, données carroyées](https://www.insee.fr/fr/statistiques/9058700) | Insee, recensement de la population | les carreaux de 1 km habités et leur nombre d'habitants | {{< iconify vscode-icons file-type-csv >}} CSV (zip) |
+| [Départements et communes 2023](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque département, la population et le contour de chaque commune | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
 Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
@@ -262,11 +222,11 @@ SET enable_progress_bar = false
 {{< include _liens/08-utopia.py >}}
 ```
 
-### Les carreaux habités (Insee, Filosofi)
+### Les carreaux habités (Insee, recensement de la population)
 
-Le dispositif [[Filosofi]{.underline}](https://www.insee.fr/fr/metadonnees/source/serie/s1172) rapproche les déclarations de revenus et les fichiers de la taxe d'habitation : chaque ménage fiscal y est localisé à son adresse. L'Insee en tire des données sur une grille de carreaux de 200 m et de 1 km de côté, dans la projection européenne LAEA (`EPSG:3035`). Seuls les carreaux habités sont diffusés : un carreau où aucun ménage n'a sa résidence principale n'apparaît pas dans le fichier.
+Depuis le [[recensement de la population de 2023]{.underline}](https://www.insee.fr/fr/statistiques/9058700), l'Insee diffuse ses résultats sur une grille de carreaux de 1 km de côté, dans la projection européenne LAEA (`EPSG:3035`). Chaque logement est géolocalisé et les habitants sont comptés là où ils ont leur résidence habituelle, en logement ordinaire comme en communauté (internats, maisons de retraite, casernes...). Seuls les carreaux habités sont diffusés : un carreau où personne n'a sa résidence n'apparaît pas dans le fichier. C'est justement cette propriété qui nous permettra, par le négatif, de déterminer où sont nos espaces vides.
 
-On utilise les carreaux de 1 km, en 2021, diffusés en {{< iconify vscode-icons file-type-csv >}} `CSV` dans une archive {{< iconify vscode-icons file-type-zip >}} zip. Avec l'extension [`zipfs`](https://duckdb.org/community_extensions/extensions/zipfs), {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` lit directement le CSV dans l'archive, à son adresse (`zip://<archive>/<fichier>`), sans rien télécharger à part. L'identifiant de chaque carreau donne les coordonnées de son coin sud-ouest, en mètres (`CRS3035RES1000mN2029000E4252000`) : on les garde en kilomètres. Le fichier compte aussi le nombre d'habitants (`ind`).
+Les carreaux sont diffusés en {{< iconify vscode-icons file-type-csv >}} `CSV` dans une archive {{< iconify vscode-icons file-type-zip >}} zip. Avec l'extension [`zipfs`](https://duckdb.org/community_extensions/extensions/zipfs), {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` lit directement le CSV dans l'archive, à son adresse (`zip://<archive>/<fichier>`), sans rien télécharger à part. L'identifiant de chaque carreau donne les coordonnées de son coin sud-ouest, en mètres (`FR_CRS3035RES1000mN2029000E4252000`) : on les garde en kilomètres. Le fichier compte aussi le nombre d'habitants (`pop`). Dans les communes de 10 000 habitants ou plus, recensées par sondage, c'est une estimation : elle n'est pas toujours un nombre entier.
 
 ```{python}
 #| filename: "Lecture des carreaux habités (Insee)"
@@ -274,17 +234,17 @@ con.sql("INSTALL zipfs FROM community; LOAD zipfs")
 
 con.sql(f"""
 CREATE TABLE habites AS
-SELECT regexp_extract(idcar_1km, 'E(\\d+)$', 1)::INTEGER // 1000 AS x,
-       regexp_extract(idcar_1km, 'N(\\d+)E', 1)::INTEGER // 1000 AS y,
-       ind AS habitants
-FROM read_csv('zip://{SOURCES["filosofi"]}/carreaux_1km_met.csv')
+SELECT regexp_extract(id_carreau_1km, 'E(\\d+)$', 1)::INTEGER // 1000 AS x,
+       regexp_extract(id_carreau_1km, 'N(\\d+)E', 1)::INTEGER // 1000 AS y,
+       pop AS habitants
+FROM read_csv('zip://{SOURCES["recensement"]}/carreaux_1km_met.csv')
 """)
 con.sql("SELECT count(*) AS carreaux, sum(habitants)::INT AS habitants FROM habites").df().style.hide(axis="index")
 ```
 
 ### Les contours des départements et des communes avec `cartiflette`
 
-Pour savoir quels carreaux manquent, il faut la liste de tous les carreaux du territoire. On la tire des contours des départements de métropole, lus avec le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) dans leur version la plus précise (`simplification=0`), puis passés dans la projection des carreaux avec `ST_Transform`. Les contours des communes donnent leur population et situent les points remarquables. Le filtre `where=` ne lit que la métropole.
+Pour savoir quels carreaux manquent, il faut définir notre territoire. On le tire des contours des départements de métropole, lus avec le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) dans leur version la plus précise (`simplification=0`), puis passés dans la projection des carreaux avec `ST_Transform`. L'option `where` permet de ne lire que la métropole.
 
 ```{python}
 #| output: false
@@ -294,7 +254,7 @@ from cartiflette import carti_download
 parametres = dict(
     values="France",
     filter_by="FRANCE_ENTIERE",
-    year=2025,
+    year=2023,
     simplification=0,
     crs=4326,
     engine="duckdb",
@@ -323,7 +283,9 @@ FROM communes_metropole
 
 ### Tous les carreaux du territoire
 
-On parcourt tous les carreaux de 1 km du rectangle qui englobe la métropole et on garde ceux dont le centre tombe dans un département. Les départements sont d'abord découpés en morceaux (`ST_Dump`) : DuckDB fait alors une jointure spatiale, qui ne teste un point que contre les morceaux dont le rectangle le contient.
+On parcourt tous les carreaux de 1 km du rectangle qui englobe la métropole et on garde ceux dont le centre tombe dans un département. Les départements sont d'abord découpés en morceaux (`ST_Dump`)[^perte-littoral] : DuckDB fait alors une jointure spatiale, qui ne teste un point que contre les morceaux dont le rectangle le contient.
+
+[^perte-littoral]: On a peut-être une légère perte de précision aux littoraux et frontières avec cette méthode. Mais cela permet d'avoir des calculs assez rapides: on sacrifie la précision à la vitesse. 
 
 ```{python}
 #| output: false
@@ -346,7 +308,9 @@ SELECT m.code, c.x, c.y FROM centres c JOIN morceaux m ON ST_Contains(m.geom, c.
 """)
 ```
 
-On y joint les carreaux habités. Quelques carreaux habités ont leur centre hors du territoire (en mer ou de l'autre côté d'une frontière) : on les garde pour la carte, sans département.
+On y joint les carreaux habités[^carreaux-habites].
+
+[^carreaux-habites]: Quelques carreaux habités ont leur centre hors du territoire (en mer ou de l'autre côté d'une frontière) : on les garde pour la carte, sans département.
 
 ```{python}
 #| filename: "Carreaux vides et habités"
@@ -357,15 +321,14 @@ FROM grille g FULL JOIN habites h ON g.x = h.x AND g.y = h.y
 """)
 con.sql("""
 SELECT count(*) FILTER (code IS NOT NULL) AS territoire,
-       count(*) FILTER (habitants = 0) AS vides,
-       count(*) FILTER (code IS NULL) AS habites_hors_territoire
+       count(*) FILTER (habitants = 0) AS vides
 FROM carreaux
 """).df().style.hide(axis="index")
 ```
 
 ### Un exemple au Pays basque {#sec-pays-basque}
 
-Pour voir cette logique à l'œuvre, on prend un rectangle du Pays basque, de l'agglomération de Bayonne et Biarritz, sur la côte, à Saint-Jean-Pied-de-Port, au pied des Pyrénées. Chaque carreau du pavage y est redessiné dans les coordonnées de la carte (`ST_MakeEnvelope`, puis `ST_Transform` vers `EPSG:4326`).
+Pour voir cette logique à l'oeuvre, on prend un rectangle du Pays basque, de l'agglomération de Bayonne et Biarritz, sur la côte, à Saint-Jean-Pied-de-Port, au pied des Pyrénées. Chaque carreau du pavage y est redessiné dans les coordonnées de la carte (`ST_MakeEnvelope`, puis `ST_Transform` vers `EPSG:4326`).
 
 ```{python}
 #| filename: "Les carreaux du Pays basque"
@@ -392,7 +355,7 @@ exemple = {
     "features": [
         {
             "type": "Feature",
-            "properties": {"carreau": f"CRS3035RES1000mN{y * 1000}E{x * 1000}", "habitants": habitants},
+            "properties": {"carreau": f"FR_CRS3035RES1000mN{y * 1000}E{x * 1000}", "habitants": habitants},
             "geometry": json.loads(geojson),
         }
         for x, y, habitants, geojson in lignes_exemple
@@ -408,7 +371,7 @@ len(lignes_exemple), dans_fichier, len(lignes_exemple) - dans_fichier
 //| echo: false
 html`<p>Le rectangle compte ${entier(exemple.features.length)} carreaux de 1 km :
   <span class="souligne" style="--souligne: ${ECHELLE_HABITANTS.at(-1)[1]}">${entier(exemple.features.filter((f) => f.properties.habitants > 0).length)}
-  sont dans le fichier</span> Filosofi, avec leur nombre d'habitants (du jaune à l'orange) ;
+  sont dans le fichier</span> du recensement, avec leur nombre d'habitants (du jaune à l'orange) ;
   <span class="souligne" style="--souligne: ${bleuCiel}">${entier(exemple.features.filter((f) => f.properties.habitants === 0).length)}
   n'y sont pas</span> : ce sont les carreaux vides, hachurés en bleu. Survolez un carreau pour le détail.</p>`
 ```
@@ -438,7 +401,7 @@ html`<div style="display: flex; flex-wrap: wrap; gap: 0.5em 1.5em; align-items: 
 conteneurExemple = html`<div style="height: min(70vh, 560px); border-radius: 4px"></div>`
 ```
 
-<small>Fond de carte : Plan IGN. Source : Insee, Filosofi 2021, données carroyées ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.</small>
+<small>Fond de carte : Plan IGN. Source : Insee, recensement de la population 2023, données carroyées ; IGN, ADMIN EXPRESS COG CARTO 2023, via cartiflette.</small>
 
 ```{ojs}
 //| echo: false
@@ -551,8 +514,9 @@ carteExemple = {
     survol = p.carreau
     map.setFeatureState({source: "carreaux", id: survol}, {survol: true})
     bulle.setLngLat(e.lngLat).setHTML(p.habitants > 0
-      ? `<strong>Dans le fichier Filosofi</strong><br>${entier(p.habitants)} habitant${p.habitants >= 2 ? "s" : ""}`
-      : `<strong>Absent du fichier Filosofi</strong><br>Aucun ménage fiscal : carreau vide`
+      ? `<strong>Dans le fichier du recensement</strong><br>${p.habitants < 1 ? "Moins de 1 habitant (estimation)"
+        : `${entier(p.habitants)} habitant${Math.round(p.habitants) >= 2 ? "s" : ""}`}`
+      : `<strong>Absent du fichier du recensement</strong><br>Aucun habitant : carreau vide`
     ).addTo(map)
   })
   map.on("mouseleave", ["carreaux", "carreaux-vides"], () => {
@@ -577,7 +541,7 @@ themeExemple = {
 
 ### Les blocs de carreaux vides
 
-Deux carreaux vides qui se touchent par un côté font partie du même bloc. On parcourt la grille de proche en proche (un parcours en profondeur) pour numéroter les blocs.
+Il est intéressant de regrouper les espaces vides contigus. On va dire que deux carreaux vides qui se touchent par un côté font partie du même bloc, ce qui nous permettra d'avoir un espace vide continu. On parcourt la grille de proche en proche (un parcours en profondeur) pour numéroter les blocs.
 
 ```{python}
 #| filename: "Numéroter les blocs vides"
@@ -608,9 +572,9 @@ rang = {b: i for i, b in enumerate(grands)}
 len(tailles), [tailles[b] for b in grands]
 ```
 
-### La distance au premier ménage
+### La distance au premier habitant
 
-Pour chaque carreau vide, on cherche le carreau habité le plus proche, centre à centre. On inspecte des couronnes de carreaux de plus en plus larges autour de lui ; une fois un carreau habité trouvé à la couronne `r`, un plus proche peut encore se trouver en diagonale, jusqu'à la couronne `r × √2`.
+Il peut être assez drôle de chercher le point du territoire le plus loin de tout habitant. Pour chaque carreau vide, on cherche le carreau habité le plus proche, centre à centre. On inspecte des couronnes de carreaux de plus en plus larges autour de lui ; une fois un carreau habité trouvé à la couronne `r`, un plus proche peut encore se trouver en diagonale, jusqu'à la couronne $r \times \sqrt{2}$.
 
 ```{python}
 #| output: false
@@ -673,7 +637,7 @@ pole
 
 ### Les communes sans habitant
 
-La population de chaque commune (population municipale) est dans les contours de cartiflette.
+La population de chaque commune (population municipale) est dans les contours de cartiflette. On peut aller voir s'il n'y a pas des communes qui, dans leur ensemble, ne sont pas déjà vides:
 
 ```{python}
 #| filename: "Communes sans habitant"
@@ -694,9 +658,9 @@ Pour chaque département, la part des carreaux sans habitant, de moins de 10 et 
 con.sql("""
 CREATE TABLE parts AS
 SELECT code, d.nom, count(*) AS carreaux,
-       round(100 * avg((habitants = 0)::INTEGER), 1) AS vides,
-       round(100 * avg((habitants < 10)::INTEGER), 1) AS moins_10,
-       round(100 * avg((habitants < 50)::INTEGER), 1) AS moins_50
+       round(100 * avg((habitants = 0)::INTEGER), 2) AS vides,
+       round(100 * avg((habitants < 10)::INTEGER), 2) AS moins_10,
+       round(100 * avg((habitants < 50)::INTEGER), 2) AS moins_50
 FROM carreaux JOIN contours_departements d USING (code)
 GROUP BY ALL
 ORDER BY code
@@ -711,7 +675,7 @@ con.sql("FROM parts ORDER BY vides DESC LIMIT 5").df().style.hide(axis="index")
 
 ### Ce qui passe à la carte
 
-Le navigateur reçoit la grille comme une image : un octet par carreau du rectangle englobant, ligne par ligne du nord au sud, compressé avec `zlib` puis codé en base64. Le code de chaque octet est expliqué en commentaire.
+Représenter des dizaines de milliers de carreaux sur une seule image est assez exigeant si on ne simplifie pas les contours. L'astuce proposée par l'IA générative que j'ai utilisée consiste à simplifier chaque carreau : un octet par carreau du rectangle englobant, ligne par ligne du nord au sud, compressé avec `zlib` puis codé en base64. 
 
 ```{python}
 #| output: false
@@ -811,7 +775,12 @@ Inputs.table(recherche, {
     code: "Code", nom: "Département", carreaux: "Carreaux de 1 km",
     vides: "Sans habitant (%)", moins_10: "Moins de 10 habitants (%)", moins_50: "Moins de 50 habitants (%)"
   },
-  format: {carreaux: entier, vides: virgule, moins_10: virgule, moins_50: virgule},
+  // Fonctions fléchées : Inputs.table passe aussi l'indice de la ligne, que virgule prendrait
+  // pour le nombre de décimales.
+  format: {
+    carreaux: (x) => entier(x),
+    vides: (x) => virgule(x, 2), moins_10: (x) => virgule(x, 2), moins_50: (x) => virgule(x, 2)
+  },
   sort: "vides",
   reverse: true,
   rows: 15
@@ -822,7 +791,7 @@ Inputs.table(recherche, {
 //| echo: false
 DOM.download(
   () => new Blob([d3.csvFormat(departements, ["code", "nom", "carreaux", "vides", "moins_10", "moins_50"])], {type: "text/csv"}),
-  "carreaux_vides_departements_2021.csv",
+  "carreaux_vides_departements_2023.csv",
   "Télécharger (CSV)"
 )
 ```
@@ -834,9 +803,9 @@ DOM.download(
 ::: {.callout-caution collapse="true"}
 ## Précautions d'analyse
 
-- Un carreau vide est un carreau où aucun **ménage fiscal** n'a sa **résidence principale**. Un hameau de résidences secondaires, un refuge, une caserne, un monastère ou un foyer peuvent s'y trouver : les personnes qui vivent en communauté ne sont pas comptées dans Filosofi, pas plus que les personnes sans domicile.
-- La grille de 1 km est grossière : une seule ferme suffit à rendre un carreau habité. Le vide est donc sous-estimé ; le seuil « moins de 10 habitants » en donne une idée plus large.
-- La distance au premier ménage ne tient compte que des ménages de France. Le long des Alpes et des Pyrénées, un village italien ou espagnol peut être plus proche.
+- Un carreau vide est un carreau où personne n'a sa **résidence habituelle**. Un hameau de résidences secondaires ou un refuge peuvent s'y trouver.
+- Dans les communes de 10 000 habitants ou plus, recensées par sondage, la population d'un carreau est une estimation. Les petits effectifs, et donc les seuils de 10 et 50 habitants, y sont approximatifs. 
+- La distance au premier habitant ne tient compte que des habitants de France. Le long des Alpes et des Pyrénées, un village italien ou espagnol peut être plus proche.
 - Un carreau est rattaché au département qui contient son centre ; les carreaux du littoral dont le centre est en mer ne sont pas comptés dans le territoire.
 :::
 
@@ -845,7 +814,7 @@ DOM.download(
 ::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
-- Insee, [documentation des données carroyées Filosofi 2021](https://www.insee.fr/fr/statistiques/8735243), et les mêmes données au [carreau de 200 m](https://www.insee.fr/fr/statistiques/8735162).
+- Insee, [données carroyées du recensement de la population 2023](https://www.insee.fr/fr/statistiques/9058700), avec leur [fiche conseils](https://www.insee.fr/fr/statistiques/fichier/9058700/fiche-conseils_donnees_carreau.pdf) sur la méthode de carroyage.
+- Insee, les [données carroyées Filosofi 2021](https://www.insee.fr/fr/statistiques/8735171), tirées des sources fiscales, avec les revenus des ménages et au [carreau de 200 m](https://www.insee.fr/fr/statistiques/8735162).
 - Insee, la [grille communale de densité](https://www.insee.fr/fr/information/6439600), qui classe les communes selon la répartition de leur population en carreaux.
-- Thomas More, [*L'Utopie*](https://fr.wikipedia.org/wiki/L%27Utopie) (1516).
 :::
