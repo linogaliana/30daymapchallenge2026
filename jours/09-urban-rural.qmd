@@ -7,7 +7,17 @@ resources:
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#e07b39"
+  sombre: "#f0a35e"
 ---
+
+Après les carreaux où personne n'habite, la frontière entre [la ville]{.underline color="#3a6aa8"} et [la campagne]{.underline color="#7fb069"} 🏘️🌾. Pour la neuvième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Urban-rural"**]{.underline color="#0A5927"}), on regarde la frontière elle-même : où passe-t-elle, et qui la trace ? La statistique publique en a eu [deux définitions]{.underline}, qui ne coupent pas la France au même endroit. Pour les comparer, on s'appuie sur la [[grille communale de densité]{.underline}](https://www.insee.fr/fr/information/8571524) et sur le zonage en unités urbaines de l'[Insee]{.underline color="#0A5927"} (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -17,21 +27,16 @@ pourcent = (x) => `${virgule(100 * x)} %`
 millions = (x) => `${virgule(x / 1e6)} millions`
 html`<p class="lead">
   Jusqu'en 2020, l'Insee appelait rurale toute commune hors d'une ville, c'est-à-dire hors d'une
-  zone de bâti continu de 2 000 habitants ou plus : <strong>${pourcent(totaux.rural_bati)} des
-  habitants</strong> vivaient alors à la campagne. Depuis, la définition officielle repose sur la
-  densité de population, et la part du rural passe à
-  <strong>${pourcent(totaux.rural_densite)}</strong>. Entre les deux,
-  ${entier(desaccords.rural_densite.communes)} communes et
-  ${millions(desaccords.rural_densite.population)} d'habitants sont rurales par la densité, mais
-  urbaines par le bâti.
+  zone de bâti continu de 2 000 habitants ou plus :
+  <span class="souligne" style="--souligne: ${teintes.campagne}">${pourcent(totaux.rural_bati)} des habitants</span>
+  vivaient alors à la campagne. Depuis, la définition officielle repose sur la densité de
+  population, et la part du rural passe à
+  <span class="souligne" style="--souligne: ${teintes.campagne}">${pourcent(totaux.rural_densite)}</span>.
+  Entre les deux, <span class="souligne">${entier(desaccords.rural_densite.communes)} communes et
+  ${millions(desaccords.rural_densite.population)} d'habitants</span> sont rurales par la densité,
+  mais urbaines par le bâti.
 </p>`
 ```
-
-Pour ce neuvième jour, consacré à l'opposition entre ville et campagne, on regarde la frontière
-elle-même : où passe-t-elle, et qui la trace ? La statistique publique en a deux définitions, qui
-ne coupent pas la France au même endroit (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -100,7 +105,11 @@ vues = [
 viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[2]})
 ```
 
+:::
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -129,19 +138,20 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[2]}
 
 :::
 
-```{ojs}
-//| echo: false
-html`<p><small>Les départements d'outre-mer sont rapprochés de la métropole. Survolez une commune
-pour le détail. Source : Insee, grille de densité 2025 et zonage en unités urbaines 2020 ;
-IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.</small></p>`
-```
+:::
 
-### Deux partages de la même population
+<small>
+<i>Survolez une commune pour le détail. Les départements d'outre-mer sont rapprochés de la métropole.</i>
 
-Une commune peut être dans une unité urbaine sans être dense : c'est le cas des bourgs et des
-petites villes, dont le bâti continu dépasse 2 000 habitants mais qui restent entourés de champs.
-Ce sont eux qui changent de camp. L'inverse est rare : quelques communes assez denses
-n'appartiennent à aucune unité urbaine.
+Source : Insee, [grille communale de densité 2025](https://www.insee.fr/fr/information/8571524) et zonage en unités urbaines 2020 ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.
+
+</small>
+
+## Deux partages de la même population {.unnumbered}
+
+Une commune peut être dans une unité urbaine sans être dense : c'est le cas des bourgs et des petites villes, dont le bâti continu dépasse 2 000 habitants mais qui restent entourés de champs. Ce sont eux qui changent de camp. L'inverse est rare : quelques communes assez denses n'appartiennent à aucune unité urbaine.
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -170,20 +180,15 @@ n'appartiennent à aucune unité urbaine.
 }
 ```
 
-```{ojs}
-//| echo: false
-html`<p><small>Les couleurs sont celles de la carte. Population municipale 2022.</small></p>`
-```
+:::
 
-### Rurales, mais dans une ville
+<small>Les couleurs sont celles de la carte. Population municipale 2022.</small>
 
-Les plus peuplées des communes rurales par la densité qui appartiennent à une unité urbaine.
-La plupart sont des communes nouvelles, nées de la fusion de plusieurs communes rurales autour
-d'un bourg : Sèvremoine, Beaupréau-en-Mauges ou Chemillé-en-Anjou, dans les Mauges, en regroupent
-chacune une dizaine. L'appartenance à une unité urbaine se décide pour la commune entière : il
-suffit que le bourg aggloméré compte 2 000 habitants pour que toute la commune, campagne
-comprise, soit urbaine au sens du bâti. La densité, elle, regarde l'ensemble du territoire
-communal. C'est la grande tache orange de l'Anjou sur la carte.
+## Rurales, mais dans une ville {.unnumbered}
+
+Les plus peuplées des [communes rurales par la densité qui appartiennent à une unité urbaine]{.underline}. La plupart sont des communes nouvelles, nées de la fusion de plusieurs communes rurales autour d'un bourg : Sèvremoine, Beaupréau-en-Mauges ou Chemillé-en-Anjou, dans les Mauges, en regroupent chacune une dizaine. L'appartenance à une unité urbaine se décide pour la commune entière : il suffit que le bourg aggloméré compte 2 000 habitants pour que toute la commune, campagne comprise, soit urbaine au sens du bâti. La densité, elle, regarde l'ensemble du territoire communal. C'est la grande tache orange de l'Anjou sur la carte.
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -195,44 +200,50 @@ tableauCommunes = (lignes) => html`<table class="table">
 tableauCommunes(exemples.rural_densite)
 ```
 
-### Urbaines, mais hors de toute ville
+:::
 
-Les plus peuplées des communes urbaines par la densité qui n'appartiennent à aucune unité
-urbaine. Ce sont surtout des ceintures urbaines, autour de Lyon, de Paris ou de Caen : leurs
-carreaux font partie d'un agrégat assez dense, mais leur bâti, séparé de celui de la ville
-voisine, ne forme pas une zone continue de 2 000 habitants.
+## Urbaines, mais hors de toute ville {.unnumbered}
+
+Les plus peuplées des [communes urbaines par la densité qui n'appartiennent à aucune unité urbaine]{.underline color="#8e44ad"}. Ce sont surtout des ceintures urbaines, autour de Lyon, de Paris ou de Caen : leurs carreaux font partie d'un agrégat assez dense, mais leur bâti, séparé de celui de la ville voisine, ne forme pas une zone continue de 2 000 habitants.
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
 tableauCommunes(exemples.urbain_densite)
 ```
 
---------
+:::
 
-On va maintenant décrire comment obtenir les données de cette carte.
+----------------------------
+
+Aucune des deux définitions n'a tort : elles ne posent pas la même question. L'unité urbaine regarde si les maisons se touchent, la grille de densité combien d'habitants vivent sur chaque kilomètre carré. Les campagnes n'ont pas gagné d'habitants en 2020 : c'est la façon de les compter qui a changé, et avec elle les bourgs entourés de champs, rendus au rural.
+
+# Making of
 
 ## Les données
 
+La carte croise deux sources publiques :
+
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [La grille de densité 2025](https://www.insee.fr/fr/information/8571524) | Insee | le niveau de densité de chaque commune (3 et 7 postes) et sa population municipale 2022 | Excel |
-| [Communes 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune, outre-mer rapproché, et son unité urbaine 2020 | GeoParquet |
+| [La grille communale de densité 2025](https://www.insee.fr/fr/information/8571524) | Insee | le niveau de densité de chaque commune (3 et 7 postes) et sa population municipale 2022 | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Communes 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune, outre-mer rapproché, et son unité urbaine 2020 | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import pathlib
-import tempfile
-import zipfile
 
 import duckdb
-import requests
 
 con = duckdb.connect()
 con.sql("""
 INSTALL excel; LOAD excel;
+INSTALL httpfs; LOAD httpfs;
 INSTALL spatial; LOAD spatial;
 SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
 SET enable_progress_bar = false
@@ -246,79 +257,81 @@ SET enable_progress_bar = false
 
 ### La grille de densité (Insee)
 
-La [grille communale de densité](https://www.insee.fr/fr/information/8571524) découpe le
-territoire en carreaux de 1 km de côté, peuplés d'après le recensement de 2021. Les carreaux
-contigus assez denses forment des agrégats : des centres urbains (au moins 1 500 habitants par
-km² et 50 000 habitants en tout) et des agrégats intermédiaires (au moins 300 habitants par km²
-et 5 000 habitants). Chaque commune est ensuite classée selon la part de sa population qui vit
-dans chaque type d'agrégat (colonnes `P1`, `P2` et `P3` du fichier) : urbaine dense, urbaine
-intermédiaire ou rurale. Une version en sept niveaux détaille l'urbain (grands centres urbains,
-centres intermédiaires, petites villes, ceintures urbaines) et le rural (bourgs ruraux, rural à
-habitat dispersé et très dispersé). C'est la définition européenne
-([*degree of urbanisation*](https://ec.europa.eu/eurostat/web/degree-of-urbanisation)) que
-l'Insee a adoptée en 2020 pour définir le rural.
+La [[grille communale de densité]{.underline}](https://www.insee.fr/fr/information/8571524) découpe le territoire en carreaux de 1 km de côté, peuplés d'après le recensement de 2021. Les carreaux contigus assez denses forment des agrégats : des centres urbains (au moins 1 500 habitants par km² et 50 000 habitants en tout) et des agrégats intermédiaires (au moins 300 habitants par km² et 5 000 habitants). Chaque commune est ensuite classée selon la part de sa population qui vit dans chaque type d'agrégat : urbaine dense, urbaine intermédiaire ou rurale. Une version en sept niveaux détaille l'urbain (grands centres urbains, centres intermédiaires, petites villes, ceintures urbaines) et le rural (bourgs ruraux, rural à habitat dispersé et très dispersé). C'est la définition européenne ([*degree of urbanisation*](https://ec.europa.eu/eurostat/web/degree-of-urbanisation)) que l'Insee a adoptée en 2020 pour définir le rural.
 
-L'Insee publie un classeur par millésime du code officiel géographique : on prend celui de 2025,
-comme les contours. L'en-tête de la feuille des communes est en ligne 5.
+L'Insee publie un classeur {{< iconify vscode-icons file-type-excel >}} `Excel` par millésime du code officiel géographique : on prend celui de 2025, comme les contours. {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` le lit directement à son adresse.
+
+<details>
+<summary>Détails techniques</summary>
+
+L'en-tête de la feuille des communes (`Maille communale`) est en ligne 5 : on lit la plage à partir de `A5`. Tout est lu en texte (`all_varchar`), pour garder les codes de commune tels quels (`01001`, `2A004`), puis les niveaux et la population sont convertis en entiers.
+
+</details>
 
 ```{python}
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
-                reponse.raise_for_status()
-                for bloc in reponse.iter_content(chunk_size=1 << 20):
-                    f.write(bloc)
-        except OSError:
-            if essai == essais - 1:
-                raise
-            continue
-        if zipfile.is_zipfile(chemin):  # un .xlsx est une archive zip
-            return
-    raise RuntimeError(f"téléchargement incomplet : {url}")
-
-
-with tempfile.TemporaryDirectory() as dossier:
-    telecharger(SOURCES["grille"], f"{dossier}/grille.xlsx")
-    con.sql(f"""
-    CREATE TABLE grille AS
-    SELECT CODGEO AS code, DENS::INTEGER AS densite, DENS7::INTEGER AS densite7,
-           LIBDENS7 AS libelle7, PMUN22::INTEGER AS population
-    FROM read_xlsx('{dossier}/grille.xlsx', sheet = 'Maille communale', range = 'A5:L50000',
-                   header = true, all_varchar = true)
-    WHERE CODGEO IS NOT NULL
-    """)
-con.sql("""
-SELECT densite7, libelle7, count(*) AS communes, sum(population) AS population
-FROM grille GROUP BY ALL ORDER BY densite7
-""").df().style.hide(axis="index")
+#| output: false
+#| filename: "Lecture de la grille de densité (Insee)"
+con.sql(f"""
+CREATE TABLE grille AS
+SELECT CODGEO AS code, DENS::INTEGER AS densite, DENS7::INTEGER AS densite7,
+       LIBDENS7 AS libelle7, PMUN22::INTEGER AS population
+FROM read_xlsx('{SOURCES["grille"]}', sheet = 'Maille communale', range = 'A5:L50000',
+               header = true, all_varchar = true)
+WHERE CODGEO IS NOT NULL
+""")
 ```
 
-### Les communes et leur unité urbaine (cartiflette)
+Les communes et leur population, par niveau de la grille en sept postes :
 
-Une [unité urbaine](https://www.insee.fr/fr/metadonnees/definition/c1501) est une commune ou un
-ensemble de communes qui forment une zone de bâti continu (pas plus de 200 m entre deux
-constructions) d'au moins 2 000 habitants. Les contours de cartiflette portent le code de
-l'unité urbaine 2020 de chaque commune (`UU2020`). Les communes hors unité urbaine ont un code
-qui finit par `000` (`02000`, `9A000`…) : ce sont elles qui étaient rurales avant 2020.
-
-On prend les communes dans la version où les départements d'outre-mer sont rapprochés de la
-métropole (`layout=FRANCE_ENTIERE_DROM_RAPPROCHES`).
+::: {.content-visible when-format="html"}
 
 ```{python}
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
-    "administrative_level=COMMUNE/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
-    "vectorfile_format=parquet/simplification=50/raw.parquet"
+#| echo: false
+ojs_define(niveaux=con.sql("""
+SELECT densite7, libelle7, count(*) AS communes, sum(population) AS population
+FROM grille GROUP BY ALL ORDER BY densite7
+""").df().to_dict("records"))
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(niveaux, {
+  header: {densite7: "Niveau", libelle7: "Libellé", communes: "Communes", population: "Population 2022"},
+  format: {densite7: (x) => x, communes: entier, population: entier},
+  layout: "auto"
+})
+```
+
+:::
+
+### Les contours des communes et leur unité urbaine avec `cartiflette`
+
+Une [unité urbaine](https://www.insee.fr/fr/metadonnees/definition/c1501) est une commune ou un ensemble de communes qui forment une zone de bâti continu (pas plus de 200 m entre deux constructions) d'au moins 2 000 habitants. Les contours des communes 2025 du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) portent le code de l'unité urbaine 2020 de chaque commune (`UU2020`). Les communes hors unité urbaine ont un code qui finit par `000` (`02000`, `9A000`…) : ce sont elles qui étaient rurales avant 2020.
+
+On prend un fond de carte où les départements d'outre-mer sont rapprochés de la métropole (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`).
+
+```{python}
+#| output: false
+#| filename: "Lecture des communes (cartiflette)"
+from cartiflette import carti_download
+
+communes_drom_rapproches = carti_download(
+    values="France",
+    borders="COMMUNE",
+    filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES",
+    year=2025,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
 )
 
-con.sql(f"""
+con.sql("""
 CREATE TABLE contours AS
 SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS code_departement,
        LIBELLE_DEPARTEMENT AS departement, UU2020 AS unite_urbaine,
        UU2020 LIKE '%000' AS rural_bati, geometry AS geom
-FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+FROM communes_drom_rapproches
 """)
 ```
 
@@ -326,10 +339,11 @@ FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
 
 ### Croiser les deux définitions
 
-On joint les deux sources par le code de commune. Chacune doit couvrir exactement les mêmes
-communes.
+On joint les deux sources par le code de commune. Chacune doit couvrir exactement les mêmes communes.
 
 ```{python}
+#| output: false
+#| filename: "Jointure de la grille et des contours"
 con.sql("""
 CREATE TABLE communes AS
 SELECT c.code, c.nom, c.code_departement, c.departement, c.rural_bati,
@@ -343,11 +357,11 @@ FROM contours c FULL JOIN grille g USING (code)
 assert seules == (0, 0), f"communes sans correspondance (cartiflette, grille) : {seules}"
 ```
 
-En 2025, les deux niveaux de la grille sont emboîtés : les niveaux 1 du découpage en sept
-postes correspondent à l'urbain dense, 2 à 4 à l'urbain intermédiaire et 5 à 7 au rural.
+En 2025, les deux niveaux de la grille sont emboîtés : le niveau 1 du découpage en sept postes correspond à l'urbain dense, les niveaux 2 à 4 à l'urbain intermédiaire et 5 à 7 au rural.
 
 ```{python}
 #| output: false
+#| filename: "Contrôle de l'emboîtement des niveaux"
 emboitement = con.sql("""
 SELECT count(*) FROM communes
 WHERE densite <> CASE WHEN densite7 = 1 THEN 1 WHEN densite7 <= 4 THEN 2 ELSE 3 END
@@ -358,26 +372,53 @@ assert emboitement == 0, f"{emboitement} communes où les deux niveaux ne s'embo
 ### Les deux partages de la population
 
 ```{python}
+#| output: false
+#| filename: "Part du rural selon chaque définition"
 totaux = con.sql("""
 SELECT sum(population) FILTER (rural_bati) / sum(population) AS rural_bati,
        sum(population) FILTER (densite = 3) / sum(population) AS rural_densite
 FROM communes
 """).df().to_dict("records")[0]
 
-con.sql("""
-CREATE TABLE croisement AS
+croisement = con.sql("""
 SELECT densite = 3 AS rural_densite, rural_bati,
        count(*) AS communes, sum(population) AS population,
        sum(population) / sum(sum(population)) OVER () AS part
 FROM communes GROUP BY ALL ORDER BY ALL
-""")
-con.sql("FROM croisement").df().style.hide(axis="index")
+""").df()
 ```
 
-Pour le graphique, chaque définition partage la population en classes, numérotées comme dans
-les vues de la carte (0 : bâti ; 1 : densité ; 3 : sept niveaux).
+Le croisement des deux définitions, en communes et en habitants :
+
+::: {.content-visible when-format="html"}
 
 ```{python}
+#| echo: false
+ojs_define(croisement=croisement.to_dict("records"))
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(croisement, {
+  header: {
+    rural_densite: "Rurale par la densité", rural_bati: "Rurale par le bâti",
+    communes: "Communes", population: "Population 2022", part: "Part de la population"
+  },
+  format: {
+    rural_densite: (b) => (b ? "oui" : "non"), rural_bati: (b) => (b ? "oui" : "non"),
+    communes: entier, population: entier, part: pourcent
+  },
+  layout: "auto"
+})
+```
+
+:::
+
+Pour le graphique, chaque définition partage la population en classes, numérotées comme dans les vues de la carte (0 : bâti ; 1 : densité ; 3 : sept niveaux).
+
+```{python}
+#| output: false
+#| filename: "Partages de la population et désaccords"
 partages = con.sql("""
 SELECT 0 AS vue, rural_bati::INTEGER AS classe, sum(population) AS population FROM communes GROUP BY ALL
 UNION ALL
@@ -397,12 +438,13 @@ desaccords = {
         ("urbain_densite", "densite < 3 AND rural_bati"),
     ]
 }
-desaccords
 ```
 
-Les communes les plus peuplées de chaque désaccord :
+Les communes les plus peuplées de chaque désaccord, montrées dans les tableaux du haut de la page :
 
 ```{python}
+#| output: false
+#| filename: "Les communes les plus peuplées de chaque désaccord"
 exemples = {
     nom: con.sql(f"""
     SELECT nom, departement, population, densite7 FROM communes
@@ -417,14 +459,18 @@ exemples = {
 
 ### Les contours de la carte
 
-Dessiner 35 000 communes alourdirait la page. Or la carte n'a besoin que de leur classe : on
-fusionne donc les communes qui ont le même niveau de densité (en sept postes) et la même
-situation par rapport aux unités urbaines, soit au plus quatorze groupes. Chaque vue de la carte
-colore ensuite ces groupes à sa façon. Les communes sont d'abord simplifiées ensemble, à 1 km environ
-(`ST_CoverageSimplify`), pour que les groupes restent jointifs, puis fusionnées
-(`ST_CoverageUnion_Agg`).
+Dessiner 35 000 communes alourdirait la page. Or la carte n'a besoin que de leur classe : on fusionne donc les communes qui ont le même niveau de densité (en sept postes) et la même situation par rapport aux unités urbaines, soit au plus quatorze groupes. Chaque vue de la carte colore ensuite ces groupes à sa façon.
+
+<details>
+<summary>Détails techniques</summary>
+
+Les communes sont d'abord simplifiées ensemble, à 1 km environ (`ST_CoverageSimplify`), pour que les groupes restent jointifs, puis fusionnées (`ST_CoverageUnion_Agg`). La simplification renvoie une collection dans l'ordre des communes : chaque morceau retrouve sa commune par son rang (`path[1]`).
+
+</details>
 
 ```{python}
+#| output: false
+#| filename: "Groupes de communes et départements"
 con.sql("""
 CREATE TABLE simplifiees AS
 WITH couverture AS (
@@ -463,15 +509,15 @@ SELECT c.code_departement, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(
 FROM simplifiees s JOIN communes c USING (code)
 GROUP BY ALL
 """, ["code"])
-len(groupes["features"]), len(departements["features"])
 ```
 
-Pour la bulle d'information, chaque commune est réduite à un point intérieur
-(`ST_PointOnSurface`). Cette table de 35 000 lignes est écrite à part, en CSV, dans
-`donnees/j9/` : la page la charge après coup, sans s'alourdir.
+La carte ne dessine plus que **`{python} len(groupes["features"])`** groupes et **`{python} len(departements["features"])`** départements.
+
+Pour la bulle d'information, chaque commune est réduite à un point intérieur (`ST_PointOnSurface`). Cette table de 35 000 lignes est écrite à part, en CSV, dans `donnees/j9/` : la page la charge après coup, sans s'alourdir.
 
 ```{python}
 #| output: false
+#| filename: "Points des communes pour les bulles"
 SORTIE = pathlib.Path("donnees/j9")
 SORTIE.mkdir(parents=True, exist_ok=True)
 con.sql(f"""
@@ -484,9 +530,10 @@ COPY (
 """)
 ```
 
-### Ce qui passe à la carte
+::: {.content-visible when-format="html"}
 
 ```{python}
+#| echo: false
 ojs_define(
     groupes=groupes,
     departements=departements,
@@ -498,9 +545,17 @@ ojs_define(
 )
 ```
 
+:::
+
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient pour chaque commune son niveau de densité et sa situation par rapport aux unités urbaines. La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -540,28 +595,25 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
 
-- Les deux définitions ne mesurent pas la même chose. L'unité urbaine regarde la continuité du
-  bâti, sans tenir compte de la densité : une commune très étendue autour d'un bourg aggloméré
-  de 2 000 habitants est urbaine. La grille de densité regarde la concentration de la population
-  dans les carreaux de 1 km, sans tenir compte du bâti.
-- La grille 2025 repose sur le recensement carroyé de 2021, les unités urbaines sur celui de
-  2017. La population affichée est la population municipale 2022.
-- La grille 2025 compte trois niveaux ; celle de 2022 en comptait quatre, le rural regroupant
-  les communes « peu denses » et « très peu denses ». La méthode a aussi été revue : la part du
-  rural ne se compare pas exactement d'une grille à l'autre.
-- L'Insee croise aussi la grille avec le zonage en aires d'attraction des villes, pour
-  distinguer le rural périurbain du rural non périurbain : une troisième façon de découper le
-  rural, non représentée ici.
-- Une commune est classée en entier : un quartier dense dans une grande commune rurale, ou un
-  hameau dans une commune urbaine, prend la classe de sa commune.
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
+- Les deux définitions ne mesurent pas la même chose. L'unité urbaine regarde la continuité du bâti, sans tenir compte de la densité : une commune très étendue autour d'un bourg aggloméré de 2 000 habitants est urbaine. La grille de densité regarde la concentration de la population dans les carreaux de 1 km, sans tenir compte du bâti.
+- La grille 2025 repose sur le recensement carroyé de 2021, les unités urbaines sur celui de 2017. La population affichée est la population municipale 2022.
+- La grille 2025 compte trois niveaux ; celle de 2022 en comptait quatre, le rural regroupant les communes « peu denses » et « très peu denses ». La méthode a aussi été revue : la part du rural ne se compare pas exactement d'une grille à l'autre.
+- L'Insee croise aussi la grille avec le zonage en aires d'attraction des villes, pour distinguer le rural périurbain du rural non périurbain : une troisième façon de découper le rural, non représentée ici.
+- Une commune est classée en entier : un quartier dense dans une grande commune rurale, ou un hameau dans une commune urbaine, prend la classe de sa commune.
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
-- Insee, [La grille de densité 2025](https://www.insee.fr/fr/information/8571524) et sa
-  [note complémentaire](https://www.insee.fr/fr/statistiques/fichier/8571524/note_complementaire.pdf).
+- Insee, [La grille de densité 2025](https://www.insee.fr/fr/information/8571524) et sa [note complémentaire](https://www.insee.fr/fr/statistiques/fichier/8571524/note_complementaire.pdf).
 - Insee, [La grille communale de densité à 7 niveaux](https://www.insee.fr/fr/statistiques/6686472).
 - Insee, définition de l'[unité urbaine](https://www.insee.fr/fr/metadonnees/definition/c1501).
-- Eurostat, [Degree of urbanisation](https://ec.europa.eu/eurostat/web/degree-of-urbanisation),
-  la méthode européenne dont la grille est tirée.
+- Eurostat, [Degree of urbanisation](https://ec.europa.eu/eurostat/web/degree-of-urbanisation), la méthode européenne dont la grille est tirée.
+:::
