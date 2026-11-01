@@ -842,4 +842,5 @@ DOM.download(
 
 - INJEP, [données du sport en France](https://www.sports.gouv.fr/donnees-du-sport-en-france-10250) et le [portail des équipements sportifs](https://equipements.sports.gouv.fr/), avec ses autres jeux (installations, activités pratiquées, exposition des équipements à la chaleur).
 - IGN, [services de calcul d'itinéraires et d'isochrones](https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire) de la Géoplateforme.
+- Insee Première n° 2041, [Équipements sportifs : une offre plurielle et contrastée en ville, des temps d'accès plus longs en milieu rural](https://www.insee.fr/fr/statistiques/8376522), février 2025.
 :::
