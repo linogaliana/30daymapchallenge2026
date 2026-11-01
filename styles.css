@@ -593,12 +593,17 @@ button.ecouter:hover {
 
 .mosaique button:hover {
   transform: translateY(-2px);
-  border-color: var(--bs-link-color);
+  border-color: var(--couleur-page, var(--bs-link-color));
 }
 
 .mosaique button.actif {
-  border: 2px solid var(--bs-link-color);
-  background: color-mix(in srgb, var(--bs-link-color) 10%, transparent);
+  border: 2px solid var(--couleur-page, var(--bs-link-color));
+  background: color-mix(in srgb, var(--couleur-page, var(--bs-link-color)) 10%, transparent);
+}
+
+/* J10 : dans le making of, seuls les blocs du service choisi sont affichés */
+[data-producteur]:not(.choisi) {
+  display: none;
 }
 
 .mosaique svg {

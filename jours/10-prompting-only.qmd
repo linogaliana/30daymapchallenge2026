@@ -1,30 +1,33 @@
 ---
 title: "J10 · Prompting only. Seize services, seize cartes"
-description: "La statistique publique, ce n'est pas que l'Insee : une carte pour chacun des seize services statistiques ministériels, de la Drees aux Douanes en passant par le SSMSI et la Dares."
+description: "La statistique publique, ce n'est pas que l'Insee : une carte pour chacun des seize services statistiques ministériels."
 image: vignettes/10-prompting-only.webp
 resources:
   - donnees/j10/*.json
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#4e79a7"
+  sombre: "#8fb0d9"
 ---
+
+Le thème du J10 du [*30 day map challenge*](https://30daymapchallenge.com/) est ([**"Prompting only"**]{.underline color="#0A5927"}). Pour illustrer la manière dont une IA générative, bien guidée, peut produire des cartes à partir de données publiques, j'ai donc décidé de proposer [**une carte pour chaque service statistique ministériel**]{.underline color="#0A5927"}, réalisée sans intervention humaine, seulement en *promptant* et *repromptant* une IA générative (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
 html`<p class="lead">
   La statistique publique, ce n'est pas que l'Insee. Chaque grand ministère a son service
   statistique, qui produit les chiffres de son domaine : délinquance, santé, école, impôts,
-  commerce extérieur, culture, prisons… Ils sont <strong>seize</strong>, et voici
-  <strong>une carte pour chacun</strong>.
+  commerce extérieur, culture, prisons… Ils sont seize, et voici
+  <span class="souligne">une carte pour chacun</span>. Choisissez-en un dans la mosaïque.
 </p>`
 ```
-
-Pour ce dixième jour, « Prompting only », la page a été faite par consignes : on a demandé à un
-assistant de code de chercher, sur le site de chaque service et sur
-[data.gouv.fr](https://www.data.gouv.fr), des données qui se cartographient, puis d'écrire le
-code, du fichier source à la carte. Choisissez un service dans la mosaïque (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -97,16 +100,151 @@ pixels = (d, couleur) => Plot.plot({
   ]
 })
 
-// Carte des communes regroupées par classe (choroplèthe).
-communesParClasse = (d, mini, {couleurs, libelles, label}) => mini ? pixels(d, (k) => couleurs[k]) : Plot.plot({
-  ...cadre(mini, france(d, mini)),
-  color: legende(mini, {type: "ordinal", domain: [...libelles, "Non renseigné"],
-                        range: [...couleurs, gris], label}),
-  marks: [
-    Plot.geo(d.formes, {fill: (f) => (f.properties.classe < 0 ? "Non renseigné" : libelles[f.properties.classe])}),
-    contour(d, mini)
-  ]
-})
+// Légende en groupes : les classes vont par groupes de même taille, chacun sous son titre
+// (Agreste : l'usage dominant, puis la part de la SAU qu'il couvre).
+legendeGroupes = ({titres, libelles}, couleurs, label) => {
+  const caseCouleur = (c) => html`<span style="display: inline-block; width: 0.9em; height: 0.9em;
+    background: ${c}; vertical-align: -0.1em; margin-right: 0.3em"></span>`
+  return html`<div style="font-size: 0.8em; margin-bottom: 0.5em">
+    <div style="font-weight: 600; margin-bottom: 0.3em">${label}</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 0.5em 1.8em">
+      ${titres.map((t, i) => html`<div>
+        <div style="font-weight: 600">${t}</div>
+        ${libelles.map((l, j) => html`<div>${caseCouleur(couleurs[i * libelles.length + j])}${l}</div>`)}
+      </div>`)}
+      <div style="align-self: flex-end">${caseCouleur(gris)}Non renseigné</div>
+    </div>
+  </div>`
+}
+
+// Carte des communes regroupées par classe (choroplèthe). Avec `groupes`, la légende range
+// les classes par groupe.
+communesParClasse = (d, mini, {couleurs, libelles, label, groupes}) => {
+  if (mini) return pixels(d, (k) => couleurs[k])
+  const carte = Plot.plot({
+    ...cadre(mini, france(d, mini)),
+    color: legende(groupes != null, {type: "ordinal", domain: [...libelles, "Non renseigné"],
+                                     range: [...couleurs, gris], label}),
+    marks: [
+      Plot.geo(d.formes, {fill: (f) => (f.properties.classe < 0 ? "Non renseigné" : libelles[f.properties.classe])}),
+      contour(d, mini)
+    ]
+  })
+  return groupes ? html`<div>${legendeGroupes(groupes, couleurs, label)}${carte}</div>` : carte
+}
+
+// Des polygones colorés par classe sur le Plan IGN (Sdes). De loin, les formes fusionnées par
+// classe (d.formes) ; à partir du zoom 8, les IRIS un par un, chargés par département
+// (d.meta.departements : leurs emprises) à mesure qu'ils entrent dans la vue. Les boutons mènent
+// à la métropole, aux villes (d.meta.villes) et à l'outre-mer. La carte est détruite quand la
+// cellule est relancée.
+irisMaplibre = async (d, {couleurs, libelles, label, bulle, attribution}) => {
+  const {maplibregl, clair, sombre: styleSombre} = await chargerMaplibre()
+  const detail = 8
+  const vues = [territoires[0], ...d.meta.villes.map((v) => [v.nom, [v.emprise.slice(0, 2), v.emprise.slice(2)]]),
+                ...territoires.slice(1)]
+  const conteneur = html`<div style="height: min(75vh, 720px); border-radius: 4px"></div>`
+  const choix = Inputs.radio(new Map(vues), {value: vues[0][1]})
+  const bloc = html`<div>${Plot.legend({color: {type: "ordinal", domain: [...libelles, "Non renseigné"],
+                                                range: [...couleurs, gris], label},
+                                        style: {background: "transparent", color: "inherit"}})}
+    ${choix}${conteneur}</div>`
+  const remplissage = ["match", ["get", "classe"], ...couleurs.flatMap((c, i) => [i, c]), gris]
+  const vide = {type: "FeatureCollection", features: []}
+  // La carte est créée une fois le bloc dans la page, pour qu'elle en connaisse la taille.
+  requestAnimationFrame(() => {
+    const map = new maplibregl.Map({container: conteneur, style: sombre ? styleSombre : clair,
+                                    bounds: vues[0][1], attributionControl: {customAttribution: attribution}})
+    d.invalidation?.then(() => map.remove())
+    map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+    const charges = new Set()
+    const quartiers = []
+    // Les départements dont l'emprise touche la vue, s'ils ne sont pas déjà chargés.
+    const charger = () => {
+      if (map.getZoom() < detail) return
+      const b = map.getBounds()
+      for (const [dep, [x0, y0, x1, y1]] of Object.entries(d.meta.departements)) {
+        if (charges.has(dep) || x1 < b.getWest() || x0 > b.getEast() || y1 < b.getSouth() || y0 > b.getNorth()) continue
+        charges.add(dep)
+        lire(`sdes-iris-${dep}`).then((iris) => {
+          quartiers.push(...iris.features)
+          map.getSource("iris")?.setData({type: "FeatureCollection", features: quartiers})
+        })
+      }
+    }
+    map.on("load", () => {
+      // Sous les noms de lieux du Plan IGN, pour qu'ils restent lisibles.
+      const noms = map.getStyle().layers.find((c) => c.type === "symbol")?.id
+      map.addSource("apercu", {type: "geojson", data: d.formes})
+      map.addSource("iris", {type: "geojson", data: vide})
+      map.addLayer({id: "apercu", type: "fill", source: "apercu", maxzoom: detail,
+                    paint: {"fill-color": remplissage, "fill-opacity": 0.75}}, noms)
+      map.addLayer({id: "iris", type: "fill", source: "iris", minzoom: detail,
+                    paint: {"fill-color": remplissage, "fill-opacity": 0.7}}, noms)
+      map.addLayer({id: "iris-limites", type: "line", source: "iris", minzoom: 10,
+                    paint: {"line-color": fond, "line-width": 0.5, "line-opacity": 0.8}}, noms)
+      charger()
+    })
+    map.on("moveend", charger)
+    const infobulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "280px"})
+    const montrer = (e) => {
+      map.getCanvas().style.cursor = "pointer"
+      infobulle.setLngLat(e.lngLat).setHTML(bulle(e.features[0].properties).replaceAll("\n", "<br>")).addTo(map)
+    }
+    map.on("mousemove", "iris", montrer)
+    map.on("click", "iris", montrer)  // au doigt, sur mobile
+    map.on("mouseleave", "iris", () => {
+      map.getCanvas().style.cursor = ""
+      infobulle.remove()
+    })
+    choix.addEventListener("input", () => map.fitBounds(choix.value, {padding: 20}))
+  })
+  return bloc
+}
+
+// Cartogramme (SSMSI, Drees) : un cercle par commune, en Lambert 93 (km), pour la France entière
+// (d.vue = "france") ou le zoom choisi ; le nom, la valeur et les autres colonnes sont dans
+// celles de la France entière. infobulle(c) écrit le détail d'un cercle.
+cartogramme = (d, {couleurs, libelles, label, infobulle}) => {
+  const f = d.cercles.france
+  const vue = d.vue === "france" ? f : d.cercles.zooms.find((z) => z.id === d.vue)
+  const rang = new Map(f.code.map((code, i) => [code, i]))
+  const colonnes = Object.keys(f).filter((c) => !["code", "x", "y", "r"].includes(c))
+  const cercles = vue.code.map((code, i) => {
+    const k = rang.get(code)
+    return {...Object.fromEntries(colonnes.map((c) => [c, f[c][k]])), x: vue.x[i], y: vue.y[i], r: vue.r[i]}
+  })
+  const [x0, x1] = [d3.min(cercles, (c) => c.x - c.r), d3.max(cercles, (c) => c.x + c.r)]
+  const [y0, y1] = [d3.min(cercles, (c) => c.y - c.r), d3.max(cercles, (c) => c.y + c.r)]
+  const echelle = Math.min(820 / (x1 - x0), 760 / (y1 - y0))  // pixels par km
+  const classe = (c) => (c.valeur == null ? "Non renseigné" : libelles[d3.bisectRight(d.meta.seuils, c.valeur)])
+  // Les plus gros cercles sont nommés. En France entière, Paris, Lyon et Marseille n'ont qu'un
+  // nom, au centre de leurs arrondissements ; dans un zoom, « Paris 15e Arrondissement » devient
+  // « Paris 15e ».
+  const arrondissement = /^(Paris|Lyon|Marseille) \d+(er|e) Arrondissement$/
+  const nommes = d.vue === "france"
+    ? [...cercles.filter((c) => c.r * echelle > 9 && !arrondissement.test(c.nom)),
+       ...d3.groups(cercles.filter((c) => arrondissement.test(c.nom)), (c) => c.nom.split(" ")[0])
+         .map(([nom, a]) => ({nom, x: d3.mean(a, (c) => c.x), y: d3.mean(a, (c) => c.y)}))]
+    : cercles.filter((c) => c.r * echelle > 20)
+  return Plot.plot({
+    width: (x1 - x0) * echelle,
+    height: (y1 - y0) * echelle,
+    margin: 0,
+    style: stylePlot,
+    x: {domain: [x0, x1], axis: null},
+    y: {domain: [y0, y1], axis: null},
+    r: {type: "identity"},
+    color: legende(false, {type: "ordinal", domain: [...libelles, "Non renseigné"], range: [...couleurs, gris], label}),
+    marks: [
+      Plot.dot(cercles, {x: "x", y: "y", r: (c) => Math.max(c.r * echelle, 0.4), fill: classe,
+                         stroke: fond, strokeWidth: 0.3, sort: (c) => -c.r}),
+      Plot.text(nommes, {x: "x", y: "y", text: (c) => c.nom.replace(/ Arrondissement$/, ""),
+                         fontSize: 10, fill: "currentColor", stroke: fond, strokeWidth: 2.5}),
+      Plot.tip(cercles, Plot.pointer({fill: fond, x: "x", y: "y", maxRadius: 20, title: infobulle}))
+    ]
+  })
+}
 
 // Carte d'un fond (départements, régions, EPCI) coloré d'après des lignes jointes par code.
 parCode = (d, niveau, mini, {remplir, color, bulle}) => {
@@ -119,11 +257,47 @@ parCode = (d, niveau, mini, {remplir, color, bulle}) => {
       Plot.geo(avec, {fill: gris, stroke: fond, strokeWidth: mini ? 0.2 : 0.5}),
       Plot.geo(avec.filter((f) => f.ligne), {fill: (f) => remplir(f.ligne), stroke: fond,
                                              strokeWidth: mini ? 0.2 : 0.5}),
-      mini || !bulle ? null : Plot.tip(avec.filter((f) => f.ligne), Plot.pointer(Plot.geoCentroid({
+      mini || !bulle ? null : Plot.tip(avec.filter((f) => f.ligne), Plot.pointer(Plot.geoCentroid({fill: fond,
         title: (f) => bulle(f.ligne)
       })))
     ]
   })
+}
+
+// Le drapeau d'un pays d'après son code ISO à deux lettres (paquet flag-icons, format 4:3).
+drapeau = (iso) => `https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/flags/4x3/${iso.toLowerCase()}.svg`
+
+// Carte des départements marqués chacun du drapeau d'un pays (lignes : code, iso), avec une
+// légende des drapeaux (meta.pays : pays, iso, departements).
+drapeaux = (d, mini, {label, bulle}) => {
+  const index = new Map(d.lignes.map((l) => [l.code, l]))
+  const avec = d.fonds.departements.features
+    .map((f) => ({...f, ligne: index.get(f.properties.code)}))
+    .filter((f) => f.ligne)
+    .map((f) => ({...f, centre: d3.geoCentroid(f)}))
+  const largeur = mini ? 7 : 20
+  const image = (iso) => html`<img src=${drapeau(iso)} alt="" style="width: 1.4em; height: 1.05em;
+    vertical-align: -0.15em; margin-right: 0.35em; box-shadow: 0 0 0 0.5px ${trait}">`
+  const carte = Plot.plot({
+    ...cadre(mini, france(d, mini)),
+    marks: [
+      Plot.geo(d.fonds.departements, {fill: terre, stroke: fond, strokeWidth: mini ? 0.2 : 0.5}),
+      Plot.image(avec, {x: (f) => f.centre[0], y: (f) => f.centre[1], src: (f) => drapeau(f.ligne.iso),
+                        width: largeur, height: largeur * 3 / 4, preserveAspectRatio: "none"}),
+      mini ? null : Plot.tip(avec, Plot.pointer({fill: fond, x: (f) => f.centre[0], y: (f) => f.centre[1],
+                                                 maxRadius: 20, title: (f) => bulle(f.ligne)}))
+    ]
+  })
+  if (mini) return carte
+  return html`<div>
+    <div style="font-size: 0.8em; margin-bottom: 0.5em">
+      <div style="font-weight: 600; margin-bottom: 0.3em">${label}</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 0.3em 1.2em">
+        ${d.meta.pays.map((p) => html`<span>${image(p.iso)}${p.pays} (${p.departements})</span>`)}
+      </div>
+    </div>
+    ${carte}
+  </div>`
 }
 
 // Carte de points (ou de cercles) sur le fond des départements.
@@ -136,9 +310,218 @@ points = (d, mini, {r, rMax, color, fill, bulle, sous = []}) => Plot.plot({
     ...(mini ? [] : sous),
     Plot.dot(d.lignes, {x: "lon", y: "lat", r, fill, fillOpacity: 0.8, stroke: fond,
                       strokeWidth: mini ? 0 : 0.4, sort: r ? {channel: "-r"} : null}),
-    mini || !bulle ? null : Plot.tip(d.lignes, Plot.pointer({x: "lon", y: "lat", maxRadius: 15, title: bulle}))
+    mini || !bulle ? null : Plot.tip(d.lignes, Plot.pointer({fill: fond, x: "lon", y: "lat", maxRadius: 15, title: bulle}))
   ]
 })
+
+// Des points à leur place réelle (lon_reel, lat_reel) sur le Plan IGN (Depp), une couleur par
+// catégorie de la colonne champ ; la première catégorie (la plus fréquente) est dessinée dessous.
+// La carte est détruite quand la cellule est relancée.
+pointsMaplibre = async (d, {champ, domaine, couleurs, label, bulle, attribution}) => {
+  const {maplibregl, clair, sombre: styleSombre} = await chargerMaplibre()
+  const lignes = d.lignes.filter((l) => !l.copie)
+  const conteneur = html`<div style="height: min(75vh, 720px); border-radius: 4px"></div>`
+  const choix = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+  const legendeHtml = html`<div style="display: flex; flex-wrap: wrap; gap: 0.3em 1em; font-size: 0.8em; margin-bottom: 0.5em">
+    <strong style="font-weight: 600">${label}</strong>
+    ${domaine.map((x, i) => html`<span><span style="display: inline-block; width: 0.8em; height: 0.8em;
+      border-radius: 50%; background: ${couleurs[i]}; vertical-align: -0.05em"></span> ${x}</span>`)}
+  </div>`
+  const bloc = html`<div>${legendeHtml}${choix}${conteneur}</div>`
+  const donnees = {type: "FeatureCollection", features: lignes.map((l, i) => ({
+    type: "Feature", properties: {i, categorie: l[champ], rang: domaine.indexOf(l[champ])},
+    geometry: {type: "Point", coordinates: [l.lon_reel, l.lat_reel]}
+  }))}
+  // La carte est créée une fois le bloc dans la page, pour qu'elle en connaisse la taille.
+  requestAnimationFrame(() => {
+    const map = new maplibregl.Map({container: conteneur, style: sombre ? styleSombre : clair,
+                                    bounds: territoires[0][1], attributionControl: {customAttribution: attribution}})
+    d.invalidation?.then(() => map.remove())
+    map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+    map.on("load", () => {
+      map.addSource("points", {type: "geojson", data: donnees})
+      map.addLayer({
+        id: "points", type: "circle", source: "points",
+        layout: {"circle-sort-key": ["get", "rang"]},
+        paint: {
+          "circle-color": ["match", ["get", "categorie"], ...domaine.flatMap((x, i) => [x, couleurs[i]]), gris],
+          "circle-opacity": 0.9,
+          "circle-stroke-color": fond,
+          "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 5, 0.3, 10, 1],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 1.8, 8, 4, 12, 8]
+        }
+      })
+    })
+    const infobulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "280px"})
+    const montrer = (e) => {
+      map.getCanvas().style.cursor = "pointer"
+      const l = lignes[e.features[0].properties.i]
+      infobulle.setLngLat([l.lon_reel, l.lat_reel]).setHTML(bulle(l).replaceAll("\n", "<br>")).addTo(map)
+    }
+    map.on("mousemove", "points", montrer)
+    map.on("click", "points", montrer)  // au doigt, sur mobile
+    map.on("mouseleave", "points", () => {
+      map.getCanvas().style.cursor = ""
+      infobulle.remove()
+    })
+    choix.addEventListener("input", () => map.fitBounds(choix.value, {padding: 20}))
+  })
+  return bloc
+}
+
+// Les EPCI (d.fonds.epci, à leur place réelle) sur le Plan IGN (INJEP), colorés selon la mesure
+// choisie : la colonne `${id}_categorie` de leur ligne, couleur(categorie) pour la couleur. La
+// carte est détruite quand la cellule est relancée.
+epciMaplibre = async (d, {mesures, couleur, bulle, attribution}) => {
+  const {maplibregl, clair, sombre: styleSombre} = await chargerMaplibre()
+  const index = new Map(d.lignes.map((l) => [l.code, l]))
+  const formes = {type: "FeatureCollection", features: d.fonds.epci.features
+    .filter((f) => index.has(f.properties.code))
+    .map((f) => ({...f, properties: index.get(f.properties.code)}))}
+  const conteneur = html`<div style="height: min(75vh, 720px); border-radius: 4px"></div>`
+  const mesure = Inputs.radio(new Map(mesures.map((m) => [m.nom, m])), {value: mesures[0], label: "Compter"})
+  const choix = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+  const legendeMesure = html`<div>`
+  const bloc = html`<div>${mesure}${legendeMesure}${choix}${conteneur}</div>`
+  const remplissage = (m) => ["match", ["get", `${m.id}_categorie`], ...m.categories.flatMap((c) => [c, couleur(c)]), gris]
+  const dessinerLegende = (m) => legendeMesure.replaceChildren(Plot.legend({
+    color: {type: "ordinal", domain: m.categories, range: m.categories.map(couleur), label: m.label},
+    style: {background: "transparent", color: "inherit"}
+  }))
+  dessinerLegende(mesure.value)
+  // La carte est créée une fois le bloc dans la page, pour qu'elle en connaisse la taille.
+  requestAnimationFrame(() => {
+    const map = new maplibregl.Map({container: conteneur, style: sombre ? styleSombre : clair,
+                                    bounds: territoires[0][1], attributionControl: {customAttribution: attribution}})
+    d.invalidation?.then(() => map.remove())
+    map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+    map.on("load", () => {
+      // Sous les noms de lieux du Plan IGN, pour qu'ils restent lisibles.
+      const noms = map.getStyle().layers.find((c) => c.type === "symbol")?.id
+      map.addSource("epci", {type: "geojson", data: formes})
+      map.addLayer({id: "epci", type: "fill", source: "epci",
+                    paint: {"fill-color": remplissage(mesure.value), "fill-opacity": 0.75}}, noms)
+      map.addLayer({id: "epci-limites", type: "line", source: "epci",
+                    paint: {"line-color": fond, "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.3, 10, 1.2]}}, noms)
+    })
+    const infobulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "300px"})
+    const montrer = (e) => {
+      map.getCanvas().style.cursor = "pointer"
+      infobulle.setLngLat(e.lngLat).setHTML(bulle(index.get(e.features[0].properties.code)).replaceAll("\n", "<br>")).addTo(map)
+    }
+    map.on("mousemove", "epci", montrer)
+    map.on("click", "epci", montrer)  // au doigt, sur mobile
+    map.on("mouseleave", "epci", () => {
+      map.getCanvas().style.cursor = ""
+      infobulle.remove()
+    })
+    mesure.addEventListener("input", () => {
+      dessinerLegende(mesure.value)
+      if (map.getLayer("epci")) map.setPaintProperty("epci", "fill-color", remplissage(mesure.value))
+    })
+    choix.addEventListener("input", () => map.fitBounds(choix.value, {padding: 20}))
+  })
+  return bloc
+}
+
+// Carte MapLibre sur le Plan IGN (Sies), où l'on peut zoomer et se déplacer. La bibliothèque
+// et le style ne sont chargés que quand on choisit la carte.
+chargerMaplibre = {
+  let promesse = null
+  // Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris (comme J1).
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    return v
+  }
+  return () => {
+    if (promesse) return promesse
+    const lien = document.createElement("link")
+    lien.rel = "stylesheet"
+    lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+    document.head.appendChild(lien)
+    promesse = Promise.all([
+      require("maplibre-gl@4.7.1"),
+      fetch("https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json").then((r) => r.json())
+    ]).then(([maplibregl, clair]) => {
+      const sombre = structuredClone(clair)
+      for (const couche of sombre.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+      return {maplibregl, clair, sombre}
+    })
+    return promesse
+  }
+}
+territoires = [
+  ["Métropole", [[-5.3, 41.3], [9.7, 51.1]]],
+  ["Guadeloupe", [[-61.85, 15.8], [-61.0, 16.55]]],
+  ["Martinique", [[-61.25, 14.38], [-60.8, 14.9]]],
+  ["Guyane", [[-54.6, 2.1], [-51.6, 5.8]]],
+  ["La Réunion", [[55.2, -21.4], [55.85, -20.85]]],
+  ["Mayotte", [[44.95, -13.05], [45.35, -12.6]]]
+]
+// Des cercles (lon, lat) sur le Plan IGN : rayon selon la colonne r, couleur par seuils
+// (color.domain, color.range) de la colonne fill. La carte précédente est détruite quand on
+// en dessine une autre (changement de thème).
+promenade = {
+  let precedente = null
+  return async (lignes, {sombre, r, fill, color, bulle, attribution}) => {
+    const {maplibregl, clair, sombre: styleSombre} = await chargerMaplibre()
+    precedente?.remove()
+    const conteneur = html`<div style="height: min(75vh, 720px); border-radius: 4px"></div>`
+    const choix = Inputs.radio(new Map(territoires), {value: territoires[0][1]})
+    const bloc = html`<div>${Plot.legend({color: {...color, type: "threshold"},
+                                           style: {background: "transparent", color: "inherit"}})}
+      ${choix}${conteneur}</div>`
+    const donnees = {type: "FeatureCollection", features: lignes.map((l) => ({
+      type: "Feature", properties: l, geometry: {type: "Point", coordinates: [l.lon, l.lat]}
+    }))}
+    const racine = ["sqrt", ["get", r]]
+    // La carte est créée une fois le bloc dans la page, pour qu'elle en connaisse la taille.
+    requestAnimationFrame(() => {
+      const map = new maplibregl.Map({container: conteneur, style: sombre ? styleSombre : clair,
+                                      bounds: territoires[0][1], attributionControl: {customAttribution: attribution}})
+      precedente = map
+      map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+      map.on("load", () => {
+        map.addSource("lieux", {type: "geojson", data: donnees})
+        map.addLayer({
+          id: "lieux", type: "circle", source: "lieux",
+          layout: {"circle-sort-key": ["-", 0, ["get", r]]},  // les petits cercles par-dessus
+          paint: {
+            "circle-color": ["step", ["get", fill], color.range[0],
+                             ...color.domain.flatMap((s, i) => [s, color.range[i + 1]])],
+            "circle-opacity": 0.8,
+            "circle-stroke-color": sombre ? "#222" : "white",
+            "circle-stroke-width": 0.5,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"],
+                              4, ["max", 1.5, ["*", 0.15, racine]],
+                              12, ["max", 5, ["*", 0.9, racine]]]
+          }
+        })
+      })
+      const infobulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "300px"})
+      const montrer = (e) => {
+        map.getCanvas().style.cursor = "pointer"
+        infobulle.setLngLat(e.lngLat).setHTML(bulle(e.features[0].properties)).addTo(map)
+      }
+      map.on("mousemove", "lieux", montrer)
+      map.on("click", "lieux", montrer)  // au doigt, sur mobile
+      map.on("mouseleave", "lieux", () => {
+        map.getCanvas().style.cursor = ""
+        infobulle.remove()
+      })
+      choix.addEventListener("input", () => map.fitBounds(choix.value, {padding: 20}))
+    })
+    return bloc
+  }
+}
 ```
 
 ```{ojs}
@@ -152,16 +535,19 @@ cartes = [
     titre: "Les cambriolages de logement en 2025",
     texte: (d) => html`En 2025, police et gendarmerie ont enregistré
       <strong>${entier(d.meta.cambriolages)} cambriolages de logement</strong>, soit
-      ${virgule(d.meta.taux)} pour 1 000 logements. Le taux est plus élevé autour des grandes villes
-      (Bordeaux, Toulouse, Lyon, Marseille) et dans le sud du Bassin parisien ; il est plus faible en
-      montagne et en Corse. Seules ${entier(d.meta.diffusees)} communes
-      ont des chiffres publiés ; pour les autres (trop peu de faits), la carte reprend le taux moyen
-      des communes non publiées de leur département.`,
+      ${virgule(d.meta.taux)} pour 1&nbsp;000 logements. La taille du cercle représente le nombre de logements. La couleur le taux de cambriolages pour 1&nbsp;000 logements.`,
     source: "SSMSI, base communale de la délinquance enregistrée 2025",
-    dessiner: (d, mini) => communesParClasse(d, mini, {
-      couleurs: sequence("OrRd", d.meta.seuils.length + 1),
-      libelles: libellesSeuils(d.meta.seuils), label: "Cambriolages pour 1 000 logements"
-    }),
+    note: "Cette figure est un cartogramme. Chaque cercle est une commune (un arrondissement à Paris, Lyon et Marseille), d'aire proportionnelle à son nombre de logements, la couleur représente le taux de cambriolages pour 10000 habitants. ",
+    dessiner: (d, mini) => {
+      const options = {couleurs: sequence("OrRd", d.meta.seuils.length + 1),
+                       libelles: libellesSeuils(d.meta.seuils), label: "Cambriolages pour 1 000 logements",
+                       infobulle: (c) => `${c.nom}\n${entier(c.logements)} logements\n` +
+                         (c.valeur == null ? "Taux non renseigné"
+                           : `${virgule(c.valeur)} cambriolages pour 1 000 logements${c.publie ? "" : "\n(moyenne des communes non publiées du département)"}`)}
+      return mini ? communesParClasse(d, mini, options) : cartogramme(d, options)
+    },
+    // Le cartogramme seul : la carte des communes ne sert qu'à la vignette.
+    cartogramme: "ssmsi-cartogramme", choroplethe: false,
     table: true, fichier: "cambriolages_logement_communes_2025.csv",
     colonnes: {code: "Code", nom: "Commune", departement: "Département", logements: "Logements",
                cambriolages: "Cambriolages", taux: "Pour 1 000 logements", publie: "Chiffre publié"},
@@ -177,12 +563,18 @@ cartes = [
       des communes voisines et de l'âge de la population. En 2024, elle est en moyenne de
       ${virgule(d.meta.moyenne)} consultations par habitant. <strong>${pourcent(d.meta.sous_seuil)}
       de la population</strong> vit dans une commune où elle est inférieure à 2,5, le seuil
-      habituel des zones sous-dotées.`,
+      habituel des zones sous-dotées. Dans le cartogramme, la taille du cercle représente la
+      population, la couleur l'APL.`,
     source: "Drees, indicateur d'APL aux médecins généralistes 2024",
-    dessiner: (d, mini) => communesParClasse(d, mini, {
-      couleurs: sequence("YlGnBu", d.meta.seuils.length + 1),
-      libelles: libellesSeuils(d.meta.seuils), label: "Consultations accessibles par habitant et par an"
-    }),
+    note: (vue) => vue === "communes" ? null : "Cette figure est un cartogramme. Chaque cercle est une commune (un arrondissement à Paris, Lyon et Marseille), d'aire proportionnelle à sa population ; la couleur représente l'APL. ",
+    dessiner: (d, mini) => {
+      const options = {couleurs: sequence("YlGnBu", d.meta.seuils.length + 1),
+                       libelles: libellesSeuils(d.meta.seuils), label: "Consultations accessibles par habitant et par an",
+                       infobulle: (c) => `${c.nom}\n${entier(c.population)} habitants\n` +
+                         `${virgule(c.valeur, 2)} consultations accessibles par habitant et par an`}
+      return mini || d.vue === "communes" ? communesParClasse(d, mini, options) : cartogramme(d, options)
+    },
+    cartogramme: "drees-cartogramme",
     table: true, fichier: "apl_medecins_generalistes_communes_2024.csv",
     colonnes: {code: "Code", nom: "Commune", departement: "Département", population: "Population",
                apl: "APL", apl65: "APL (médecins de 65 ans ou moins)"},
@@ -191,64 +583,100 @@ cartes = [
   {
     id: "depp", sigle: "Depp", ministere: "Éducation nationale",
     service: "Direction de l'évaluation, de la prospective et de la performance",
-    titre: "L'éloignement des collèges, rentrée 2025",
-    texte: (d) => html`Pour répartir ses moyens, l'Éducation nationale mesure l'éloignement de chaque
-      collège : distance aux domiciles des élèves, aux lycées, aux équipements culturels et sportifs…
-      L'indice vaut 100 en moyenne. Les ${entier(d.meta.colleges)} collèges se répartissent
-      entre les villes (en bleu) et les zones de montagne et les campagnes peu denses (en rouge) : <strong>${entier(d.meta.eloignes)} collèges</strong> ont un indice de 120 ou plus.`,
-    source: "Depp, indice d'éloignement des collèges 2025 ; annuaire de l'éducation",
-    dessiner: (d, mini) => points(d, mini, {
-      rMax: 3.2, r: () => 1, fill: "indice",
-      color: {type: "threshold", domain: [90, 95, 105, 110, 120], range: [...d3.schemeRdBu[6]].reverse(),
-              label: "Indice d'éloignement (100 = moyenne)"},
-      bulle: (c) => `${c.nom}\n${c.commune}\nIndice : ${virgule(c.indice)}`
-    }),
-    fichier: "eloignement_colleges_2025.csv",
-    colonnes: {uai: "UAI", nom: "Collège", commune: "Commune", departement: "Département",
-               indice: "Indice d'éloignement"},
-    formats: {indice: (x) => virgule(x)}
+    titre: "Les langues apprises au collège, rentrée 2024",
+    texte: (d) => html`De la 5e à la 3e, presque tous les collégiens apprennent l'anglais
+      (${pourcent(d.meta.anglais)}). La deuxième langue est le plus souvent l'espagnol
+      (${pourcent(d.meta.espagnol)} des élèves), loin devant l'allemand (${pourcent(d.meta.allemand)})
+      et l'italien (${pourcent(d.meta.italien)}). Chaque point est un collège, de la couleur de la
+      langue la plus apprise après l'anglais : l'espagnol dans ${entier(d.meta.colleges.espagnol)}
+      collèges sur ${entier(d.meta.total)}, <strong>l'allemand dans ${entier(d.meta.colleges.allemand)}</strong>,
+      surtout en Alsace et en Moselle, l'italien dans ${entier(d.meta.colleges.italien)}, près des Alpes.`,
+    source: "Depp, effectifs d'élèves en collège par niveau et langue vivante, rentrée 2024 ; annuaire de l'éducation",
+    note: "Zoomez et déplacez la carte ; survolez un collège pour le détail. Fond de carte : Plan IGN. ",
+    // La vignette en Observable Plot, la grande carte en MapLibre, pour se promener.
+    dessiner: (d, mini) => {
+      const domaine = ["Espagnol", "Allemand", "Italien", "Autre langue"]
+      const label = "Langue la plus apprise après l'anglais (5e à 3e)"
+      const bulle = (c) => `<strong>${c.nom}</strong>\n${c.commune} (${c.secteur})\nEspagnol : ${pourcent(c.espagnol)}\n` +
+        `Allemand : ${pourcent(c.allemand)}\nItalien : ${pourcent(c.italien)}\nAutre langue : ${pourcent(c.autres)}`
+      return mini
+        ? points(d, mini, {rMax: 3.2, r: () => 1, fill: "langue", color: {type: "ordinal", domain: domaine,
+            range: [sombre ? "#5c5547" : "#ddd3c0", "#e15759", "#59a14f", "#4e79a7"], label}})
+        : pointsMaplibre(d, {champ: "langue", domaine, label, bulle, attribution: "Depp",
+            couleurs: [sombre ? "#8a7d63" : "#c9b48f", "#e15759", "#59a14f", "#4e79a7"]})
+    },
+    fichier: "langues_colleges_2024.csv",
+    colonnes: {uai: "UAI", nom: "Collège", commune: "Commune", departement: "Département", secteur: "Secteur",
+               eleves: "Élèves de 5e à 3e", espagnol: "Espagnol", allemand: "Allemand", italien: "Italien",
+               autres: "Autre langue", langue: "Langue la plus apprise après l'anglais"},
+    formats: {eleves: entier, espagnol: pourcent, allemand: pourcent, italien: pourcent, autres: pourcent}
   },
   {
     id: "sies", sigle: "Sies", ministere: "Enseignement supérieur",
     service: "Sous-direction des systèmes d'information et des études statistiques",
-    titre: "Les étudiants, de 2015 à 2025",
-    texte: (d) => html`À la rentrée 2025, ${(d.meta.etudiants / 1e6).toLocaleString("fr-FR", {maximumFractionDigits: 2})}
-      millions d'étudiants sont inscrits dans l'enseignement supérieur, ${pourcent(d.meta.evolution)}
-      de plus qu'en 2015. Paris en accueille plus d'un sur quatre. La hausse touche presque toutes
-      les villes universitaires, mais elle est plus forte dans les grandes métropoles
-      et dans les villes moyennes qui ont ouvert de nouvelles formations.`,
-    source: "Sies, atlas régional des effectifs étudiants 2015 et 2025",
-    dessiner: (d, mini) => points(d, mini, {
-      rMax: 30, r: "etudiants", fill: (u) => (u.etudiants_2015 > 0 ? u.etudiants / u.etudiants_2015 - 1 : null),
-      color: {type: "diverging", pivot: 0, scheme: "PuOr", reverse: true, domain: [-0.5, 0.5], clamp: true,
-              tickFormat: (x) => `${x > 0 ? "+" : ""}${Math.round(100 * x)} %`,
-              label: "Évolution 2015-2025"},
-      bulle: (u) => `${u.nom}\n${entier(u.etudiants)} étudiants en 2025\n` +
-        (u.etudiants_2015 > 0 ? `${entier(u.etudiants_2015)} en 2015` : "aucun en 2015")
-    }),
-    fichier: "etudiants_unites_urbaines_2015_2025.csv",
-    colonnes: {code: "Unité urbaine", nom: "Nom", etudiants_2015: "Étudiants 2015", etudiants: "Étudiants 2025"},
-    formats: {etudiants_2015: entier, etudiants: entier}
+    titre: "Les boursiers parmi les nouveaux étudiants, Parcoursup 2025",
+    texte: (d) => html`En 2025, ${entier(d.meta.admis)} néo-bacheliers ont été admis dans une
+      formation par Parcoursup ; <strong>${pourcent(d.meta.part)} avaient une bourse de lycée</strong>.
+      La part varie d'abord selon la formation : ${pourcent(d.meta.bts)} en BTS,
+      ${pourcent(d.meta.licence)} en licence, ${pourcent(d.meta.cpge)} en classe préparatoire,
+      ${pourcent(d.meta.commerce)} en école de commerce. Elle varie aussi avec le territoire,
+      car beaucoup de formations recrutent près de chez elles : ${pourcent(d.meta.seine_saint_denis)}
+      en Seine-Saint-Denis, ${pourcent(d.meta.yvelines)} dans les Yvelines, ${pourcent(d.meta.outre_mer)}
+      outre-mer. Chaque cercle est un lieu de formation, d'aire proportionnelle à ses néo-bacheliers
+      admis ; la couleur donne la part de boursiers.`,
+    source: "Sies, Parcoursup 2025",
+    note: "Zoomez pour entrer dans les villes, survolez un cercle pour le détail ; les boutons mènent à l'outre-mer. ",
+    dessiner: (d, mini) => {
+      // Autour de la moyenne (20 %), un gris : le blanc de la palette ne se verrait pas sur le fond.
+      const color = {type: "threshold", domain: [0.1, 0.15, 0.25, 0.3],
+                     range: ["#e66101", "#fdb863", sombre ? "#8a8a8a" : "#b3b3b3", "#b2abd2", sombre ? "#8e6fcf" : "#5e3c99"],
+                     tickFormat: (x) => pourcent(x), label: "Part de boursiers parmi les néo-bacheliers admis"}
+      // La vignette, sans fond de plan : la métropole seule (les points sont à leur place réelle).
+      if (mini) return points({...d, lignes: d.lignes.filter((l) => l.lat > 40)}, true,
+                              {rMax: 14, r: "admis", fill: "part", color})
+      return promenade(d.lignes, {
+        sombre, r: "admis", fill: "part", color, attribution: "Sies, Parcoursup 2025 ; IGN",
+        bulle: (l) => `<strong>${l.nom}</strong><br>${l.commune} (${l.statut.toLowerCase()})<br>${l.filieres}<br>` +
+          `${entier(l.admis)} néo-bacheliers admis, dont <strong>${pourcent(l.part)} de boursiers</strong>`
+      })
+    },
+    fichier: "boursiers_parcoursup_2025.csv",
+    colonnes: {uai: "UAI", nom: "Établissement", commune: "Commune", departement: "Département", statut: "Statut",
+               filieres: "Filières", admis: "Néo-bacheliers admis", boursiers: "Dont boursiers", part: "Part de boursiers"},
+    formats: {admis: entier, boursiers: entier, part: (x) => pourcent(x, 1)}
   },
   {
     id: "sdes", sigle: "Sdes", ministere: "Transition écologique",
     service: "Service des données et études statistiques",
-    titre: "Les maisons exposées au retrait-gonflement des argiles",
-    texte: (d) => html`Les sols argileux gonflent quand il pleut et se rétractent quand il fait sec :
-      les maisons construites dessus se fissurent. Les sécheresses répétées multiplient les
-      sinistres. <strong>${(d.meta.maisons / 1e6).toLocaleString("fr-FR", {maximumFractionDigits: 1})}
-      millions de maisons individuelles</strong> sont sur un sol où l'exposition est moyenne ou forte,
-      surtout dans le Bassin parisien, le Sud-Ouest et le couloir rhodanien.`,
-    source: "Sdes, exposition des maisons individuelles au retrait-gonflement des argiles (Fidéli 2021)",
-    dessiner: (d, mini) => points(d, mini, {
-      rMax: 18, r: "maisons", fill: mini ? "#b5651d" : (sombre ? "#d9894a" : "#b5651d"),
-      sous: [Plot.geo(d.fonds.epci, {stroke: sombre ? "#3a3a3a" : "#d8d4cb", strokeWidth: 0.3})],
-      bulle: (e) => `${e.nom}\n${entier(e.maisons)} maisons en exposition moyenne ou forte\n` +
-        `dont ${e.forte == null ? "secret" : entier(e.forte)} en exposition forte`
-    }),
-    fichier: "maisons_exposees_argiles_epci.csv",
-    colonnes: {code: "EPCI", nom: "Nom", moyenne: "Exposition moyenne", forte: "Exposition forte", maisons: "Moyenne ou forte"},
-    formats: {moyenne: (x) => (x == null ? "secret" : entier(x)), forte: (x) => (x == null ? "secret" : entier(x)), maisons: entier}
+    titre: "Gaz ou électricité : l'énergie des logements en 2025",
+    texte: (d) => html`En 2025, les logements ont consommé ${entier(d.meta.electricite)} TWh
+      d'électricité et ${entier(d.meta.gaz)} TWh de gaz de réseau. Le gaz n'arrive pas partout :
+      <strong>${pourcent(d.meta.sans_gaz)} des logements</strong> sont dans un quartier ou un village
+      sans aucun compteur de gaz, où l'on se chauffe à l'électricité, au fioul ou au bois. Le gaz
+      fait plus de la moitié de l'énergie des logements en Île-de-France et dans les Hauts-de-France ;
+      il n'y a pas de réseau en Corse ni outre-mer. Chaque IRIS
+      (un quartier en ville, souvent la commune entière à la campagne) est coloré selon la part du gaz
+      dans l'électricité et le gaz que consomment ses logements.`,
+    source: "Sdes, données locales de consommation d'électricité et de gaz naturel à l'IRIS, 2025",
+    note: "Zoomez pour voir les IRIS un par un, survolez-en un pour le détail ; les boutons mènent aux grandes villes (leur unité urbaine) et à l'outre-mer. ",
+    dessiner: (d, mini) => {
+      const couleurs = sombre
+        ? ["#e8913f", "#9c6a3a", "#3d5f80", "#4f8fca", "#9ccaf2"]
+        : ["#c8641e", "#f0b672", "#c6dbef", "#6baed6", "#2166ac"]
+      const options = {couleurs, libelles: ["pas de gaz", ...libellesSeuils(d.meta.seuils, " %")],
+                       label: "Part du gaz dans l'énergie des logements (électricité et gaz)"}
+      if (mini) return communesParClasse(d, mini, options)
+      return irisMaplibre(d, {...options, attribution: "Sdes ; IGN, via cartiflette",
+        bulle: (p) => `<strong>${p.nom}</strong> (${p.commune})\n` +
+          (p.logements == null ? "" : `${entier(p.logements)} logements\n`) +
+          (p.part_gaz == null ? "Consommation secrète ou non déclarée"
+            : `Gaz : <strong>${pourcent(p.part_gaz)}</strong> de l'énergie\nÉlectricité : ${entier(p.kwh)} kWh par logement`)})
+    },
+    table: true, fichier: "gaz_electricite_iris_2025.csv",
+    colonnes: {code: "IRIS", nom: "Nom", commune: "Commune", logements: "Logements",
+               electricite: "Électricité (MWh)", gaz: "Gaz (MWh)", part_gaz: "Part du gaz"},
+    formats: {logements: entier, electricite: (x) => (x == null ? "secret" : entier(x)),
+              gaz: (x) => (x == null ? "secret" : entier(x)), part_gaz: (x) => (x == null ? "" : pourcent(x, 1))}
   },
   {
     id: "agreste", sigle: "SSP · Agreste", ministere: "Agriculture",
@@ -266,7 +694,11 @@ cartes = [
         ? ["#e0b94a", "#8c7a3c", "#6fbf62", "#3f6f3a", "#c45a9a", "#7a3c62"]
         : ["#d4a72c", "#f0dc96", "#3f8f3a", "#a9d49c", "#a3307a", "#e6a6cc"]
       return communesParClasse(d, mini, {couleurs: c, libelles: d.meta.libelles,
-                                         label: "Usage dominant de la surface agricole"})
+                                         label: "Usage dominant de la surface agricole (SAU)",
+                                         groupes: {titres: ["Céréales dominantes", "Prairies dominantes",
+                                                            "Vignes dominantes"],
+                                                   libelles: ["plus de la moitié de la SAU",
+                                                              "moins de la moitié de la SAU"]}})
     },
     table: true, fichier: "surfaces_agricoles_communes_2020.csv",
     colonnes: {code: "Code", nom: "Commune", departement: "Département", sau: "SAU (ha)",
@@ -277,12 +709,9 @@ cartes = [
     id: "dgfip", sigle: "DGFiP", ministere: "Comptes publics",
     service: "Pôle statistique publique de la Direction générale des finances publiques",
     titre: "Le taux de taxe foncière en 2025",
-    texte: (d) => html`Le taux de la taxe foncière sur les propriétés bâties additionne la part de la
-      commune, celle de l'intercommunalité et quelques taxes annexes. La moitié des communes ont un taux supérieur à
-      <strong>${virgule(d.meta.mediane)} %</strong>. Les taux sont plus bas en Alsace, en Lorraine, dans
-      les Alpes du Nord, en Île-de-France et en Corse ; plus hauts dans le Nord, le Sud-Ouest et le
-      Languedoc. Un taux élevé ne fait pas forcément une taxe élevée : elle dépend
-      aussi de la valeur locative des logements.`,
+    texte: (d) => html`La taxe foncière se calcule par la formule
+      ${tex`\text{taxe foncière} = \text{taux} \times \dfrac{\text{valeur locative cadastrale}}{2}`}.
+      Représentons la disparité géographique de ce taux.`,
     source: "DGFiP, fiscalité locale des particuliers 2025",
     dessiner: (d, mini) => communesParClasse(d, mini, {
       couleurs: sequence("PuRd", d.meta.seuils.length + 1),
@@ -296,15 +725,13 @@ cartes = [
     id: "douanes", sigle: "Douanes · DSECE", ministere: "Comptes publics",
     service: "Département des statistiques et des études du commerce extérieur",
     titre: "Le premier client de chaque département en 2023",
-    texte: (d) => html`À qui chaque département vend-il le plus ? L'Allemagne est le premier client de
+    texte: (d) => html`À qui chaque département vend-il le plus ? L'Allemagne est le premier débouché de
       <strong>${d.meta.allemagne} départements</strong>, surtout dans l'Est et le Nord. L'Espagne domine
       dans le Sud-Ouest, l'Italie dans le Sud-Est et l'Auvergne, la Belgique dans le Nord. Le premier client ne pèse
       souvent qu'un cinquième des exportations du département.`,
     source: "Douanes (DSECE), statistiques départementales du commerce extérieur 2023",
-    dessiner: (d, mini) => parCode(d, "departements", mini, {
-      remplir: (l) => l.categorie,
-      color: {type: "ordinal", domain: d.meta.categories, range: [...categories.slice(0, d.meta.categories.length - 1), gris],
-              label: "Premier pays client"},
+    dessiner: (d, mini) => drapeaux(d, mini, {
+      label: "Premier pays client",
       bulle: (l) => `${l.departement}\n1er client : ${l.pays} (${pourcent(l.part)} des exportations)\n` +
         `Exportations : ${virgule(l.exportations / 1e9)} Md€`
     }),
@@ -319,7 +746,7 @@ cartes = [
     titre: "Les cinémas",
     texte: (d) => html`La France compte ${entier(d.meta.cinemas)} cinémas, dont
       <strong>${entier(d.meta.art_essai)} classés Art et essai</strong> (en couleur). Beaucoup sont de
-      petites salles de bourg : la moitié n'ont qu'un écran. Les multiplexes, eux, se
+      petites salles : la moitié n'ont qu'un écran. Les multiplexes, eux, se
       concentrent aux abords des grandes villes.`,
     source: "Deps, base des lieux et équipements culturels (Basilic) 2026",
     dessiner: (d, mini) => points(d, mini, {
@@ -338,22 +765,40 @@ cartes = [
     id: "injep", sigle: "INJEP · Medes", ministere: "Sports, Jeunesse",
     service: "Mission enquêtes, données et études statistiques",
     titre: "Après le football, quel sport ?",
-    texte: (d) => html`Le football a le plus de clubs presque partout. Mais derrière lui ? Dans chaque
-      intercommunalité, la fédération qui en compte le plus, football mis à part. Le
-      <strong>tennis</strong> l'emporte dans ${d.meta.tennis} intercommunalités, surtout dans l'Ouest
-      et la moitié nord ; la <strong>pétanque</strong> dans ${d.meta.petanque}, du Massif central à
-      la Méditerranée ; le sport boules, la « lyonnaise », dans ${d.meta.boules}, entre le Lyonnais,
-      le Forez et la Savoie.`,
-    source: "INJEP (Medes), recensement des clubs auprès des fédérations sportives 2023",
-    dessiner: (d, mini) => mini ? pixels(d, (k) => [...categories.slice(0, d.meta.categories.length - 1), gris][k]) : parCode(d, "epci", mini, {
-      remplir: (l) => l.categorie,
-      color: {type: "ordinal", domain: d.meta.categories, range: [...categories.slice(0, d.meta.categories.length - 1), gris],
-              label: "Fédération qui a le plus de clubs, football mis à part"},
-      bulle: (l) => `${l.nom}\n${l.sport} : ${entier(l.clubs)} clubs\nFootball : ${entier(l.football)} clubs`
-    }),
+    texte: (d) => html`Le football a le plus de licenciés presque partout. Mais derrière lui ? Dans
+      chaque intercommunalité, le sport qui compte le plus de clubs, ou le plus de licenciés,
+      football mis à part. En nombre de clubs, les <strong>boules</strong> (pétanque et lyonnaise)
+      l'emportent dans ${entier(d.meta.epci.clubs.Boules)} intercommunalités, du Lyonnais au Sud-Ouest
+      ; le tennis dans ${entier(d.meta.epci.clubs.Tennis)}, le cyclisme dans
+      ${entier(d.meta.epci.clubs.Cyclisme)}, surtout dans l'Ouest et le Grand Est. En nombre de
+      licenciés, la carte change : le <strong>tennis</strong> est en tête dans
+      ${entier(d.meta.epci.licences.Tennis)} intercommunalités, l'équitation dans
+      ${entier(d.meta.epci.licences["Équitation"])}, le rugby dans ${entier(d.meta.epci.licences.Rugby)},
+      presque toutes dans le Sud-Ouest.`,
+    source: "INJEP (Medes), recensement des licences et clubs auprès des fédérations sportives 2023",
+    note: "Choisissez de compter les clubs ou les licenciés ; zoomez et déplacez la carte, survolez une intercommunalité pour le détail. ",
+    // La vignette en Observable Plot (les clubs), la grande carte en MapLibre, pour se promener.
+    dessiner: (d, mini) => {
+      const couleur = (s) => (d.meta.couleurs.includes(s) ? categories[d.meta.couleurs.indexOf(s)] : gris)
+      if (mini) return pixels(d, (k) => categories[k])
+      const nombre = (x) => (x == null ? "aucun" : entier(x))
+      const ligne = (l, m, unite) => (l[`${m}_sport`] == null ? "" : `\n${unite} : <strong>${l[`${m}_sport`]}</strong> ` +
+        `(${nombre(l[`${m}_nombre`])}), football : ${nombre(l[`${m}_football`])}`)
+      return epciMaplibre(d, {
+        mesures: [
+          {id: "clubs", nom: "Nombre de clubs", label: "Sport qui a le plus de clubs, football mis à part"},
+          {id: "licences", nom: "Nombre de licenciés", label: "Sport qui a le plus de licenciés, football mis à part"}
+        ].map((m) => ({...m, categories: d.meta.categories[m.id]})),
+        couleur, attribution: "INJEP ; IGN, via cartiflette",
+        bulle: (l) => `<strong>${l.nom}</strong>${ligne(l, "clubs", "Clubs")}${ligne(l, "licences", "Licences")}`
+      })
+    },
     fichier: "sport_apres_football_epci_2023.csv",
-    colonnes: {code: "EPCI", nom: "Nom", sport: "Fédération", clubs: "Clubs", football: "Clubs de football"},
-    formats: {clubs: entier, football: entier}
+    colonnes: {code: "EPCI", nom: "Nom", clubs_sport: "Sport en tête (clubs)", clubs_nombre: "Clubs",
+               clubs_football: "Clubs de football", licences_sport: "Sport en tête (licences)",
+               licences_nombre: "Licences", licences_football: "Licences de football"},
+    formats: Object.fromEntries(["clubs_nombre", "clubs_football", "licences_nombre", "licences_football"]
+      .map((c) => [c, (x) => (x == null ? "" : entier(x))]))
   },
   {
     id: "dares", sigle: "Dares", ministere: "Travail",
@@ -461,7 +906,7 @@ cartes = [
           Plot.sphere({stroke: trait, strokeWidth: 0.5}),
           Plot.geo(pays, {fill: (f) => (f.properties.iso3 === "FRA" ? (sombre ? "#ddd" : "#333")
                                         : f.ligne?.titres ?? gris), stroke: fond, strokeWidth: mini ? 0.1 : 0.3}),
-          mini ? null : Plot.tip(pays.filter((f) => f.ligne), Plot.pointer(Plot.geoCentroid({
+          mini ? null : Plot.tip(pays.filter((f) => f.ligne), Plot.pointer(Plot.geoCentroid({fill: fond,
             title: (f) => `${f.properties.nom}\n${f.ligne.titres == null ? "moins de 50 (non communiqué)"
                                                  : entier(f.ligne.titres) + " premiers titres"}`
           })))
@@ -502,7 +947,7 @@ cartes = [
 // La mosaïque : une vignette par service ; un clic choisit la carte.
 viewof choix = {
   const precedent = this?.value ?? "ssmsi"
-  const mosaique = html`<div class="mosaique" role="listbox" aria-label="Choisir un service">${cartes.map((c) => {
+  const mosaique = html`<div class="mosaique" id="mosaique" role="listbox" aria-label="Choisir un service">${cartes.map((c) => {
     const b = html`<button type="button" role="option" data-id=${c.id}>
       ${c.dessiner(vignette(c.id), true)}
       <span class="mosaique-sigle">${c.sigle}</span>
@@ -528,62 +973,233 @@ viewof choix = {
 ```{ojs}
 //| echo: false
 carte = cartes.find((c) => c.id === choix)
-// Les formes détaillées (cartes communales) et les EPCI, chargés à la demande.
-formes = carte.table ? lire(`${carte.id}-formes`) : null
-epci = ["sdes", "injep"].includes(carte.id) ? lire("epci") : null
+// Les formes détaillées (cartes communales), les cercles des cartogrammes et les EPCI, chargés
+// à la demande.
+formes = carte.table && carte.choroplethe !== false ? lire(`${carte.id}-formes`) : null
+cercles = carte.cartogramme ? lire(carte.cartogramme) : null
+epci = carte.id === "injep" ? lire("epci") : null
 html`<h2 class="anchored">${carte.titre}</h2>
 <p class="service-ssm"><strong>${carte.sigle}</strong> · ${carte.service} (${carte.ministere})</p>
 <p>${carte.texte(donnees[carte.id])}</p>`
 ```
 
-::: {.column-page}
-
 ```{ojs}
 //| echo: false
-carte.dessiner({...donnees[carte.id], fonds: {...fonds, epci}, formes}, false)
+// Les cartogrammes : la carte des communes (Drees), la France entière ou le zoom sur une ville
+// (rien pour les autres cartes).
+viewof vue = {
+  if (!cercles) return Object.assign(html`<div>`, {value: null})
+  const vues = carte.choroplethe === false
+    ? [["France entière", "france"]]
+    : [["Carte des communes", "communes"], ["Cartogramme : France entière", "france"]]
+  return Inputs.radio(new Map([...vues, ...cercles.zooms.map((z) => [z.nom, z.id])]),
+                      {value: vues[0][1], label: "Afficher"})
+}
 ```
 
 :::
 
+::: {.column-page}
+
+::: {.content-visible when-format="html"}
+
 ```{ojs}
 //| echo: false
-html`<p><small>${carte.table ? "Les communes sont colorées par classe ; leurs valeurs sont dans le tableau en bas de page. " : "Survolez la carte pour le détail. "}${carte.id === "dsed" ? "" : "Les départements d'outre-mer sont rapprochés ; Paris et sa petite couronne sont agrandis en haut à gauche. "}Source : ${carte.source}${carte.id === "dsed" ? "" : " ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette"}.</small></p>`
+carte.dessiner({...donnees[carte.id], fonds: {...fonds, epci}, formes, cercles, vue, invalidation}, false)
 ```
 
---------
+:::
 
-On va maintenant décrire comment obtenir les données de ces cartes. Le code est long : seize
-services, seize sources, chacune avec son format.
+:::
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+html`<p><small>${(typeof carte.note === "function" ? carte.note(vue) : carte.note) ?? `${carte.table ? "Les communes sont colorées par classe ; leurs valeurs sont dans le tableau en bas de page. " : "Survolez la carte pour le détail. "}${carte.id === "dsed" ? "" : "Les départements d'outre-mer sont rapprochés ; Paris et sa petite couronne sont agrandis en haut à gauche. "}`}Source : ${carte.source}${carte.id === "dsed" ? "" : carte.id === "sies" ? " ; IGN, Plan IGN" : carte.id === "sdes" ? " ; IGN, Plan IGN et IRIS 2026, via cartiflette" : " ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette"}.</small></p>`
+```
+
+:::
+
+----------------------------
+
+# Making of
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+// Seuls les blocs du service choisi (data-producteur) restent affichés.
+{
+  for (const bloc of document.querySelectorAll("[data-producteur]")) {
+    bloc.classList.toggle("choisi", bloc.dataset.producteur.split(" ").includes(choix))
+  }
+  return html`<p>Chaque carte a sa source et son code. On ne détaille ici que ceux de la carte
+    choisie, <span class="souligne">${carte.sigle} · ${carte.titre}</span> ; pour une autre,
+    <a href="#mosaique">choisissez un autre service</a>.</p>`
+}
+```
+
+:::
 
 ## Les données
 
-| Service | Source | Ce qu'on en tire | Format |
-|---|---|---|---|
-| SSMSI | [Base communale de la délinquance enregistrée](https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales) | les cambriolages de logement par commune, 2025 | Parquet |
-| Drees | [Accessibilité potentielle localisée (APL)](https://www.data.gouv.fr/datasets/accessibilite-potentielle-localisee-apl-aux-professionnels-de-sante) | l'APL aux médecins généralistes par commune, 2024 | Excel |
-| Depp | [Indice d'éloignement des collèges](https://data.education.gouv.fr/explore/dataset/fr-en-indice_eloignement_college_ap2022/) et [annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | l'indice de chaque collège, rentrée 2025, et sa position | CSV (Opendatasoft) |
-| Sies | [Atlas régional des effectifs étudiants](https://data.enseignementsup-recherche.gouv.fr/explore/dataset/fr-esr-atlas_regional-effectifs-d-etudiants-inscrits/) | les étudiants par unité urbaine, 2015 et 2025 | CSV (Opendatasoft) |
-| Sdes | [Exposition des maisons au retrait-gonflement des argiles](https://www.data.gouv.fr/datasets/exposition-des-maisons-individuelles-au-phenomene-de-retrait-gonflement-des-argiles-rga) | les maisons exposées par EPCI | CSV (DiDo) |
-| SSP (Agreste) | [Recensement agricole 2020, cultures](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/) | les surfaces par grand usage et par commune | ODS |
-| DGFiP | [Fiscalité locale des particuliers](https://www.data.gouv.fr/datasets/fiscalite-locale-des-particuliers) | le taux global de taxe foncière par commune, 2025 | CSV (Opendatasoft) |
-| Douanes (DSECE) | [Statistiques départementales du commerce extérieur](https://www.douane.gouv.fr/la-douane/opendata/auteurs/direction-nationale-des-statistiques-et-des-etudes-du-commerce-exterieur) | les exportations par département et pays, 2023 | Texte zippé |
-| Deps | [Base des lieux et équipements culturels (Basilic)](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) | les cinémas, leur position et leurs fauteuils | CSV |
-| INJEP (Medes) | [Clubs des fédérations sportives](https://www.data.gouv.fr/datasets/donnees-geocodees-issues-du-recensement-des-licences-et-clubs-aupres-des-federations-sportives-agreees-par-le-ministere-charge-des-sports) | les clubs par commune et fédération, 2023 | CSV |
-| Dares | [Portraits statistiques des métiers](https://dares.travail-emploi.gouv.fr/donnees/portraits-statistiques-des-metiers) | l'emploi par métier et département, 2022 | Excel |
-| SSER (Justice) | [Statistique mensuelle de la population détenue](https://www.data.gouv.fr/datasets/statistique-mensuelle-de-la-population-ecrouee-et-detenue-en-france), [annuaire de service-public.fr](https://www.data.gouv.fr/datasets/service-public-gouv-fr-annuaire-de-l-administration-base-de-donnees-locales) | les places et détenus par établissement, et sa position | Excel, JSON (Opendatasoft) |
-| DESL (DGCL) | [Critères de répartition des dotations](http://www.dotations-dgcl.interieur.gouv.fr/consultation/criteres_repartition.php) | la DGF par commune, 2026 | Excel |
-| DGAFP | [Rapport annuel sur l'état de la fonction publique 2025](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023) | le taux d'administration par département, 2023 | Excel zippé |
-| DSED | [Stock et flux des titres de séjour 2024](https://www.data.gouv.fr/datasets/stock-et-flux-des-titres-de-sejour-en-france-sur-lannee-2024) | les premiers titres par nationalité | CSV |
-| S2E (Armées) | [EcoDef Statistiques n° 255](https://www.data.gouv.fr/datasets/ecodef-statistiques-ndeg-255) | les visites des lieux de mémoire par région, 2023 | Excel |
-| | [Communes 2026](https://github.com/InseeFrLab/cartiflette) (IGN, via cartiflette) | les contours, d'où l'on tire départements, régions, EPCI et unités urbaines | GeoParquet |
-| | [Natural Earth](https://www.naturalearthdata.com/) | les contours des pays | GeoJSON |
+::: {producteur="ssmsi"}
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/) ; les
-classeurs Excel et ODS sont lus avec `pandas` et le moteur
-[calamine](https://github.com/dimastbk/python-calamine), rapide et tolérant aux mises en forme.
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Base communale de la délinquance enregistrée](https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales) | SSMSI (Intérieur) | les cambriolages de logement et les logements par commune et arrondissement, 2025 | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Communes et arrondissements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | la position et l'aire d'attraction de chaque commune ou arrondissement | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="drees"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Accessibilité potentielle localisée (APL)](https://www.data.gouv.fr/datasets/accessibilite-potentielle-localisee-apl-aux-professionnels-de-sante) | Drees (Santé) | l'APL aux médecins généralistes par commune, 2024 | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire départements et régions | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Communes et arrondissements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | la position et l'aire d'attraction de chaque commune ou arrondissement, pour le cartogramme | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="depp"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Effectifs d'élèves en collège](https://data.education.gouv.fr/explore/dataset/fr-en-college-effectifs-niveau-sexe-lv/) | Depp (Éducation nationale) | les élèves de chaque niveau par langue vivante (LV1, LV2), rentrée 2024 | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | Éducation nationale | la position de chaque collège | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Communes et départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le fond de carte, et de quoi replacer les points de l'outre-mer | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="sies"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Parcoursup 2025](https://data.enseignementsup-recherche.gouv.fr/explore/dataset/fr-esr-parcoursup/) | Sies (Enseignement supérieur) | la position de chaque formation, ses néo-bacheliers admis et ses admis boursiers | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Plan IGN](https://geoservices.ign.fr/services-geoplateforme-diffusion) | IGN | le fond de la carte, en tuiles vectorielles | Tuiles vectorielles |
+| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le fond de la vignette | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="sdes"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Données locales de consommation d'électricité et de gaz naturel à l'IRIS](https://www.statistiques.developpement-durable.gouv.fr/catalogue?page=dataset&datasetId=610244c9e436671e84ec5da8) | Sdes (Transition écologique) | l'électricité et le gaz consommés par les logements de chaque IRIS, et leurs compteurs, 2025 | {{< iconify vscode-icons file-type-csv >}} CSV (deux fichiers) |
+| [IRIS 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des IRIS, leur département et l'unité urbaine de chacun pour les boutons | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Plan IGN](https://geoservices.ign.fr/services-geoplateforme-diffusion) | IGN | le fond de la carte, en tuiles vectorielles | Tuiles vectorielles |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les départements et la position des communes, pour la vignette | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="agreste"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Recensement agricole 2020, cultures](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/) | SSP (Agriculture) | les surfaces par grand usage et par commune | {{< iconify vscode-icons file-type-libreoffice-calc >}} ODS (zip) |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire départements et régions | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="dgfip"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Fiscalité locale des particuliers](https://www.data.gouv.fr/datasets/fiscalite-locale-des-particuliers) | DGFiP (Comptes publics) | le taux global de taxe foncière par commune, 2025 | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire départements et régions | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="douanes"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Statistiques départementales du commerce extérieur](https://www.douane.gouv.fr/la-douane/opendata/auteurs/direction-nationale-des-statistiques-et-des-etudes-du-commerce-exterieur) | Douanes, DSECE (Comptes publics) | les exportations par département et pays, 2023 | {{< iconify vscode-icons file-type-zip >}} texte (zip) |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire les départements | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="deps"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Base des lieux et équipements culturels (Basilic)](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) | Deps (Culture) | les cinémas, leur position et leurs fauteuils | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Communes et départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le fond de carte, et de quoi replacer les points de l'outre-mer | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="injep"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Clubs et licences des fédérations sportives](https://www.data.gouv.fr/datasets/donnees-geocodees-issues-du-recensement-des-licences-et-clubs-aupres-des-federations-sportives-agreees-par-le-ministere-charge-des-sports) | INJEP, Medes (Sports) | les clubs, et les licences, par commune et fédération, 2023 | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Intercommunalités au 1^er^ janvier 2026](https://www.insee.fr/fr/information/2510634) | Insee | le nom des EPCI | {{< iconify vscode-icons file-type-excel >}} Excel (zip) |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes à leur place réelle, d'où l'on tire les EPCI | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="dares"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Portraits statistiques des métiers](https://dares.travail-emploi.gouv.fr/donnees/portraits-statistiques-des-metiers) | Dares (Travail) | l'emploi par métier et département, 2022 | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire les départements | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="justice"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Statistique mensuelle de la population détenue](https://www.data.gouv.fr/datasets/statistique-mensuelle-de-la-population-ecrouee-et-detenue-en-france) | SSER (Justice) | les places et les détenus par établissement | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Annuaire de l'administration](https://www.data.gouv.fr/datasets/service-public-gouv-fr-annuaire-de-l-administration-base-de-donnees-locales) | service-public.fr (DILA) | la position de chaque établissement | {{< iconify vscode-icons file-type-json >}} JSON |
+| [Communes et départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le fond de carte, et de quoi replacer les points de l'outre-mer | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="desl"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Critères de répartition des dotations](http://www.dotations-dgcl.interieur.gouv.fr/consultation/criteres_repartition.php) | DGCL, DESL (Collectivités locales) | la DGF par commune, 2026 | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire départements et régions | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="dgafp"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Rapport annuel sur l'état de la fonction publique 2025](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023) | DGAFP (Fonction publique) | le taux d'administration par département, 2023 | {{< iconify vscode-icons file-type-excel >}} Excel (zip) |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire les départements | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+::: {producteur="dsed"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Stock et flux des titres de séjour 2024](https://www.data.gouv.fr/datasets/stock-et-flux-des-titres-de-sejour-en-france-sur-lannee-2024) | DSED (Intérieur) | les premiers titres par nationalité | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Admin 0 – Countries](https://www.naturalearthdata.com/downloads/110m-cultural-vectors/) | Natural Earth | les contours des pays | {{< iconify vscode-icons file-type-json >}} GeoJSON |
+
+:::
+
+::: {producteur="armees"}
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [EcoDef Statistiques n° 255](https://www.data.gouv.fr/datasets/ecodef-statistiques-ndeg-255) | S2E (Armées) | les visites des lieux de mémoire par région, 2023 | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire les régions | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+:::
+
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données. Les classeurs Excel et ODS sont lus avec `pandas` et le moteur [calamine](https://github.com/dimastbk/python-calamine), rapide et tolérant aux mises en forme. Le code commun aux seize cartes est toujours affiché ; celui propre à chaque carte n'apparaît que pour le service choisi.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import pathlib
 import re
@@ -593,8 +1209,10 @@ import unicodedata
 import zipfile
 
 import duckdb
+import numpy as np
 import pandas as pd
 import requests
+from scipy.spatial import cKDTree
 
 con = duckdb.connect()
 con.sql("""
@@ -609,20 +1227,20 @@ SORTIE = pathlib.Path("donnees/j10")
 SORTIE.mkdir(parents=True, exist_ok=True)
 ```
 
-Les adresses des fichiers sont rassemblées dans un dictionnaire. Plusieurs sont des exports
-CSV d'un portail [Opendatasoft](https://help.opendatasoft.com/apis/ods-explore-v2/), filtrés
-pour ne télécharger que les lignes et les colonnes utiles.
+<details>
+<summary>Les adresses des sources (officielles et copies sur le SSP Cloud)</summary>
 
 ```{python}
 #| filename: "Les sources"
 {{< include _liens/10-prompting-only.py >}}
 ```
 
-Quelques fonctions servent à toutes les sources : télécharger un fichier (en vérifiant qu'un
-classeur ou une archive est bien complet), rapprocher des noms écrits différemment (accents,
-tirets, « St » pour « Saint »), et découper une valeur en classes.
+</details>
+
+Quelques fonctions servent à toutes les sources : télécharger un fichier, rapprocher des noms écrits différemment (accents, tirets, « St » pour « Saint »), découper une valeur en classes et écrire les fichiers lus par la page.
 
 ```{python}
+#| filename: "Fonctions communes"
 def telecharger(url, nom, archive=True, essais=3):
     chemin = TELECHARGEMENTS / nom
     for essai in range(essais):
@@ -660,37 +1278,36 @@ def ecrire(nom, objet):
         json.dump(objet, f, ensure_ascii=False, separators=(",", ":"))
 ```
 
-### Les communes et les fonds de carte (cartiflette)
+### Les fonds de carte avec `cartiflette`
 
-Toutes les cartes de France partent des communes de 2026, dans la version où les départements
-d'outre-mer sont rapprochés de la métropole. Chaque commune porte son département, sa région,
-son EPCI et son unité urbaine : on en tire tous les autres contours.
+Toutes les cartes de France partent des communes de 2026 du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/), dans la version où l'outre-mer est rapproché de la métropole (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`). Selon les cartes, on va utiliser les métadonnées fournies par les fonds de carte de l'IGN enrichis par `cartiflette`: département, région, EPCIou unité urbaine.
 
 ```{python}
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
-    "administrative_level=COMMUNE/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
-    "vectorfile_format=parquet/simplification=50/raw.parquet"
+#| filename: "Lecture des communes (cartiflette)"
+from cartiflette import carti_download
+
+parametres = dict(values="France", year=2026, simplification=50, crs=4326, engine="duckdb", con=con)
+communes_drom_rapproches = carti_download(borders="COMMUNE", filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES", **parametres)
+# À leur place réelle : pour replacer les points de l'outre-mer et de la petite couronne (plus bas).
+departements_reels = carti_download(
+    borders="DEPARTEMENT", filter_by="FRANCE_ENTIERE",
+    where="INSEE_DEP IN ('75', '92', '93', '94') OR INSEE_DEP LIKE '97%'", **parametres
 )
 
-con.sql(f"""
+con.sql("""
 CREATE TABLE communes AS
 SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS dep, LIBELLE_DEPARTEMENT AS departement,
        INSEE_REG AS reg, LIBELLE_REGION AS region, EPCI AS epci, UU2020 AS uu,
        POPULATION AS population, geometry AS geom
-FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
+FROM communes_drom_rapproches
 """)
-con.sql("SELECT count(*) AS communes, count(DISTINCT dep) AS departements, count(DISTINCT epci) AS epci FROM communes").df()
+con.sql("SELECT count(*) AS communes, count(DISTINCT dep) AS departements, count(DISTINCT epci) AS epci FROM communes").df().style.hide(axis="index")
 ```
 
-Les communes sont simplifiées ensemble, à 1 km environ (`ST_CoverageSimplify`), pour que les
-contours fusionnés restent jointifs. La fonction `contours` fusionne ensuite les communes selon
-une clé (`ST_CoverageUnion_Agg`) : le département, la région, l'EPCI, ou la classe d'une
-carte. Dessiner 35 000 communes alourdirait la page ; une carte en sept classes n'a que sept
-formes.
+La fonction `contours` fusionne les communes selon une clé : le département, la région, l'EPCI, ou la classe d'une carte. Une carte communale en sept classes n'a ainsi que sept formes à dessiner, au lieu de 35 000.
 
 ```{python}
+#| filename: "Fusion des communes"
 con.sql("""
 CREATE TABLE simplifiees AS
 WITH couverture AS (
@@ -726,26 +1343,15 @@ def par_classe(table):
 
 
 fonds = {"departements": contours({"code": "c.dep"}), "regions": contours({"code": "c.reg"})}
-epci = contours({"code": "c.epci"}, "WHERE c.epci <> 'ZZZZZZZZZ'")
 ecrire("fonds", fonds)
-ecrire("epci", epci)
-{"departements": len(fonds["departements"]["features"]), "regions": len(fonds["regions"]["features"]),
- "epci": len(epci["features"])}
+{"departements": len(fonds["departements"]["features"]), "regions": len(fonds["regions"]["features"])}
 ```
 
-Même fusionnées par classe, les cartes communales pèsent plusieurs mégaoctets : la frontière
-entre deux classes suit les limites des communes. La mosaïque n'en montre donc qu'un résumé :
-une grille de cases d'environ 20 km, chacune de la classe la plus fréquente parmi les communes
-dont elle contient le point intérieur. Les départements et régions des vignettes sont simplifiés
-à 5 km.
+Le code ci-dessous n'est utile que pour faire les petites vignettes de la mosaïque, et pour replacer les points de l'outre-mer et de la petite couronne. Il n'est pas nécessaire pour les cartes elles-mêmes.
 
 ```{python}
-con.sql("""
-CREATE TABLE centres_communes AS  -- le plus grand morceau : l'encart pour la petite couronne
-SELECT code, arg_max(geom, ST_Area(geom)) AS geom
-FROM (SELECT code, unnest(ST_Dump(geom), recursive := true) FROM communes)
-GROUP BY code
-""")
+#| output: false
+#| filename: "Vignettes de la mosaïque"
 con.sql("""
 CREATE TABLE points_communes AS
 SELECT code, ST_X(p) AS lon, ST_Y(p) AS lat FROM (SELECT code, ST_PointOnSurface(geom) AS p FROM communes)
@@ -774,25 +1380,15 @@ def grille(table):
     """).fetchall()]
 ```
 
-Sur ce fond, l'outre-mer est déplacé près de la métropole, et Paris et sa petite couronne
-(Hauts-de-Seine, Seine-Saint-Denis, Val-de-Marne) sont dessinés deux fois : à leur place et,
-agrandis, dans un encart. Les points des sources (collèges, cinémas, prisons) ont, eux, leurs
-coordonnées réelles. On calcule donc, pour chaque zone, la transformation qui fait passer de
-son emprise réelle (contours de cartiflette sans rapprochement) à son emprise sur le fond :
-les points d'outre-mer sont déplacés, ceux de la petite couronne recopiés dans l'encart
-(`copie`).
-
 ```{python}
-DEPARTEMENTS_REELS_URL = CARTIFLETTE_URL.replace("administrative_level=COMMUNE", "administrative_level=DEPARTEMENT").replace(
-    "layout=FRANCE_ENTIERE_DROM_RAPPROCHES", "layout=FRANCE_ENTIERE")
+#| filename: "Replacer les points de l'outre-mer et de la petite couronne"
 ZONE = "CASE WHEN {dep} IN ('75', '92', '93', '94') THEN 'petite couronne' ELSE {dep} END"
 
 con.sql(f"""
 CREATE TABLE zones AS
 WITH reel AS (
     SELECT {ZONE.format(dep="INSEE_DEP")} AS zone, ST_Union_Agg(geometry) AS reel
-    FROM read_parquet('{DEPARTEMENTS_REELS_URL}', hive_partitioning = false)
-    WHERE INSEE_DEP IN ('75', '92', '93', '94') OR INSEE_DEP LIKE '97%'
+    FROM departements_reels
     GROUP BY 1
 ),
 morceaux AS (
@@ -833,33 +1429,119 @@ def rapprocher(table):
     """)
 
 
-con.sql("SELECT * EXCLUDE (reel) FROM zones").df()
-```
-
-Les contours n'ont pas le nom des EPCI : on le prend dans la [liste des
-intercommunalités](https://www.insee.fr/fr/information/2510634) de l'Insee au 1^er^ janvier 2026,
-dont l'en-tête est en ligne 6.
-
-```{python}
-with zipfile.ZipFile(telecharger(SOURCES["epci"], "epci.zip")) as archive:
-    archive.extract("EPCI_au_01-01-2026.xlsx", TELECHARGEMENTS)
-noms_epci = pd.read_excel(TELECHARGEMENTS / "EPCI_au_01-01-2026.xlsx", sheet_name="EPCI", header=5,
-                          engine="calamine", dtype=str)[["EPCI", "LIBEPCI"]].set_axis(["code", "nom"], axis=1)
-len(noms_epci)
+con.sql("SELECT * EXCLUDE (reel) FROM zones").df().style.hide(axis="index")
 ```
 
 ## Les traitements
 
-### SSMSI : les cambriolages
+::: {producteur="ssmsi drees"}
 
-La [base communale](https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales)
-du service statistique de la sécurité intérieure donne, pour quinze indicateurs, les faits
-enregistrés par la police et la gendarmerie dans chaque commune. Les cambriolages se rapportent
-aux logements. Le nombre n'est publié que si la commune a enregistré plus de cinq faits trois
-années de suite (`est_diffuse = 'diff'`) ; sinon, la base donne le taux moyen des communes non
-publiées du département (`complement_info_taux`).
+### Le cartogramme {.unnumbered .unlisted}
+
+La carte est un cartogramme de Dorling : chaque commune y devient un cercle d'aire proportionnelle à son poids (logements, population), placé au plus près de sa position. Paris, Lyon et Marseille sont découpées en arrondissements, que la couche `COMMUNE_ARRONDISSEMENT` de cartiflette distingue. Les positions sont en Lambert 93 (`EPSG:2154`), en kilomètres.
 
 ```{python}
+#| output: false
+#| filename: "Position de chaque commune et arrondissement (cartiflette)"
+communes_arrondissements = carti_download(
+    borders="COMMUNE_ARRONDISSEMENT", filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES", **parametres
+)
+con.sql("""
+CREATE TABLE positions AS
+WITH morceaux AS (
+    SELECT INSEE_COG AS code, NOM AS nom, INSEE_DEP AS dep, AAV2020 AS aav,
+           unnest(ST_Dump(geometry), recursive := true)
+    FROM communes_arrondissements
+),
+-- Le plus grand morceau, hors de l'encart de la petite couronne : la commune à sa place.
+principal AS (
+    SELECT code, any_value(nom) AS nom, any_value(aav) AS aav, arg_max(geom, ST_Area(geom)) AS geom,
+           sum(ST_Area(ST_Transform(geom, 'EPSG:4326', 'EPSG:2154'))) / 1e6 AS surface
+    FROM morceaux
+    WHERE NOT (dep IN ('75', '92', '93', '94') AND ST_XMax(geom) < 0)
+    GROUP BY code
+)
+SELECT code, nom, aav, surface, ST_X(p) / 1000 AS x, ST_Y(p) / 1000 AS y
+FROM (SELECT *, ST_Transform(ST_PointOnSurface(geom), 'EPSG:4326', 'EPSG:2154') AS p FROM principal)
+ORDER BY code
+""")
+```
+
+Voici le code que propose Claude Code pour construire le cartogramme. On le calcule pour la France entière, puis pour chacune des huit plus grandes [aires d'attraction des villes](https://www.insee.fr/fr/metadonnees/definition/c2059) (la ville, sa banlieue et les communes dont au moins 15 % des actifs y travaillent), avec une échelle propre à chacune.
+
+```{python}
+#| output: false
+#| filename: "Le cartogramme de Dorling"
+def dorling(x, y, r, iterations=300):
+    """Écarte les cercles (x, y, r) qui se chevauchent, en les gardant près de leur position."""
+    x0, y0 = x.copy(), y.copy()
+    x, y = x.copy(), y.copy()
+    # Les voisins des petits cercles se cherchent dans un rayon fixe ; ceux du 1 % des plus
+    # grands, un par un.
+    seuil = np.quantile(r, 0.99)
+    petits, grands = np.flatnonzero(r <= seuil), np.flatnonzero(r > seuil)
+    for etape in range(iterations):
+        # Les rayons grandissent de 0 à leur taille pendant les deux premiers tiers.
+        croissance = min(1, (etape + 1) / (2 / 3 * iterations))
+        rayon = r * croissance
+        points = np.column_stack([x, y])
+        paires = cKDTree(points[petits]).query_pairs(2 * seuil * croissance, output_type="ndarray")
+        voisins = cKDTree(points).query_ball_point(points[grands], rayon[grands] + rayon.max())
+        i = np.concatenate([petits[paires[:, 0]], np.repeat(grands, [len(v) for v in voisins])])
+        j = np.concatenate([petits[paires[:, 1]], np.concatenate(voisins).astype(int)])
+        # Sans un cercle avec lui-même, ni deux fois la même paire de grands cercles.
+        garde = (i != j) & ((r[i] <= seuil) | (r[j] <= seuil) | (i < j))
+        i, j = i[garde], j[garde]
+        dx, dy = x[j] - x[i], y[j] - y[i]
+        d = np.hypot(dx, dy) + 1e-9
+        chevauchement = rayon[i] + rayon[j] - d
+        a = chevauchement > 0
+        i, j, ux, uy, chevauchement = i[a], j[a], dx[a] / d[a], dy[a] / d[a], chevauchement[a]
+        # Chacun recule d'une part du chevauchement, d'autant plus qu'il est petit (amortie de
+        # moitié, pour ne pas osciller).
+        part_j = r[i] ** 2 / (r[i] ** 2 + r[j] ** 2)
+        for k, signe, part in [(i, -1, 1 - part_j), (j, 1, part_j)]:
+            np.add.at(x, k, 0.5 * signe * ux * chevauchement * part)
+            np.add.at(y, k, 0.5 * signe * uy * chevauchement * part)
+        if etape < 0.8 * iterations:  # le rappel, sauf à la fin
+            x += 0.01 * (x0 - x)
+            y += 0.01 * (y0 - y)
+    return x, y
+
+
+def cartogramme(cercles, poids):
+    """Rayons (en km) tels que les cercles couvrent la moitié de la surface, puis Dorling."""
+    r = np.sqrt(cercles[poids] * 0.5 * cercles["surface"].sum() / cercles[poids].sum() / np.pi).to_numpy()
+    x, y = dorling(cercles["x"].to_numpy(), cercles["y"].to_numpy(), r)
+    return {"code": cercles["code"].tolist(), "x": np.round(x, 2).tolist(), "y": np.round(y, 2).tolist(),
+            "r": np.round(r, 3).tolist()}
+
+
+ZOOMS = {"001": "Paris", "002": "Lyon", "003": "Marseille", "004": "Lille", "005": "Toulouse",
+         "006": "Bordeaux", "008": "Nantes", "010": "Strasbourg"}
+
+
+def cartogrammes(cercles, poids, colonnes):
+    """La France entière et les huit zooms. Le nom, la valeur et les colonnes de l'infobulle ne
+    sont écrits qu'une fois, avec la France entière (to_json : null pour les manquants)."""
+    return {
+        "france": {**cartogramme(cercles, poids),
+                   **{c: json.loads(cercles[c].to_json(orient="values")) for c in ["nom", "valeur", *colonnes]}},
+        "zooms": [{"id": aav, "nom": nom, **cartogramme(cercles[cercles["aav"] == aav], poids)}
+                  for aav, nom in ZOOMS.items()],
+    }
+```
+
+:::
+
+::: {producteur="ssmsi"}
+
+### SSMSI : les cambriolages {.unnumbered .unlisted}
+
+La [[base communale]{.underline}](https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales) du service statistique de la sécurité intérieure donne, pour quinze indicateurs, les faits enregistrés par la police et la gendarmerie dans chaque commune, et dans chaque arrondissement de Paris, Lyon et Marseille. Le nombre n'est publié que si la commune a enregistré plus de cinq faits trois années de suite (`est_diffuse = 'diff'`) ; sinon, la base donne le taux moyen des communes non publiées du département (`complement_info_taux`).
+
+```{python}
+#| filename: "Cambriolages de logement par commune (SSMSI)"
 SSMSI_SEUILS = [2, 4, 6, 9, 12]
 
 con.sql(f"""
@@ -872,20 +1554,32 @@ WHERE annee = 2025 AND indicateur = 'Cambriolages de logement'
 """)
 con.sql(f"CREATE TABLE classes_ssmsi AS SELECT code, {classe_sql('taux', SSMSI_SEUILS)} AS classe FROM cambriolages")
 
+# Les totaux sur les seules communes : sans les arrondissements, comptés aussi dans leur ville.
 ssmsi = con.sql("""
 SELECT sum(coalesce(cambriolages, moyenne_non_publiees)) AS cambriolages,
        1000 * sum(coalesce(cambriolages, moyenne_non_publiees)) / sum(logements) AS taux,
        count(*) FILTER (publie) AS diffusees,
        sum(logements) FILTER (publie) / sum(logements) AS part_logements_diffusees
-FROM cambriolages
+FROM cambriolages WHERE code IN (SELECT code FROM communes)
 """).df().to_dict("records")[0]
 ssmsi
 ```
 
 ```{python}
+#| filename: "France entière et zooms"
+cercles = con.sql("""
+SELECT p.*, k.logements, round(k.taux, 2) AS valeur, k.publie
+FROM positions p JOIN cambriolages k USING (code) WHERE k.logements > 0
+""").df()
+cartogramme_ssmsi = cartogrammes(cercles, "logements", ["logements", "publie"])
+{"France entière": len(cercles), **{z["nom"]: len(z["code"]) for z in cartogramme_ssmsi["zooms"]}}
+```
+
+```{python}
 #| output: false
+#| filename: "Ce qui passe à la carte"
 ecrire("ssmsi", {"meta": {**ssmsi, "seuils": SSMSI_SEUILS}})
-ecrire("ssmsi-formes", par_classe("classes_ssmsi"))
+ecrire("ssmsi-cartogramme", cartogramme_ssmsi)
 vignettes["grilles"]["ssmsi"] = grille("classes_ssmsi")
 ecrire("ssmsi-table", enregistrements(con.sql("""
 SELECT code, c.nom, c.departement, k.logements, k.cambriolages, round(k.taux, 2) AS taux, k.publie
@@ -893,22 +1587,23 @@ FROM communes c JOIN cambriolages k USING (code) ORDER BY code
 """).df()))
 ```
 
-### Drees : l'accès aux médecins généralistes
+:::
 
-L'[accessibilité potentielle localisée](https://drees.solidarites-sante.gouv.fr/sources-outils-et-enquetes/lindicateur-daccessibilite-potentielle-localisee-apl)
-(APL) rapporte l'offre de soins des médecins de la commune et des communes voisines (jusqu'à
-20 minutes, avec un poids qui décroît avec la distance) à la demande, estimée d'après l'âge
-des habitants. Elle s'exprime en consultations accessibles par habitant et par an. La Drees la
-publie dans un classeur par profession, une feuille par année ; les en-têtes occupent les dix
-premières lignes.
+::: {producteur="drees"}
+
+### Drees : l'accès aux médecins généralistes {.unnumbered .unlisted}
+
+L'[[accessibilité potentielle localisée]{.underline}](https://drees.solidarites-sante.gouv.fr/sources-outils-et-enquetes/lindicateur-daccessibilite-potentielle-localisee-apl) (APL) rapporte l'offre de médecine générale de la commune et des communes voisines (jusqu'à 20 minutes) à la demande, estimée d'après l'âge des habitants. La Drees la publie dans un fichier Excel, une feuille par année, dont les en-têtes occupent les dix premières lignes.
 
 ```{python}
+#| filename: "APL aux médecins généralistes par commune (Drees)"
 APL_SEUILS = [1.5, 2.5, 3.5, 4.5]
 
 feuille = pd.read_excel(telecharger(SOURCES["apl"], "apl.xlsx"), sheet_name="APL 2024", header=None, engine="calamine")
 apl = feuille.iloc[:, [0, 2, 3, 7]].set_axis(["code", "apl", "apl65", "population"], axis=1)
 apl = apl[apl["code"].astype(str).str.fullmatch(r"\w{5}")]
 apl = apl.astype({"code": str, "apl": float, "apl65": float, "population": float})
+apl_arrondissements = apl  # pour le cartogramme
 # Paris, Lyon et Marseille sont par arrondissement : on les regroupe, en pondérant par la population.
 apl = con.sql("""
 SELECT CASE WHEN code LIKE '751%' THEN '75056' WHEN code LIKE '6938%' THEN '69123'
@@ -928,10 +1623,24 @@ FROM apl
 drees
 ```
 
+Pour le cartogramme, chaque commune, ou arrondissement, a une aire proportionnelle à sa population.
+
+```{python}
+#| filename: "France entière et zooms"
+cercles = con.sql("""
+SELECT p.*, a.population, round(a.apl, 2) AS valeur
+FROM positions p JOIN apl_arrondissements a USING (code) WHERE a.population > 0
+""").df()
+cartogramme_drees = cartogrammes(cercles, "population", ["population"])
+{"France entière": len(cercles), **{z["nom"]: len(z["code"]) for z in cartogramme_drees["zooms"]}}
+```
+
 ```{python}
 #| output: false
+#| filename: "Ce qui passe à la carte"
 ecrire("drees", {"meta": {**drees, "seuils": APL_SEUILS}})
 ecrire("drees-formes", par_classe("classes_drees"))
+ecrire("drees-cartogramme", cartogramme_drees)
 vignettes["grilles"]["drees"] = grille("classes_drees")
 ecrire("drees-table", enregistrements(con.sql("""
 SELECT code, c.nom, c.departement, a.population, a.apl, a.apl65
@@ -939,117 +1648,260 @@ FROM communes c JOIN apl a USING (code) ORDER BY code
 """).df()))
 ```
 
-### Depp : l'éloignement des collèges
+:::
 
-Depuis 2022, l'[indice d'éloignement](https://data.education.gouv.fr/explore/dataset/fr-en-indice_eloignement_college_ap2022/)
-résume (par une analyse en composantes principales) les distances, par la route, entre le
-collège et le domicile de ses élèves, les lycées, les équipements… Il vaut 100 en moyenne.
-Le fichier n'a pas de coordonnées : on les prend dans l'annuaire de l'éducation, par le
-numéro d'établissement (UAI).
+::: {producteur="depp"}
+
+### Depp : les langues apprises au collège {.unnumbered .unlisted}
+
+Le fichier des [[effectifs d'élèves en collège]{.underline}](https://data.education.gouv.fr/explore/dataset/fr-en-college-effectifs-niveau-sexe-lv/) donne, pour chaque collège et chaque niveau, le nombre d'élèves qui apprennent l'allemand, l'anglais, l'espagnol, l'italien ou une autre langue, en première (LV1) ou en deuxième langue (LV2). La LV2 commence en 5e : on compte les élèves de la 5e à la 3e, quel que soit le rang de la langue. Les coordonnées viennent de l'annuaire de l'éducation, par le numéro d'établissement (UAI).
 
 ```{python}
+#| filename: "Langues apprises par collège (Depp)"
+LANGUES = {"espagnol": ["espagnol"], "allemand": ["allemand"], "italien": ["italien"],
+           "autres": ["autres_langues"], "anglais": ["anglais"]}
+NIVEAUX = ["5emes", "4emes", "3emes"]
+
+
+def eleves(colonnes):
+    """La somme des élèves de 5e à 3e, en LV1 et en LV2 (le fichier n'a pas de LV1 italien)."""
+    return " + ".join(f'coalesce("nombre_de_{n}_{rang}_{c}", 0)' for n in NIVEAUX for rang in ["lv1", "lv2"]
+                      for c in colonnes if not (rang == "lv1" and c == "italien"))
+
+
 con.sql(f"""
-CREATE TABLE colleges AS
-SELECT e.uai, e.patronyme AS nom, a.nom_commune AS commune, e.departement,
-       TRY_CAST(e.indice_eloignement AS DOUBLE) AS indice,
-       round(a.longitude, 4) AS lon, round(a.latitude, 4) AS lat
-FROM read_csv('{SOURCES["colleges"]}', all_varchar = true) e
-JOIN read_csv('{SOURCES["annuaire_education"]}') a
-  ON a.identifiant_de_l_etablissement = e.uai
-WHERE indice IS NOT NULL AND a.latitude IS NOT NULL
+CREATE TABLE effectifs_langues AS
+SELECT e.numero_college AS uai, trim(e.denomination_principale || ' ' || coalesce(e.patronyme, '')) AS nom,
+       a.nom_commune AS commune, e.departement, lower(e.secteur) AS secteur,
+       {" + ".join(f'coalesce("nombre_total_de_{n}", 0)' for n in NIVEAUX)} AS eleves,
+       {", ".join(f"{eleves(c)} AS {l}" for l, c in LANGUES.items())},
+       round(a.longitude, 4) AS lon, round(a.latitude, 4) AS lat,
+       round(a.longitude, 4) AS lon_reel, round(a.latitude, 4) AS lat_reel  -- pour MapLibre
+FROM read_csv('{SOURCES["langues_colleges"]}') e
+JOIN read_csv('{SOURCES["annuaire_education"]}') a ON a.identifiant_de_l_etablissement = e.numero_college
+WHERE e.code_dept NOT IN ('975', '977', '978', '986', '987', '988')  -- hors collectivités d'outre-mer
+  AND a.latitude IS NOT NULL
 """)
-depp = con.sql("SELECT count(*) AS colleges, count(*) FILTER (indice >= 120) AS eloignes FROM colleges").df().to_dict("records")[0]
+
+# La langue la plus apprise après l'anglais ; l'espagnol l'emporte en cas d'égalité.
+colleges = con.sql("""
+SELECT * EXCLUDE (anglais) REPLACE (round(espagnol / eleves, 3) AS espagnol, round(allemand / eleves, 3) AS allemand,
+                                    round(italien / eleves, 3) AS italien, round(autres / eleves, 3) AS autres),
+       CASE greatest(espagnol, allemand, italien, autres) WHEN espagnol THEN 'Espagnol' WHEN allemand THEN 'Allemand'
+            WHEN italien THEN 'Italien' ELSE 'Autre langue' END AS langue
+FROM effectifs_langues
+WHERE eleves > 0 AND greatest(espagnol, allemand, italien, autres) > 0
+""").df()
+colleges["nom"] = colleges["nom"].str.title().str.replace("College", "Collège")
+con.sql("CREATE TABLE colleges AS FROM colleges")
+
+depp = con.sql("""
+SELECT sum(anglais) / sum(eleves) AS anglais, sum(espagnol) / sum(eleves) AS espagnol,
+       sum(allemand) / sum(eleves) AS allemand, sum(italien) / sum(eleves) AS italien
+FROM effectifs_langues
+""").df().to_dict("records")[0]
+depp["colleges"] = dict(con.sql("SELECT lower(langue), count(*) FROM colleges GROUP BY 1").fetchall())
+depp["total"] = len(colleges)
 rapprocher("colleges")
-ecrire("depp", {"meta": depp, "lignes": enregistrements(con.sql("FROM colleges ORDER BY indice").df())})
+# L'espagnol d'abord : les autres langues sont dessinées par-dessus.
+ecrire("depp", {"meta": depp, "lignes": enregistrements(con.sql("FROM colleges ORDER BY langue = 'Espagnol' DESC, uai").df())})
 depp
 ```
+:::
 
-### Sies : les étudiants par unité urbaine
+::: {producteur="sies"}
 
-L'[atlas régional](https://data.enseignementsup-recherche.gouv.fr/explore/dataset/fr-esr-atlas_regional-effectifs-d-etudiants-inscrits/)
-du Sies compte les étudiants inscrits dans toutes les formations du supérieur (universités,
-BTS, classes préparatoires, écoles…), par commune et par unité urbaine. On prend le total
-(`regroupement = 'TOTAL'`), en additionnant secteurs public et privé et sexes. Chaque unité
-urbaine est placée sur sa commune la plus peuplée.
+### Sies : les boursiers parmi les admis de Parcoursup {.unnumbered .unlisted}
+
+Le fichier [[Parcoursup]{.underline}](https://data.enseignementsup-recherche.gouv.fr/explore/dataset/fr-esr-parcoursup/) du Sies décrit chaque formation de la plateforme en 2025 : sa position, ses candidats, ses admis. On garde les néo-bacheliers admis (`acc_neobac`) et, parmi eux, les boursiers (`acc_brs`), c'est-à-dire les élèves qui avaient une bourse de lycée. Les formations d'un même établissement à la même adresse sont réunies en un lieu de formation.
 
 ```{python}
+#| filename: "Boursiers parmi les admis, par lieu de formation (Sies)"
 con.sql(f"""
-CREATE TABLE etudiants AS
-SELECT substr(geo_id, 3) AS code, any_value(geo_nom) AS nom,
-       sum(effectif) FILTER (rentree = 2025) AS etudiants,
-       coalesce(sum(effectif) FILTER (rentree = 2015), 0) AS etudiants_2015
-FROM read_csv('{SOURCES["etudiants"]}')
-GROUP BY 1 HAVING etudiants > 0
+CREATE TABLE formations AS
+SELECT cod_uai AS uai, g_ea_lib_vx AS nom, regexp_replace(ville_etab, ' +', ' ', 'g') AS commune,
+       dep, dep_lib AS departement, contrat_etab AS statut,
+       CASE fili WHEN 'Licence_Las' THEN 'L.AS' WHEN 'Ecole d''Ingénieur' THEN 'École d''ingénieurs'
+                 WHEN 'Ecole de Commerce' THEN 'École de commerce' WHEN 'EFTS' THEN 'Travail social'
+                 ELSE fili END AS filiere,
+       acc_neobac AS admis, acc_brs AS boursiers,
+       round(CAST(split_part(g_olocalisation_des_formations, ',', 2) AS DOUBLE), 4) AS lon,
+       round(CAST(split_part(g_olocalisation_des_formations, ',', 1) AS DOUBLE), 4) AS lat
+FROM read_csv('{SOURCES["parcoursup"]}')
+WHERE acc_neobac > 0 AND g_olocalisation_des_formations IS NOT NULL
+  AND dep NOT IN ('975', '977', '978', '986', '987', '988')  -- hors collectivités d'outre-mer
 """)
+
+# Un cercle par lieu de formation : un établissement (UAI) à une adresse.
 con.sql("""
-CREATE TABLE unites_urbaines AS
-SELECT e.*, round(ST_X(p), 4) AS lon, round(ST_Y(p), 4) AS lat
-FROM etudiants e
-JOIN (
-    SELECT c.uu AS code, ST_PointOnSurface(arg_max(k.geom, c.population)) AS p
-    FROM communes c JOIN centres_communes k USING (code) GROUP BY 1
-) USING (code)
-ORDER BY etudiants DESC
+CREATE TABLE lieux_formation AS
+SELECT uai, any_value(nom) AS nom, any_value(commune) AS commune, any_value(departement) AS departement,
+       any_value(statut) AS statut, string_agg(DISTINCT filiere, ', ' ORDER BY filiere) AS filieres,
+       sum(admis) AS admis, sum(boursiers) AS boursiers, round(sum(boursiers) / sum(admis), 3) AS part, lon, lat
+FROM formations GROUP BY uai, lon, lat
 """)
-sies = con.sql("""
-SELECT (SELECT sum(etudiants) FROM etudiants) AS etudiants,
-       (SELECT sum(etudiants) / sum(etudiants_2015) - 1 FROM etudiants) AS evolution,
-       (SELECT count(*) FROM etudiants WHERE code NOT IN (SELECT uu FROM communes)) AS sans_contour
+
+part = lambda condition="true": f"sum(boursiers) FILTER ({condition}) / sum(admis) FILTER ({condition})"
+sies = con.sql(f"""
+SELECT sum(admis) AS admis, {part()} AS part, count(DISTINCT (uai, lon, lat)) AS lieux,
+       {part("filiere = 'BTS'")} AS bts, {part("filiere = 'Licence'")} AS licence,
+       {part("filiere = 'CPGE'")} AS cpge, {part("filiere = 'École de commerce'")} AS commerce,
+       {part("dep = '93'")} AS seine_saint_denis, {part("dep = '78'")} AS yvelines,
+       {part("dep LIKE '97%'")} AS outre_mer
+FROM formations
 """).df().to_dict("records")[0]
-ecrire("sies", {"meta": sies, "lignes": enregistrements(con.sql("FROM unites_urbaines").df())})
+ecrire("sies", {"meta": sies, "lignes": enregistrements(con.sql("FROM lieux_formation ORDER BY admis DESC").df())})
 sies
 ```
 
-### Sdes : les maisons sur sol argileux
+:::
 
-Le Sdes croise la carte de l'aléa retrait-gonflement des argiles du BRGM avec les logements de
-[Fidéli](https://www.insee.fr/fr/metadonnees/source/serie/s1019) (les fichiers fiscaux, en
-2021). Pour chaque EPCI, il donne le nombre de maisons individuelles exposées à un aléa faible
-(`RGA1`), moyen (`RGA2`) ou fort (`RGA3`), ou `secret` s'il y en a trop peu. On additionne
-l'exposition moyenne et forte, en comptant les secrets pour zéro. Chaque EPCI est placé sur sa
-commune la plus peuplée.
+::: {producteur="sdes"}
+
+### Sdes : le gaz et l'électricité des logements {.unnumbered .unlisted}
+
+Le Sdes publie chaque année les [[données locales de consommation d'énergie]{.underline}](https://www.statistiques.developpement-durable.gouv.fr/catalogue?page=dataset&datasetId=610244c9e436671e84ec5da8) que lui transmettent les gestionnaires de réseau (Enedis, GRDF…) : pour chaque IRIS et chaque secteur, l'énergie livrée (`CONSO`, en MWh) et le nombre de points de livraison, c'est-à-dire de compteurs (`PDL`). Un fichier pour l'électricité, un pour le gaz. On garde le secteur résidentiel (`R`). La consommation d'un IRIS qui a trop peu de compteurs est `secret` ; un IRIS sans ligne de gaz n'a pas de compteur de gaz. Le nombre de compteurs d'électricité sert de nombre de logements.
 
 ```{python}
+#| filename: "Électricité et gaz des logements par IRIS (Sdes)"
+SDES_SEUILS = [20, 40, 60]  # part du gaz, en %
+
+# Une ligne par IRIS, secteur et gestionnaire de réseau : on garde le résidentiel (R) et on
+# additionne les gestionnaires. CONSO est en MWh ; PDL compte les compteurs.
 con.sql(f"""
-CREATE TABLE argiles AS
-PIVOT (
-    SELECT EPCI_CODE AS code, EPCI_LIBELLE AS nom, INDICATEUR_EXPOSITION AS indicateur,
-           TRY_CAST(VALEUR_EXPOSITION AS DOUBLE) AS valeur
-    FROM read_csv('{SOURCES["rga"]}', delim = ';', all_varchar = true)
-    WHERE INDICATEUR_EXPOSITION IN ('Maisons_indiv_exposees_RGA2', 'Maisons_indiv_exposees_RGA3')
-) ON indicateur IN ('Maisons_indiv_exposees_RGA2' AS moyenne, 'Maisons_indiv_exposees_RGA3' AS forte)
-USING any_value(valeur)
+CREATE TABLE energie_iris AS
+SELECT CODE_IRIS AS code,
+       sum(TRY_CAST(CONSO AS DOUBLE)) FILTER (FILIERE = 'E') AS electricite,
+       coalesce(sum(TRY_CAST(CONSO AS DOUBLE)) FILTER (FILIERE = 'G'), 0) AS gaz,
+       sum(TRY_CAST(PDL AS INTEGER)) FILTER (FILIERE = 'E') AS logements,
+       bool_or(CONSO = 'secret') AS secret
+FROM read_csv(['{SOURCES["electricite_iris"]}', '{SOURCES["gaz_iris"]}'],
+              delim = ';', all_varchar = true, union_by_name = true)
+WHERE CODE_GRAND_SECTEUR = 'R'
+GROUP BY 1
 """)
 con.sql("""
-CREATE TABLE argiles_epci AS
-SELECT a.code, a.nom, a.moyenne, a.forte, coalesce(a.moyenne, 0) + coalesce(a.forte, 0) AS maisons,
-       round(ST_X(p), 4) AS lon, round(ST_Y(p), 4) AS lat
-FROM argiles a
-JOIN (
-    SELECT c.epci AS code, ST_PointOnSurface(arg_max(k.geom, c.population)) AS p
-    FROM communes c JOIN centres_communes k USING (code) GROUP BY 1
-) USING (code)
-WHERE maisons > 0
-ORDER BY maisons DESC
+CREATE TABLE gaz_iris AS
+SELECT code, logements,
+       CASE WHEN NOT secret THEN round(electricite) END AS electricite,
+       CASE WHEN NOT secret THEN round(gaz) END AS gaz,
+       CASE WHEN NOT secret AND electricite > 0 THEN gaz / (gaz + electricite) END AS part_gaz,
+       CASE WHEN NOT secret AND electricite > 0 THEN 1000 * electricite / logements END AS kwh
+FROM energie_iris
 """)
+```
+
+Les IRIS de 2026 viennent aussi de cartiflette (`borders="IRIS"`), à leur place réelle : la carte est sur le Plan IGN, où l'on peut se déplacer. Les 49 000 IRIS détaillés pèsent trop lourd pour être chargés d'un coup. De loin, la carte montre donc les IRIS fusionnés par classe, comme les communes des autres cartes ; de près, elle charge les IRIS un par un, avec leurs valeurs pour l'infobulle, département par département, à mesure qu'ils entrent dans la vue.
+
+```{python}
+#| filename: "Les IRIS (cartiflette), de loin et de près"
+iris_reels = carti_download(borders="IRIS", filter_by="FRANCE_ENTIERE", **parametres)
+
+con.sql(f"""
+CREATE TABLE iris AS
+SELECT i.CODE_IRIS AS code, i.NOM_IRIS AS nom, i.INSEE_COM AS code_commune, i.NOM_COM AS commune,
+       i.INSEE_DEP AS dep, i.UU2020 AS uu, g.* EXCLUDE (code),
+       CASE WHEN g.part_gaz = 0 THEN 0 ELSE 1 + {classe_sql('100 * g.part_gaz', SDES_SEUILS)} END AS classe,
+       i.geometry AS geom
+FROM iris_reels i LEFT JOIN gaz_iris g ON g.code = i.CODE_IRIS
+""")
+
+
+def couverture(tolerance):
+    """Les IRIS simplifiés ensemble, pour rester jointifs ; un IRIS peut avoir plusieurs morceaux."""
+    return f"""
+    WITH couverture AS (
+        SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), {tolerance}) AS geom
+        FROM iris
+    ),
+    morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+    SELECT codes[path[1]] AS code, geom FROM morceaux
+    """
+
+
+def collection(lignes):
+    """Une FeatureCollection à partir de couples (propriétés, GeoJSON de la géométrie)."""
+    return {"type": "FeatureCollection",
+            "features": [{"type": "Feature", "properties": p, "geometry": json.loads(g)} for p, g in lignes]}
+
+
+# Vue d'ensemble, quand on est loin : les IRIS fusionnés par classe.
+apercu_sdes = collection(({"classe": classe}, geom) for classe, geom in con.sql(f"""
+SELECT coalesce(i.classe, -1) AS classe, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
+FROM ({couverture(0.01)}) s JOIN iris i USING (code)
+GROUP BY 1 ORDER BY 1
+""").fetchall())
+
+# De près : chaque IRIS avec ses valeurs, un fichier par département, chargé quand il entre dans
+# la vue.
+con.sql(f"CREATE TABLE iris_simplifies AS SELECT code, ST_Union_Agg(geom) AS geom FROM ({couverture(0.001)}) GROUP BY 1")
+quartiers = con.sql("""
+SELECT i.dep, i.code, i.nom, i.commune, i.logements, round(i.part_gaz, 3) AS part_gaz, round(i.kwh) AS kwh,
+       coalesce(i.classe, -1) AS classe, ST_AsGeoJSON(ST_ReducePrecision(s.geom, 0.0001)) AS geom
+FROM iris_simplifies s JOIN iris i USING (code) ORDER BY code
+""").df()
+iris_par_departement = {
+    dep: collection(zip(enregistrements(lignes.drop(columns=["dep", "geom"])), lignes["geom"]))
+    for dep, lignes in quartiers.groupby("dep")
+}
+# L'emprise de chaque département, pour savoir lesquels charger, et celle des huit villes des
+# cartogrammes (leur unité urbaine), pour les boutons.
+emprise = "[round(ST_XMin(e), 3), round(ST_YMin(e), 3), round(ST_XMax(e), 3), round(ST_YMax(e), 3)]"
+emprises_departements = dict(con.sql(f"""
+SELECT dep, {emprise} FROM (SELECT dep, ST_Extent_Agg(geom) AS e FROM iris GROUP BY 1)
+""").fetchall())
+UNITES_URBAINES = {"00851": "Paris", "00760": "Lyon", "00759": "Marseille", "59702": "Lille",
+                   "00758": "Toulouse", "33701": "Bordeaux", "44701": "Nantes", "67701": "Strasbourg"}
+emprises_villes = dict(con.sql(f"""
+SELECT uu, {emprise} FROM (SELECT uu, ST_Extent_Agg(geom) AS e FROM iris WHERE uu IN ({", ".join(repr(u) for u in UNITES_URBAINES)}) GROUP BY 1)
+""").fetchall())
+```
+
+```{python}
+#| filename: "Les chiffres du texte"
+# Pour la vignette, qui est par commune.
+con.sql(f"""
+CREATE TABLE classes_sdes AS
+SELECT code_commune AS code, CASE WHEN part = 0 THEN 0 ELSE 1 + {classe_sql('100 * part', SDES_SEUILS)} END AS classe
+FROM (SELECT code_commune, sum(gaz) / (sum(gaz) + sum(electricite)) AS part FROM iris GROUP BY 1)
+""")
+
 sdes = con.sql("""
-SELECT (SELECT sum(coalesce(moyenne, 0) + coalesce(forte, 0)) FROM argiles) AS maisons,
-       (SELECT count(*) FROM argiles) AS epci,
-       (SELECT count(*) FROM argiles WHERE code NOT IN (SELECT epci FROM communes)) AS epci_disparus
+SELECT (SELECT sum(electricite) / 1e6 FROM energie_iris) AS electricite,
+       (SELECT sum(gaz) / 1e6 FROM energie_iris) AS gaz,
+       sum(logements) FILTER (part_gaz = 0) / sum(logements) FILTER (part_gaz IS NOT NULL) AS sans_gaz,
+       count(*) AS iris, count(*) FILTER (part_gaz IS NULL) AS iris_sans_valeur,
+       (SELECT sum(logements) FILTER (code NOT IN (SELECT code FROM iris)) / sum(logements) FROM energie_iris) AS logements_hors_iris
+FROM iris
 """).df().to_dict("records")[0]
-ecrire("sdes", {"meta": sdes, "lignes": enregistrements(con.sql("FROM argiles_epci").df())})
 sdes
 ```
 
-### SSP (Agreste) : les terres agricoles
+```{python}
+#| output: false
+#| filename: "Ce qui passe à la carte"
+ecrire("sdes", {"meta": {**sdes, "seuils": SDES_SEUILS, "departements": emprises_departements,
+                         "villes": [{"nom": nom, "emprise": emprises_villes[uu]} for uu, nom in UNITES_URBAINES.items()]}})
+ecrire("sdes-formes", apercu_sdes)
+for dep, iris_departement in iris_par_departement.items():
+    ecrire(f"sdes-iris-{dep}", iris_departement)
+vignettes["grilles"]["sdes"] = grille("classes_sdes")
+ecrire("sdes-table", enregistrements(con.sql("""
+SELECT code, nom, commune, logements, electricite, gaz, round(part_gaz, 3) AS part_gaz
+FROM iris ORDER BY code
+""").df()))
+```
 
-Le [recensement agricole 2020](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/)
-publie, par commune du siège des exploitations, la surface agricole utilisée (SAU) et trois
-grands usages : céréales et oléoprotéagineux, prairies, cultures permanentes (vignes et
-vergers). Le fichier est un classeur ODS dans une archive zip. Chaque commune prend la classe
-de l'usage le plus étendu, foncée si celui-ci couvre au moins la moitié de la SAU.
+:::
+
+::: {producteur="agreste"}
+
+### SSP (Agreste) : les terres agricoles {.unnumbered .unlisted}
+
+Le [[recensement agricole 2020]{.underline}](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/) publie, par commune du siège des exploitations, la surface agricole utilisée (SAU) et trois grands usages : céréales et oléoprotéagineux, prairies, cultures permanentes. Chaque commune prend la classe de l'usage le plus étendu, foncée si celui-ci couvre au moins la moitié de la SAU.
 
 ```{python}
+#| filename: "Usage dominant des terres par commune (Agreste)"
 USAGES = ["Céréales et oléoprotéagineux", "Prairies", "Vignes et vergers"]
 
 with zipfile.ZipFile(telecharger(SOURCES["agreste"], "agreste.zip")) as archive:
@@ -1080,6 +1932,7 @@ agreste
 
 ```{python}
 #| output: false
+#| filename: "Ce qui passe à la carte"
 ecrire("agreste", {"meta": agreste})
 ecrire("agreste-formes", par_classe("classes_agreste"))
 vignettes["grilles"]["agreste"] = grille("classes_agreste")
@@ -1089,14 +1942,16 @@ FROM communes c JOIN surfaces s USING (code) ORDER BY code
 """).df()))
 ```
 
-### DGFiP : la taxe foncière
+:::
 
-La DGFiP publie chaque année les taux de fiscalité locale votés dans chaque commune. Le taux
-global de taxe foncière sur les propriétés bâties (`taux_global_tfb`) additionne les taux de
-la commune, de l'intercommunalité, et des taxes spéciales et pour la gestion des milieux
-aquatiques (Gemapi). On ne télécharge que l'année 2025.
+::: {producteur="dgfip"}
+
+### DGFiP : la taxe foncière {.unnumbered .unlisted}
+
+La DGFiP publie chaque année les [[taux de fiscalité locale]{.underline}](https://www.data.gouv.fr/datasets/fiscalite-locale-des-particuliers) votés dans chaque commune. Le taux global de taxe foncière sur les propriétés bâties (`taux_global_tfb`) additionne les taux de la commune, de l'intercommunalité et des taxes annexes. On ne télécharge que l'année 2025.
 
 ```{python}
+#| filename: "Taux de taxe foncière par commune (DGFiP)"
 TFPB_SEUILS = [30, 40, 50, 60]
 
 con.sql(f"""
@@ -1115,6 +1970,7 @@ dgfip
 
 ```{python}
 #| output: false
+#| filename: "Ce qui passe à la carte"
 ecrire("dgfip", {"meta": {**dgfip, "seuils": TFPB_SEUILS}})
 ecrire("dgfip-formes", par_classe("classes_dgfip"))
 vignettes["grilles"]["dgfip"] = grille("classes_dgfip")
@@ -1123,16 +1979,16 @@ SELECT code, c.nom, c.departement, f.taux FROM communes c JOIN foncier f USING (
 """).df()))
 ```
 
-### Douanes : les clients de chaque département
+:::
 
-Le département des statistiques du commerce extérieur (DSECE) publie chaque année les échanges
-par département, produit (CPF4) et pays partenaire. Le fichier des exportations n'a pas
-d'en-tête : flux, trimestre, année, département, région, produits en deux nomenclatures, pays,
-valeur (en euros) et masse. Les départements suivent une codification propre : la Corse est
-`20`, l'outre-mer `9A` à `9E` ; les codes pays en `Q` ne sont pas des pays (avitaillement,
-pays non déterminés…).
+::: {producteur="douanes"}
+
+### Douanes : les clients de chaque département {.unnumbered .unlisted}
+
+Le département des statistiques du commerce extérieur (DSECE) publie les [[échanges par département]{.underline}](https://www.douane.gouv.fr/la-douane/opendata/auteurs/direction-nationale-des-statistiques-et-des-etudes-du-commerce-exterieur), produit et pays partenaire, dans un fichier texte sans en-tête. Les départements y ont une codification propre (la Corse est `20`, l'outre-mer `9A` à `9E`) ; les codes pays en `Q` ne sont pas des pays (avitaillement, pays non déterminés…).
 
 ```{python}
+#| filename: "Premier client de chaque département (Douanes)"
 DEPARTEMENTS_DOUANE = {"20": ["2A", "2B"], "9A": ["971"], "9B": ["972"], "9C": ["973"], "9D": ["974"], "9E": ["976"]}
 
 with zipfile.ZipFile(telecharger(SOURCES["douane"], "douane.zip")) as archive:
@@ -1165,39 +2021,41 @@ WITH par_departement AS (
     FROM exportations e LEFT JOIN correspondance k USING (departement)
 )
 SELECT p.code, any_value(c.departement) AS departement, arg_max(l.libelle, p.valeur) AS pays,
-       max(p.part) AS part, any_value(p.exportations) AS exportations
+       arg_max(p.pays, p.valeur) AS iso, max(p.part) AS part, any_value(p.exportations) AS exportations
 FROM par_departement p
 JOIN communes c ON c.dep = p.code
 JOIN libelles_pays l USING (pays)
 GROUP BY p.code ORDER BY p.code
 """)
-douanes = con.sql("SELECT pays, count(*) AS departements FROM premier_client GROUP BY 1 ORDER BY 2 DESC").df()
+douanes = con.sql("""
+SELECT pays, any_value(iso) AS iso, count(*) AS departements
+FROM premier_client GROUP BY pays ORDER BY departements DESC, pays
+""").df()
 douanes
 ```
 
-Les pays qui sont premier client d'au moins trois départements ont chacun leur couleur ; les
-autres sont regroupés.
+Le code pays des Douanes est le code ISO à deux lettres : il donne le drapeau qui marque chaque département sur la carte.
 
 ```{python}
 #| output: false
-principaux = douanes.loc[douanes["departements"] >= 3, "pays"].tolist()
-clients = con.sql("FROM premier_client").df()
-clients["categorie"] = clients["pays"].where(clients["pays"].isin(principaux), "Autre pays")
+#| filename: "Ce qui passe à la carte"
 ecrire("douanes", {
-    "meta": {"categories": principaux + ["Autre pays"],
+    "meta": {"pays": enregistrements(douanes),
              "allemagne": int(douanes.set_index("pays")["departements"].get("Allemagne", 0))},
-    "lignes": enregistrements(clients),
+    "lignes": enregistrements(con.sql("FROM premier_client").df()),
 })
 ```
 
-### Deps : les cinémas
+:::
 
-La [base Basilic](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic)
-du Deps recense 86 000 lieux culturels géolocalisés : monuments, bibliothèques, librairies,
-musées, théâtres… On garde les cinémas, avec leur nombre d'écrans et de fauteuils, et leur
-label Art et essai.
+::: {producteur="deps"}
+
+### Deps : les cinémas {.unnumbered .unlisted}
+
+La [[base Basilic]{.underline}](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) du Deps recense 86 000 lieux culturels géolocalisés : monuments, bibliothèques, librairies, musées, théâtres… On garde les cinémas, avec leur nombre d'écrans et de fauteuils, et leur label Art et essai.
 
 ```{python}
+#| filename: "Les cinémas (Deps)"
 con.sql(f"""
 CREATE TABLE cinemas AS
 SELECT Nom AS nom, libelle_geographique AS commune, "Département" AS departement,
@@ -1217,72 +2075,133 @@ ecrire("deps", {"meta": deps, "lignes": enregistrements(con.sql("FROM cinemas OR
 deps
 ```
 
-### INJEP : le sport, après le football
+:::
 
-La mission statistique de l'INJEP recense chaque année les clubs affiliés aux fédérations
-sportives agréées, géolocalisés à la commune. On garde les fédérations d'un seul sport,
-olympiques ou non (codes inférieurs à 300), et pas les fédérations multisports ou scolaires
-(UFOLEP, UNSS…). Dans chaque EPCI, on retient la fédération qui a le plus de clubs, le football
-mis à part.
+::: {producteur="injep"}
+
+### INJEP : le sport, après le football {.unnumbered .unlisted}
+
+La mission statistique de l'INJEP recense chaque année les [[clubs et les licences des fédérations sportives]{.underline}](https://www.data.gouv.fr/datasets/donnees-geocodees-issues-du-recensement-des-licences-et-clubs-aupres-des-federations-sportives-agreees-par-le-ministere-charge-des-sports), par commune : celle du club pour les clubs, celle où habite le licencié pour les licences. On garde les fédérations d'un seul sport (codes inférieurs à 300), pas les fédérations multisports ou scolaires (UFOLEP, UNSS…). Certaines se partagent un même sport, ou des sports voisins : la pétanque et le sport boules (la « lyonnaise »), le cyclisme et le cyclotourisme, le rugby à XV et à XIII… On les regroupe, puis on retient dans chaque EPCI le sport qui a le plus de clubs, et celui qui a le plus de licences, le football mis à part.
 
 ```{python}
+#| filename: "Sport en tête dans chaque EPCI (INJEP)"
+# Les fédérations regroupées, et quelques noms raccourcis, par code de fédération.
+FAMILLES = {
+    "211": "Boules", "242": "Boules",  # sport boules, pétanque et jeu provençal
+    "108": "Cyclisme", "218": "Cyclisme",  # cyclisme, cyclotourisme
+    "133": "Rugby", "248": "Rugby",  # rugby à XV, à XIII
+    "135": "Montagne et escalade", "271": "Montagne et escalade",
+    "204": "Aïkido", "205": "Aïkido",
+    "112": "Sports de glace", "131": "Sports de glace",
+    "125": "Tir", "209": "Tir",  # tir, ball-trap
+    "202": "Sports aériens", "203": "Sports aériens", "224": "Sports aériens", "243": "Sports aériens",
+    "257": "Sports aériens",
+    "265": "Pêche sportive", "267": "Pêche sportive",
+    "117": "Judo", "229": "Karaté", "122": "Taekwondo",
+}
+familles = pd.DataFrame(FAMILLES.items(), columns=["federation", "sport"])
 con.sql(f"""
-CREATE TABLE clubs AS
-SELECT c.epci AS code, regexp_replace(k."Fédération", '^(FF|F) (de la |de l''|d''|du |des |de )?', '') AS sport,
-       sum(TRY_CAST(k.Clubs AS INTEGER)) AS clubs
-FROM read_csv('{SOURCES["clubs"]}', delim = ';', all_varchar = true) k
-JOIN communes c ON c.code = k."Code Commune"
-WHERE k."Statut géo" = '1.Champ geoc' AND TRY_CAST(k.Code AS INTEGER) < 300 AND c.epci <> 'ZZZZZZZZZ'
+CREATE TABLE pratiques AS
+WITH lignes AS (
+    SELECT 'clubs' AS mesure, "Code Commune" AS commune, Code AS federation, "Fédération" AS nom,
+           "Statut géo" AS statut, Clubs AS nombre
+    FROM read_csv('{SOURCES["clubs"]}', delim = ';', all_varchar = true)
+    UNION ALL
+    SELECT 'licences', "Code Commune", Code, "Fédération", "Statut géo", Total
+    FROM read_csv('{SOURCES["licences"]}', delim = ';', all_varchar = true)
+)
+SELECT l.mesure, c.epci AS code,
+       coalesce(f.sport, regexp_replace(l.nom, '^(FF|F) (de la |de l''|d''|du |des |de )?', '')) AS sport,
+       sum(TRY_CAST(l.nombre AS INTEGER)) AS nombre
+FROM lignes l
+JOIN communes c ON c.code = l.commune
+LEFT JOIN familles f USING (federation)
+WHERE l.statut = '1.Champ geoc' AND TRY_CAST(l.federation AS INTEGER) < 300 AND c.epci <> 'ZZZZZZZZZ'
 GROUP BY ALL
 """)
 con.sql("""
 CREATE TABLE sports_epci AS
 WITH rangs AS (  -- en cas d'égalité, l'ordre alphabétique départage
-    SELECT *, row_number() OVER (PARTITION BY code ORDER BY clubs DESC, sport) AS rang
-    FROM clubs WHERE sport <> 'Football'
+    SELECT *, row_number() OVER (PARTITION BY mesure, code ORDER BY nombre DESC, sport) AS rang
+    FROM pratiques WHERE sport <> 'Football'
 )
-SELECT r.code, r.sport, r.clubs, coalesce(f.clubs, 0) AS football
-FROM rangs r LEFT JOIN (FROM clubs WHERE sport = 'Football') f USING (code)
+SELECT r.mesure, r.code, r.sport, r.nombre, coalesce(f.nombre, 0) AS football
+FROM rangs r LEFT JOIN (FROM pratiques WHERE sport = 'Football') f USING (mesure, code)
 WHERE r.rang = 1
 """)
-injep = con.sql("SELECT sport, count(*) AS epci FROM sports_epci GROUP BY 1 ORDER BY 2 DESC").df()
-injep.head(10)
+injep = con.sql("""
+FROM (PIVOT (SELECT mesure, sport, count(*) AS epci FROM sports_epci GROUP BY ALL) ON mesure USING first(epci))
+ORDER BY clubs DESC NULLS LAST
+""").df()
+injep.head(12)
 ```
+
+Les contours n'ont pas le nom des EPCI : on le prend dans la [liste des intercommunalités](https://www.insee.fr/fr/information/2510634) de l'Insee, dont l'en-tête est en ligne 6. Pour les clubs comme pour les licences, les six sports le plus souvent en tête ont chacun leur couleur, la même sur les deux cartes.
 
 ```{python}
 #| output: false
-principaux = injep["sport"].head(7).tolist()
-sports = con.sql("SELECT s.*, n.nom FROM sports_epci s LEFT JOIN noms_epci n USING (code) ORDER BY code").df()
-sports["categorie"] = sports["sport"].where(sports["sport"].isin(principaux), "Autre fédération")
-categories_injep = pd.DataFrame({"categorie": principaux + ["Autre fédération"]}).reset_index(names="classe")
-con.sql("""
-CREATE TABLE classes_injep AS
-SELECT c.code, k.classe FROM communes c JOIN sports s ON s.code = c.epci JOIN categories_injep k USING (categorie)
-""")
+#| filename: "Ce qui passe à la carte"
+with zipfile.ZipFile(telecharger(SOURCES["epci"], "epci.zip")) as archive:
+    archive.extract("EPCI_au_01-01-2026.xlsx", TELECHARGEMENTS)
+noms_epci = pd.read_excel(TELECHARGEMENTS / "EPCI_au_01-01-2026.xlsx", sheet_name="EPCI", header=5,
+                          engine="calamine", dtype=str)[["EPCI", "LIBEPCI"]].set_axis(["code", "nom"], axis=1)
+
+mesures = ["clubs", "licences"]
+principaux = {m: injep.sort_values(m, ascending=False)["sport"].head(6).tolist() for m in mesures}
+couleurs_injep = list(dict.fromkeys(principaux["clubs"] + principaux["licences"]))
+# Une ligne par EPCI : clubs_sport, clubs_nombre, clubs_football, puis de même pour les licences.
+sports = con.sql("""
+SELECT s.*, n.nom
+FROM (PIVOT sports_epci ON mesure USING first(sport) AS sport, first(nombre) AS nombre, first(football) AS football
+      GROUP BY code) s
+LEFT JOIN noms_epci n USING (code)
+ORDER BY code
+""").df()
+for m in mesures:
+    sports[f"{m}_categorie"] = sports[f"{m}_sport"].where(sports[f"{m}_sport"].isin(principaux[m]), "Autre fédération")
+# La vignette, d'après les clubs : la couleur du sport, -1 (gris) pour les autres.
+sports["classe"] = sports["clubs_categorie"].map({s: i for i, s in enumerate(couleurs_injep)}).fillna(-1)
+con.sql("CREATE TABLE classes_injep AS SELECT c.code, s.classe FROM communes c JOIN sports s ON s.code = c.epci")
 vignettes["grilles"]["injep"] = grille("classes_injep")
 ecrire("injep", {
-    "meta": {"categories": principaux + ["Autre fédération"],
-             "tennis": int((sports["sport"] == "Tennis").sum()),
-             "petanque": int((sports["sport"] == "Pétanque et Jeu Provençal").sum()),
-             "boules": int((sports["sport"] == "Sport Boules").sum())},
-    "lignes": enregistrements(sports),
+    "meta": {"couleurs": couleurs_injep,
+             "categories": {m: principaux[m] + ["Autre fédération"] for m in mesures},
+             "epci": {m: injep.dropna(subset=[m]).set_index("sport")[m].astype(int).to_dict() for m in mesures}},
+    "lignes": enregistrements(sports.drop(columns="classe")),
 })
 ```
 
-### Dares : le métier signature
-
-Les [portraits statistiques des métiers](https://dares.travail-emploi.gouv.fr/donnees/portraits-statistiques-des-metiers)
-de la Dares décrivent 225 métiers (la nomenclature des familles professionnelles, FAP 2021),
-d'après le recensement et l'enquête Emploi de l'Insee. Le fichier de la répartition
-territoriale donne, pour chaque métier et département, l'emploi et sa part dans l'emploi du
-département.
-
-Le site de la Dares refuse les requêtes automatiques (un pare-feu y demande un captcha) : le
-rendu de cette page ne peut pas télécharger le fichier. Comme les autres sources, il est lu sur
-sa copie du SSP Cloud ; une autre copie est versionnée avec le site, dans `jours/sources/`, au
-cas où.
+La carte est en MapLibre, sur le Plan IGN : les EPCI doivent être à leur place réelle, et non avec l'outre-mer rapproché. On reprend les communes de `cartiflette` dans leur version `FRANCE_ENTIERE`, simplifiées comme plus haut, et `contours` les fusionne par EPCI.
 
 ```{python}
+#| output: false
+#| filename: "Les EPCI à leur place réelle"
+communes_reelles = carti_download(borders="COMMUNE", filter_by="FRANCE_ENTIERE", **parametres)
+con.sql("""
+CREATE TABLE simplifiees_reelles AS
+WITH couverture AS (
+    SELECT list(INSEE_COM ORDER BY INSEE_COM) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY INSEE_COM), 0.005) AS geom
+    FROM communes_reelles
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code, geom FROM morceaux
+""")
+ecrire("epci", contours({"code": "c.epci"}, "WHERE c.epci <> 'ZZZZZZZZZ'", simplification="simplifiees_reelles"))
+```
+
+:::
+
+::: {producteur="dares"}
+
+### Dares : le métier signature {.unnumbered .unlisted}
+
+Les [[portraits statistiques des métiers]{.underline}](https://dares.travail-emploi.gouv.fr/donnees/portraits-statistiques-des-metiers) de la Dares décrivent 225 métiers (familles professionnelles, FAP 2021), d'après le recensement et l'enquête Emploi. Leur répartition territoriale donne, pour chaque métier et département, l'emploi et sa part dans l'emploi du département.
+
+Le site de la Dares refuse les requêtes automatiques (un pare-feu y demande un captcha) : le fichier est lu sur sa copie du SSP Cloud, et à défaut sur une autre copie versionnée avec le site, dans `jours/sources/`.
+
+```{python}
+#| filename: "Emploi par métier et département (Dares)"
 DARES_COPIE = pathlib.Path("sources/dares-portraits-metiers-repartition-departementale-2022.xlsx")
 
 try:
@@ -1295,13 +2214,10 @@ metiers.columns = ["dep", "departement", "fap", "libelle", "annee", "part_metier
 metiers = metiers.astype({"part": float, "effectif": float})
 ```
 
-Le niveau le plus fin a cinq ou six caractères (`A0X41a`) ; on garde les 225 métiers à cinq
-caractères. L'indice de spécialisation rapporte la part du métier dans l'emploi du département
-à sa part en France : 2 veut dire deux fois plus présent. Les effectifs sont arrondis à la
-centaine : on ne retient que les métiers qui emploient au moins 1 000 personnes dans le
-département. La lettre du code donne le domaine professionnel (A : agriculture, B : bâtiment…).
+On garde les 225 métiers (codes à cinq caractères, `A0X41`). L'indice de spécialisation rapporte la part du métier dans l'emploi du département à sa part en France : 2 veut dire deux fois plus présent. On ne retient que les métiers qui emploient au moins 1 000 personnes dans le département ; la lettre du code donne le domaine professionnel (A : agriculture, B : bâtiment…).
 
 ```{python}
+#| filename: "Le métier le plus surreprésenté"
 con.sql("""
 CREATE TABLE signatures AS
 WITH fap AS (
@@ -1322,20 +2238,22 @@ signatures["domaine"].value_counts()
 
 ```{python}
 #| output: false
+#| filename: "Ce qui passe à la carte"
 principaux = signatures["domaine"].value_counts().loc[lambda n: n >= 3].index.tolist()
 signatures["domaine"] = signatures["domaine"].where(signatures["domaine"].isin(principaux), "Autres domaines")
 ecrire("dares", {"meta": {"domaines": principaux + ["Autres domaines"]}, "lignes": enregistrements(signatures)})
 ```
 
-### SSER (Justice) : la densité carcérale
+:::
 
-Le service statistique de la Justice publie chaque mois un classeur sur la population détenue.
-Les tableaux 14 à 23, un par direction interrégionale, donnent pour chaque établissement et
-chaque quartier (maison d'arrêt, centre de détention…) la capacité opérationnelle et le nombre
-de détenus. La densité carcérale rapporte les détenus aux places. On additionne les quartiers
-de chaque établissement.
+::: {producteur="justice"}
+
+### SSER (Justice) : la densité carcérale {.unnumbered .unlisted}
+
+Le service statistique de la Justice publie chaque mois un [[classeur sur la population détenue]{.underline}](https://www.data.gouv.fr/datasets/statistique-mensuelle-de-la-population-ecrouee-et-detenue-en-france). Les tableaux 14 à 23, un par direction interrégionale, donnent pour chaque établissement et chaque quartier (maison d'arrêt, centre de détention…) la capacité opérationnelle et le nombre de détenus. On additionne les quartiers de chaque établissement.
 
 ```{python}
+#| filename: "Places et détenus par établissement (SSER)"
 classeur = telecharger(SOURCES["detenus"], "detenus.xlsx")
 quartiers = []
 for numero in range(14, 24):
@@ -1354,15 +2272,10 @@ date_detenus = re.search(r"(\d{2})(\d{2})(\d{4})\.xlsx$", SOURCES["detenus"]).gr
 len(etablissements), int(etablissements["detenus"].sum())
 ```
 
-Le classeur n'a pas d'adresses. Les positions viennent de l'[annuaire de
-service-public.fr](https://api-lannuaire.service-public.fr/explore/dataset/api-lannuaire-administration/),
-qui recense les maisons d'arrêt, centres pénitentiaires, centres de détention et maisons
-centrales. Les noms s'écrivent différemment (« MA ST MALO », « Maison d'arrêt de
-Saint-Malo ») : on les rapproche par le lieu, sans accents ni articles, et en cas de doute par
-le type d'établissement. Les petits établissements que l'annuaire ne liste pas (centres de
-semi-liberté, établissements pour mineurs) restent hors de la carte.
+Le classeur n'a pas d'adresses : les positions viennent de l'[annuaire de service-public.fr](https://api-lannuaire.service-public.fr/explore/dataset/api-lannuaire-administration/). Les noms s'écrivent différemment (« MA ST MALO », « Maison d'arrêt de Saint-Malo ») : on les rapproche par le lieu, sans accents ni articles, et en cas de doute par le type d'établissement.
 
 ```{python}
+#| filename: "Position des établissements (annuaire de service-public.fr)"
 TYPES = {"CP": "centre_penitentiaire", "MA": "maison_arret", "CD": "centre_detention", "MC": "maison_centrale"}
 annuaire = con.sql(f"""
 SELECT nom, json_extract_string("pivot", '$[0].type_service_local') AS type,
@@ -1405,6 +2318,7 @@ len(prisons), non_places
 
 ```{python}
 #| output: false
+#| filename: "Ce qui passe à la carte"
 justice = {
     "date": f"1ᵉʳ {['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'][int(date_detenus[1]) - 1]} {date_detenus[2]}",
     "detenus": int(etablissements["detenus"].sum()), "places": int(etablissements["places"].sum()),
@@ -1413,17 +2327,16 @@ justice = {
 ecrire("justice", {"meta": justice, "lignes": enregistrements(con.sql("FROM prisons ORDER BY detenus DESC").df())})
 ```
 
-### DESL (DGCL) : la dotation globale de fonctionnement
+:::
 
-Le département des études et des statistiques locales de la DGCL publie, pour chaque commune,
-les critères de calcul des dotations de l'État et leurs montants. Le lien « CSV » du site
-renvoie en fait un classeur Excel de 190 colonnes environ, dont l'ordre change d'une année à
-l'autre : on repère les colonnes par leur intitulé (ligne 4) et leur rubrique (ligne 3). La DGF
-des communes additionne la dotation forfaitaire, les trois dotations de péréquation (solidarité
-urbaine, solidarité rurale, nationale de péréquation), la dotation d'aménagement de l'outre-mer
-et la dotation des communes nouvelles.
+::: {producteur="desl"}
+
+### DESL (DGCL) : la dotation globale de fonctionnement {.unnumbered .unlisted}
+
+Le département des études et des statistiques locales de la DGCL publie, pour chaque commune, les [[critères de calcul des dotations]{.underline}](http://www.dotations-dgcl.interieur.gouv.fr/consultation/criteres_repartition.php) de l'État et leurs montants, dans un classeur de 190 colonnes environ dont l'ordre change d'une année à l'autre : on repère les colonnes par leur intitulé (ligne 4) et leur rubrique (ligne 3). La DGF additionne la dotation forfaitaire, les dotations de péréquation, celle des communes d'outre-mer et celle des communes nouvelles.
 
 ```{python}
+#| filename: "DGF par commune (DGCL)"
 DGF_SEUILS = [100, 150, 200, 300, 450]
 COLONNES_DGF = {
     "code": ("Informations générales", "Code INSEE de la commune"),
@@ -1462,6 +2375,7 @@ desl
 
 ```{python}
 #| output: false
+#| filename: "Ce qui passe à la carte"
 ecrire("desl", {"meta": {**desl, "seuils": DGF_SEUILS}})
 ecrire("desl-formes", par_classe("classes_desl"))
 vignettes["grilles"]["desl"] = grille("classes_desl")
@@ -1471,16 +2385,16 @@ FROM communes c JOIN dgf d USING (code) ORDER BY code
 """).df()))
 ```
 
-### DGAFP : le taux d'administration
+:::
 
-Le [rapport annuel sur l'état de la fonction publique](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023)
-est accompagné de classeurs. Celui des données complémentaires sur l'ensemble de la fonction
-publique donne, par département, le taux d'administration (agents civils en équivalent temps
-plein pour 1 000 habitants, figure 4) et les effectifs des trois versants (figure 2). Les
-départements n'y sont désignés que par leur nom, mêlés aux régions : on les rapproche des
-noms de cartiflette.
+::: {producteur="dgafp"}
+
+### DGAFP : le taux d'administration {.unnumbered .unlisted}
+
+Le [[rapport annuel sur l'état de la fonction publique]{.underline}](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023) est accompagné de classeurs. Celui des données complémentaires donne, par département, le taux d'administration (agents civils en équivalent temps plein pour 1 000 habitants, figure 4) et les effectifs des trois versants (figure 2). Les départements n'y sont désignés que par leur nom : on les rapproche des noms de cartiflette.
 
 ```{python}
+#| filename: "Taux d'administration par département (DGAFP)"
 with zipfile.ZipFile(telecharger(SOURCES["dgafp"], "dgafp.zip")) as archive:
     archive.extract("ra2025_caracteristiques_postes_donnees_comp_FP.xlsx", TELECHARGEMENTS)
 classeur = TELECHARGEMENTS / "ra2025_caracteristiques_postes_donnees_comp_FP.xlsx"
@@ -1496,23 +2410,20 @@ departements_cartiflette["cle"] = departements_cartiflette["departement"].map(cl
 administration = departements_cartiflette.merge(administration, on="cle")
 administration = administration[["code", "departement", "taux", "part_etat", "part_territoriale", "part_hospitaliere"]]
 france = taux.loc[taux["nom"].astype(str).str.startswith("Total France"), "taux"].iloc[0]
+ecrire("dgafp", {"meta": {"france": int(france)}, "lignes": enregistrements(administration.sort_values("code"))})
 len(administration), france
 ```
 
-```{python}
-#| output: false
-ecrire("dgafp", {"meta": {"france": int(france)}, "lignes": enregistrements(administration.sort_values("code"))})
-```
+:::
 
-### DSED : les premiers titres de séjour
+::: {producteur="dsed"}
 
-Le département des statistiques du ministère de l'Intérieur chargé de l'immigration publie
-chaque année les titres de séjour délivrés, par nationalité. Les nombres inférieurs à 50 ne
-sont pas communiqués (`nc`). Les contours des pays viennent de
-[Natural Earth](https://www.naturalearthdata.com/) (au 1/110 000 000), dont le code ISO à trois
-lettres sert à la jointure.
+### DSED : les premiers titres de séjour {.unnumbered .unlisted}
+
+Le département des statistiques du ministère de l'Intérieur chargé de l'immigration publie chaque année les [[titres de séjour délivrés]{.underline}](https://www.data.gouv.fr/datasets/stock-et-flux-des-titres-de-sejour-en-france-sur-lannee-2024), par nationalité ; les nombres inférieurs à 50 ne sont pas communiqués (`nc`). Les contours des pays viennent de [Natural Earth](https://www.naturalearthdata.com/), joints par leur code ISO à trois lettres.
 
 ```{python}
+#| filename: "Premiers titres de séjour par nationalité (DSED)"
 titres = con.sql(f"""
 SELECT code_iso3 AS iso3, pays_nationalite AS pays, region_monde_origine AS region,
        TRY_CAST(nb_titres AS INTEGER) AS titres
@@ -1538,15 +2449,16 @@ sans_contour = set(titres["iso3"]) - {f["properties"]["iso3"] for f in monde["fe
 total_titres, sorted(sans_contour)
 ```
 
-### S2E (Armées) : les lieux de mémoire
+:::
 
-Le service statistique du ministère des Armées publie avec chaque numéro d'*EcoDef* les données
-de ses figures. Le n° 255 porte sur la fréquentation des lieux de mémoire des conflits
-contemporains : la figure 2 donne les visites par région en 2022 et 2023 (en milliers), et le
-total de la France métropolitaine, seule couverte par l'enquête ; la figure 3 donne la part des
-visiteurs résidant à l'étranger.
+::: {producteur="armees"}
+
+### S2E (Armées) : les lieux de mémoire {.unnumbered .unlisted}
+
+Le service statistique du ministère des Armées publie avec chaque numéro d'[[*EcoDef*]{.underline}](https://www.data.gouv.fr/datasets/ecodef-statistiques-ndeg-255) les données de ses figures. Le n° 255 porte sur la fréquentation des lieux de mémoire des conflits contemporains : visites par région en 2023, en milliers (figure 2), et part des visiteurs résidant à l'étranger (figure 3). Seule la France métropolitaine est couverte.
 
 ```{python}
+#| filename: "Visites des lieux de mémoire par région (Armées)"
 classeur = telecharger(SOURCES["ecodef"], "ecodef.xlsx")
 visites = pd.read_excel(classeur, sheet_name="Figure 2", header=None, engine="calamine").iloc[:, [0, 2]]
 etrangers = pd.read_excel(classeur, sheet_name="Figure 3", header=None, engine="calamine").iloc[:, [0, 2]]
@@ -1564,14 +2476,13 @@ ecrire("armees", {"meta": armees, "lignes": enregistrements(lieux)})
 lieux
 ```
 
-### Ce qui passe aux cartes
+:::
 
-Chaque carte a son fichier JSON dans `donnees/j10/`, chargé par la page : les formes fusionnées
-par classe pour les cartes communales, les lignes (points, départements, EPCI, régions, pays)
-pour les autres. Les tableaux communaux, plus lourds, sont dans des fichiers à part, chargés
-quand on choisit la carte.
+Chaque carte a son fichier JSON dans `donnees/j10/`, chargé par la page ; les tableaux communaux, plus lourds, sont à part et ne sont chargés que quand on choisit la carte.
 
 ```{python}
+#| filename: "Les fichiers de la page"
+#| output: false
 ecrire("vignettes", vignettes)
 shutil.rmtree(TELECHARGEMENTS)
 {f.name: f"{f.stat().st_size / 1e6:.2f} Mo" for f in sorted(SORTIE.glob("*.json"))}
@@ -1579,7 +2490,13 @@ shutil.rmtree(TELECHARGEMENTS)
 
 ## Les données de la carte
 
+La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -1612,32 +2529,66 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
 
-- Les seize cartes n'ont ni le même millésime (de 2020 pour le recensement agricole à 2026
-  pour la DGF) ni le même découpage : commune, EPCI, unité urbaine, département, région, pays.
-  Les codes des communes suivent la géographie de leur source ; les communes qui ont fusionné
-  depuis n'ont pas de valeur (en gris).
-- SSMSI : les taux des communes non publiées sont des moyennes départementales, pas des valeurs
-  communales. La délinquance enregistrée dépend aussi des plaintes : elle ne mesure pas toute la
-  délinquance subie.
-- Agreste : les surfaces sont rattachées à la commune du siège de l'exploitation, pas à celle
-  des parcelles (le J3 montre l'écart). Les communes sous secret statistique n'ont pas de valeur.
-- Sdes : les maisons sous secret statistique sont comptées pour zéro ; les EPCI sont ceux de
-  2021, ceux qui ont changé depuis manquent.
-- Douanes : le département est celui de l'entreprise qui déclare l'exportation, souvent son
-  siège, pas forcément celui où le produit est fabriqué.
-- Dares : les effectifs viennent du recensement et sont arrondis à la centaine ; l'indice d'un
-  métier rare est fragile, d'où le seuil de 1 000 emplois.
-- SSER : la densité est celle de l'établissement entier ; dans un centre pénitentiaire, le
-  quartier maison d'arrêt peut être bien plus surpeuplé que la moyenne. Les établissements que
-  l'annuaire ne permet pas de placer manquent.
-- DGAFP : les militaires ne sont pas comptés, faute de localisation.
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
+- Les seize cartes n'ont ni le même millésime (de 2020 pour le recensement agricole à 2026 pour la DGF) ni le même découpage. Les codes des communes suivent la géographie de leur source ; les communes qui ont fusionné depuis n'ont pas de valeur (en gris).
+
+::: {producteur="ssmsi"}
+- Les taux des communes non publiées sont des moyennes départementales, pas des valeurs communales. La délinquance enregistrée dépend aussi des plaintes : elle ne mesure pas toute la délinquance subie.
+:::
+
+::: {producteur="depp"}
+- Un élève qui apprend deux langues autres que l'anglais (allemand en LV1, espagnol en LV2) compte pour chacune. « Autre langue » regroupe les langues régionales et les langues moins enseignées (portugais, chinois, arabe…). Les collectivités d'outre-mer (Polynésie, Nouvelle-Calédonie…) ne sont pas sur la carte.
+:::
+
+::: {producteur="ssmsi drees"}
+- Dans le cartogramme, les cercles sont déplacés pour ne pas se chevaucher : leur position n'est qu'approchée, surtout au cœur des agglomérations.
+:::
+
+::: {producteur="agreste"}
+- Les surfaces sont rattachées à la commune du siège de l'exploitation, pas à celle des parcelles (le [J3](03-polygons.qmd) montre l'écart). Les communes sous secret statistique n'ont pas de valeur.
+:::
+
+::: {producteur="sdes"}
+- Seuls l'électricité et le gaz livrés par les réseaux sont comptés : ni le fioul, ni le bois, ni le propane, ni les réseaux de chaleur. Un IRIS sans gaz n'est donc pas forcément chauffé à l'électricité. L'électricité sert aussi à l'éclairage, à la cuisine et aux appareils : même un quartier chauffé au gaz en consomme.
+- Les IRIS dont une consommation est secrète (trop peu de compteurs) sont en gris, comme ceux pour lesquels le gestionnaire de réseau ne déclare pas de consommation résidentielle : c'est le cas d'une bonne partie du nord du Loiret, desservi par une régie locale. Les consommations que les gestionnaires de réseau n'ont pas pu placer dans un IRIS de 2026 (moins de 1 % des compteurs) ne sont pas sur la carte.
+:::
+
+::: {producteur="douanes"}
+- Le département est celui de l'entreprise qui déclare l'exportation, souvent son siège, pas forcément celui où le produit est fabriqué.
+:::
+
+::: {producteur="injep"}
+- Une licence n'est pas une personne : qui est inscrit dans deux fédérations compte deux fois. Les licences sont comptées là où habite le licencié, les clubs là où ils sont installés : les deux cartes ne mesurent pas la même chose. Les regroupements de fédérations (pétanque et lyonnaise, cyclisme et cyclotourisme…) sont un choix : judo, karaté et taekwondo restent séparés, sans quoi les arts martiaux seraient en tête dans la moitié des intercommunalités pour les clubs. Mayotte n'est pas dans les données.
+:::
+
+::: {producteur="dares"}
+- Les effectifs viennent du recensement et sont arrondis à la centaine ; l'indice d'un métier rare est fragile, d'où le seuil de 1 000 emplois.
+:::
+
+::: {producteur="justice"}
+- La densité est celle de l'établissement entier : dans un centre pénitentiaire, le quartier maison d'arrêt peut être bien plus surpeuplé que la moyenne. Les établissements que l'annuaire ne permet pas de placer (centres de semi-liberté, établissements pour mineurs) manquent.
+:::
+
+::: {producteur="dgafp"}
+- Les militaires ne sont pas comptés, faute de localisation.
+:::
+
+::: {producteur="dsed"}
+- Le service ne publie pas de répartition par département : la carte est celle des pays de nationalité, pas des lieux de délivrance.
+:::
+
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - Insee, [Les services statistiques ministériels](https://www.insee.fr/fr/information/2013075).
 - Autorité de la statistique publique, [Le service statistique public](https://www.autorite-statistique-publique.fr/le-service-statistique-public/).
-- Chaque service publie sa propre collection d'études : *Interstats* (SSMSI), *Études et
-  résultats* (Drees), *Note d'information* (Depp), *Dares Analyses*, *Datalab* (Sdes),
-  *Agreste Primeur* (SSP), *EcoDef* (Armées), *Infostat Justice* (SSER)…
+- Chaque service publie sa propre collection d'études : *Interstats* (SSMSI), *Études et résultats* (Drees), *Note d'information* (Depp), *Dares Analyses*, *Datalab* (Sdes), *Agreste Primeur* (SSP), *EcoDef* (Armées), *Infostat Justice* (SSER)…
+:::
