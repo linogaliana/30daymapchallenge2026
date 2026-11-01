@@ -9,11 +9,12 @@ const themes = [
   "Is this a map?", "Water", "New tool", "Senses: Feeling", "Raster", "Pen & paper"
 ]
 const joursSemaine = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."]
-// Une page par jour : jours/01-points.qmd est le jour 1.
+// Une page par jour : jours/01-points.qmd est le jour 1. Une page sans titre n'a
+// pas été rendue (profil parution, jour pas encore arrivé) : le jour est « à venir ».
 const pages = new Map()
 for (const item of items) {
   const numero = parseInt((item.path || "").split(/[\\/]/).pop(), 10)
-  if (numero) pages.set(numero, item)
+  if (numero && item.title) pages.set(numero, item)
 }
 // Sujet de la carte : le titre sans le préfixe « J1 · Points. », jusqu'au
 // premier point ou point d'interrogation (« Urban-rural. », « Is this a map? »).

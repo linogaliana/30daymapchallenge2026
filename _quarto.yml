@@ -1,10 +1,11 @@
 project:
   type: website
 
-# Profil `complet` par défaut (en local) ; `wip` (_quarto-wip.yml), utilisé pour
-# l'instant par GitHub Actions, masque les cartes de l'accueil et les jours de la
-# barre de navigation. Les liens de la barre propres à chaque profil sont dans
-# _quarto-complet.yml et _quarto-wip.yml : Quarto ajoute leurs listes à celle-ci.
+# Profil `complet` par défaut (en local) ; `wip` (_quarto-wip.yml) masque les cartes
+# de l'accueil et les jours de la barre de navigation ; `parution`
+# (_quarto-parution.yml, écrit par scripts/parution.py selon la date), utilisé par
+# GitHub Actions, ne rend que les jours arrivés. Les liens de la barre propres à
+# chaque profil sont dans leur fichier : Quarto ajoute leurs listes à celle-ci.
 profile:
   default: complet
 
@@ -45,6 +46,7 @@ format:
       - copies.lua
       - charte.lua
       - entete.lua
+      - parution.lua
     toc: true
     author: Lino Galiana
 

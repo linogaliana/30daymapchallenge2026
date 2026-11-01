@@ -4,12 +4,19 @@ name: Publication du site
 # GitHub Pages. _freeze/ n'est pas versionné : les calculs sont gardés d'une
 # exécution à l'autre dans le cache d'Actions, et une page n'est recalculée que
 # si son .qmd a changé (freeze: auto). Sans cache, tout est retéléchargé.
+#
+# Le jour N paraît le N novembre : le profil parution, écrit par
+# scripts/parution.py selon la date du rendu, ne rend que les jours arrivés. Le
+# site est donc reconstruit à chaque push et tous les jours à minuit (heure de Paris).
 
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # 23 h 05 UTC, soit 0 h 05 à Paris en novembre (UTC+1), à partir du 31 octobre.
+  schedule:
+    - cron: "5 23 * 10,11 *"
 
 permissions:
   contents: read
@@ -21,6 +28,10 @@ concurrency:
 jobs:
   rendu:
     runs-on: ubuntu-latest
+    # La date du rendu est celle de Paris : pour scripts/parution.py et pour
+    # en-cours.lua (avertissement des pages dont le jour n'est pas arrivé).
+    env:
+      TZ: Europe/Paris
     steps:
       - uses: actions/checkout@v4
 
@@ -31,21 +42,25 @@ jobs:
       - name: Dépendances
         run: uv sync --locked
 
-      # Une entrée par commit ; à défaut, la plus récente de la branche, puis
-      # celle de main.
+      # Une entrée par exécution (les rendus quotidiens partagent le commit du
+      # dernier push, mais ajoutent le calcul du nouveau jour) ; à défaut, la plus
+      # récente de la branche, puis celle de main.
       - name: Cache des calculs (_freeze)
         uses: actions/cache@v4
         with:
           path: _freeze
-          key: freeze-${{ github.ref_name }}-${{ github.sha }}
+          key: freeze-${{ github.ref_name }}-${{ github.sha }}-${{ github.run_id }}
           restore-keys: |
             freeze-${{ github.ref_name }}-
             freeze-main-
 
-      # Profil wip (_quarto-wip.yml) : cartes masquées sur l'accueil et dans la barre
-      # de navigation, le temps de la préparation.
+      # Profil parution (_quarto-parution.yml, généré) : seuls les jours arrivés
+      # sont rendus, dans le calendrier de l'accueil et dans la barre de navigation.
+      - name: Jours parus
+        run: uv run python scripts/parution.py
+
       - name: Rendu
-        run: uv run quarto render --profile wip
+        run: uv run quarto render --profile parution
 
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'

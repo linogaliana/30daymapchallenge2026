@@ -239,3 +239,6 @@ donnees/*
 _freeze/
 
 /.luarc.json
+
+# Profil de publication, généré par scripts/parution.py selon la date
+_quarto-parution.yml

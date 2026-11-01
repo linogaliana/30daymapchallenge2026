@@ -36,12 +36,12 @@ Les principales sources de chaque carte et leurs producteurs. Les fonds de carte
 
 | Jour | Sources principales | Producteurs |
 |---|---|---|
-| [J1 · Points](jours/01-points.qmd) | [Liste des maternités depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/), [FINESS](https://www.data.gouv.fr/fr/datasets/finess-extraction-du-fichier-des-etablissements/) | Drees, ministère de la Santé |
+| [J1 · Points](jours/01-points.qmd) | [Liste des maternités depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/), [FINESS](https://www.data.gouv.fr/fr/datasets/finess-extraction-du-fichier-des-etablissements/) | Drees (ministère de la Santé) |
 | [J2 · Lines](jours/02-lines.qmd) | [Mobilités professionnelles 2023](https://www.insee.fr/fr/statistiques/9004795) (MOBPRO) | Insee |
-| [J3 · Polygons](jours/03-polygons.qmd) | [Registre parcellaire graphique 2024](https://geoservices.ign.fr/rpg) | IGN, ASP, ministère de l'Agriculture |
+| [J3 · Polygons](jours/03-polygons.qmd) | [Registre parcellaire graphique 2024](https://geoservices.ign.fr/rpg) | IGN, ASP, SSP (ministère de l'Agriculture) |
 | [J4 · Clusters](jours/04-clusters.qmd) | [Base Sirene des établissements](https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/), [zones d'emploi 2020](https://www.insee.fr/fr/information/4652957) | Insee |
-| [J5 · Sight](jours/05-sight.qmd) | [Démographie des professionnels de santé](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) (RPPS) | Drees |
-| [J6 · Vintage](jours/06-vintage.qmd) | [Évaluations nationales de début de sixième](https://data.education.gouv.fr/explore/dataset/fr-en-evaluations_nationales_6eme_departement/), [carte de Dupin](https://commons.wikimedia.org/wiki/File:Carte_figurative_de_l%27instruction_populaire_de_la_France_-_Collon,_del._-_btv1b530830640.jpg) (1826) | Depp, BnF |
+| [J5 · Sight](jours/05-sight.qmd) | [Démographie des professionnels de santé](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) (RPPS) | Drees (ministère de la Santé) |
+| [J6 · Vintage](jours/06-vintage.qmd) | [Évaluations nationales de début de sixième](https://data.education.gouv.fr/explore/dataset/fr-en-evaluations_nationales_6eme_departement/) | Depp (ministère de l'Education Nationale) |
 | [J7 · 10 minute map](jours/07-10-minute-map.qmd) | [Data ES, équipements sportifs](https://equipements.sports.gouv.fr/explore/dataset/data-es/), [isochrones de la Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/itineraire) | INJEP, ministère des Sports, IGN |
 | [J8 · Utopia](jours/08-utopia.qmd) | [Données carroyées Filosofi 2021](https://www.insee.fr/fr/statistiques/8735171) (1 km) | Insee |
 | [J9 · Urban-rural](jours/09-urban-rural.qmd) | [Grille de densité 2025](https://www.insee.fr/fr/information/8571524), unités urbaines 2020 | Insee |
