@@ -536,7 +536,7 @@ recadrage = carte.fitBounds(cadrage[1], {padding: 20})
 À titre de comparaison, quand on ne fait pas la restriction sur les flux de navetteurs entre zones d'emploi différentes, on obtient :
 
 | Mode de transport | Part (en %) |
-|-------------------|------------:|
+|:------------------|------------:|
 | Voiture et deux-roues motorisé | 70,4 |
 | Transports en commun | 15,5 |
 | Marche à pied | 6,2 |
@@ -945,4 +945,7 @@ DOM.download(
 - Insee, [Mobilités professionnelles en 2023 : déplacements domicile - lieu de travail](https://www.insee.fr/fr/statistiques/8998300) (flux agrégés par commune).
 - Insee, [Mode de transport pour aller travailler selon la catégorie socioprofessionnelle - Données annuelles 2023](https://www.insee.fr/fr/statistiques/5430829)
 - Insee, [Tableau de bord de l'économie française ; Mobilités - Déplacements](https://www.insee.fr/fr/outil-interactif/5367857/tableau/80_AMN/84_MOB)
+- Insee Première n° 1975, [Déplacements domicile-travail : des émissions de gaz à effet de serre très variables selon les territoires](https://www.insee.fr/fr/statistiques/7718608), décembre 2023.
+- Insee Première n° 1948, [Le trajet médian domicile-travail augmente de moitié en vingt ans pour les habitants du rural](https://www.insee.fr/fr/statistiques/7622203), 2023.
+- Insee Première n° 1835, [La voiture reste majoritaire pour les déplacements domicile-travail, même pour de courtes distances](https://www.insee.fr/fr/statistiques/5013868), janvier 2021.
 :::
