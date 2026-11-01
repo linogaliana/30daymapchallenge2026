@@ -439,10 +439,10 @@ La carte croise quatre sources publiques :
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Liste des maternités depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) | DREES | les maternités de chaque année, avec leur type, leur statut, leur adresse et leurs accouchements | Excel, une feuille par année |
-| [FINESS géolocalisé](https://www.data.gouv.fr/fr/datasets/finess-extraction-du-fichier-des-etablissements/) et [FINESS - Structures](https://www.data.gouv.fr/fr/datasets/finess-structures-1/) | Ministère de la Santé, Agence du numérique en santé | la position de chaque établissement, ouvert ou fermé | CSV, JSON |
-| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | la commune de chaque maternité | GeoParquet |
-| [Service de géocodage](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) | IGN, Géoplateforme | la position des quelques maternités absentes de FINESS, à partir de leur adresse | API |
+| [Liste des maternités depuis 2000](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/fichier_maternites_112021/) | DREES | les maternités de chaque année, avec leur type, leur statut, leur adresse et leurs accouchements | {{< iconify vscode-icons file-type-excel >}} Excel, une feuille par année |
+| [FINESS géolocalisé](https://www.data.gouv.fr/fr/datasets/finess-extraction-du-fichier-des-etablissements/) et [FINESS - Structures](https://www.data.gouv.fr/fr/datasets/finess-structures-1/) | Ministère de la Santé, Agence du numérique en santé | la position de chaque établissement, ouvert ou fermé | {{< iconify vscode-icons file-type-csv >}} CSV, {{< iconify vscode-icons file-type-json >}} JSON |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | la commune de chaque maternité | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Service de géocodage](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) | IGN, Géoplateforme | la position des quelques maternités absentes de FINESS, à partir de leur adresse | {{< iconify vscode-icons file-type-json >}} JSON (API) |
 
 En résumé, le code utilisé pour récupérer ces données s'appuie sur `Python`. [DuckDB](https://duckdb.org/) sert à gérer les étapes de travail de données.
 
