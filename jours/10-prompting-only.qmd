@@ -314,6 +314,61 @@ points = (d, mini, {r, rMax, color, fill, bulle, sous = []}) => Plot.plot({
   ]
 })
 
+// Carte de gaufres (DGAFP) : sur chaque point (lon, lat), une case par unité de la colonne
+// valeur, par rangées de dix remplies de bas en haut : la hauteur de la gaufre est proportionnelle
+// à la valeur. Les cases sont colorées dans l'ordre des parts (parts : [{nom, champ}]), rangées en
+// pixels, puis ramenées en (lon, lat) par la projection, que Plot réapplique.
+// Les gaufres qui se chevauchent (Paris et les Hauts-de-Seine, qui l'entourent) sont écartées.
+gaufres = (d, mini, {valeur, parts, couleurs, label, bulle}) => {
+  const [largeur, hauteur, marge] = mini ? [150, 150, 4] : [820, 760, 6]
+  const projection = d3.geoConicConformal().parallels([44, 49]).rotate([-3, 0])
+    .fitExtent([[marge, marge], [largeur - marge, hauteur - marge]], d.fonds.departements)
+  const [cote, pas] = mini ? [0.5, 0.6] : [2.2, 2.7]  // côté d'une case et écart entre cases, en pixels
+  const blocs = d.lignes.map((l) => {
+    const n = Math.round(l[valeur])
+    const colonnes = 10
+    const [x, y] = projection([l.lon, l.lat])
+    return {ligne: l, n, colonnes, rangees: Math.ceil(n / colonnes), x, y}
+  })
+  const ecart = mini ? 0.5 : 3
+  for (let tour = 0; tour < 50; tour++) {
+    for (const [a, b] of d3.cross(blocs, blocs).filter(([a, b]) => a.ligne.code < b.ligne.code)) {
+      const ex = (a.colonnes + b.colonnes) * pas / 2 + ecart - Math.abs(a.x - b.x)
+      const ey = (a.rangees + b.rangees) * pas / 2 + ecart - Math.abs(a.y - b.y)
+      if (ex <= 0 || ey <= 0) continue
+      // On écarte selon l'axe où le chevauchement est le plus petit, chacun de la moitié.
+      const [axe, e] = ex < ey ? ["x", ex] : ["y", ey]
+      const sens = a[axe] < b[axe] ? -1 : 1
+      a[axe] += sens * e / 2
+      b[axe] -= sens * e / 2
+    }
+  }
+  const cases = blocs.flatMap(({ligne: l, n, colonnes, rangees, x, y}) => {
+    const cumul = d3.cumsum(parts, (p) => l[p.champ])
+    return d3.range(n).map((i) => ({
+      position: projection.invert([x + (i % colonnes - (colonnes - 1) / 2) * pas,
+                                   y + ((rangees - 1) / 2 - Math.floor(i / colonnes)) * pas]),
+      part: parts[cumul.findIndex((c) => i < Math.round(n * c / cumul.at(-1)))].nom
+    }))
+  })
+  const centres = blocs.map((b) => ({...b.ligne, position: projection.invert([b.x, b.y])}))
+  const carte = Plot.plot({
+    width: largeur, height: hauteur, margin: 0, style: stylePlot, projection,
+    color: legende(mini, {type: "ordinal", domain: parts.map((p) => p.nom), range: couleurs}),
+    marks: [
+      Plot.geo(d.fonds.departements, {fill: terre, stroke: fond, strokeWidth: mini ? 0.2 : 0.5}),
+      // Le symbole carré de Plot a pour aire π r².
+      Plot.dot(cases, {x: (c) => c.position[0], y: (c) => c.position[1], symbol: "square",
+                       r: cote / Math.sqrt(Math.PI), fill: "part"}),
+      mini ? null : Plot.tip(centres, Plot.pointer({fill: fond, x: (c) => c.position[0], y: (c) => c.position[1],
+                                                    maxRadius: 20, title: bulle}))
+    ]
+  })
+  // Une légende en pastilles n'a pas de titre : on l'écrit au-dessus.
+  return mini ? carte : html`<div>
+    <div style="font-size: 0.8em; font-weight: 600; margin-bottom: 0.3em">${label}</div>${carte}</div>`
+}
+
 // Des points à leur place réelle (lon_reel, lat_reel) sur le Plan IGN (Depp), une couleur par
 // catégorie de la colonne champ ; la première catégorie (la plus fréquente) est dessinée dessous.
 // La carte est détruite quand la cellule est relancée.
@@ -445,10 +500,10 @@ chargerMaplibre = {
     if (promesse) return promesse
     const lien = document.createElement("link")
     lien.rel = "stylesheet"
-    lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+    lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.css"
     document.head.appendChild(lien)
     promesse = Promise.all([
-      require("maplibre-gl@4.7.1"),
+      require("maplibre-gl@5.6.0"),
       fetch("https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json").then((r) => r.json())
     ]).then(([maplibregl, clair]) => {
       const sombre = structuredClone(clair)
@@ -466,6 +521,43 @@ territoires = [
   ["La Réunion", [[55.2, -21.4], [55.85, -20.85]]],
   ["Mayotte", [[44.95, -13.05], [45.35, -12.6]]]
 ]
+// Les pays (GeoJSON) sur un globe MapLibre, qu'on fait tourner à la souris ou au doigt. Pas
+// de fond de carte : un fond uni pour les océans, les pays colorés par l'expression
+// `remplissage`. La carte est détruite quand la cellule est relancée.
+globeMaplibre = async (d, {pays, remplissage, legende, bulle, attribution}) => {
+  const {maplibregl} = await chargerMaplibre()
+  const conteneur = html`<div style="height: min(75vh, 720px)"></div>`
+  const bloc = html`<div>${legende}${conteneur}</div>`
+  const style = {
+    version: 8,
+    projection: {type: "globe"},
+    sources: {pays: {type: "geojson", data: pays}},
+    layers: [
+      {id: "ocean", type: "background", paint: {"background-color": sombre ? "#1c2833" : "#dfe8ef"}},
+      {id: "pays", type: "fill", source: "pays", paint: {"fill-color": remplissage}},
+      {id: "pays-limites", type: "line", source: "pays", paint: {"line-color": fond, "line-width": 0.5}}
+    ]
+  }
+  // La carte est créée une fois le bloc dans la page, pour qu'elle en connaisse la taille.
+  requestAnimationFrame(() => {
+    const map = new maplibregl.Map({container: conteneur, style, center: [10, 38], zoom: 2.5,
+                                    attributionControl: {customAttribution: attribution}})
+    d.invalidation?.then(() => map.remove())
+    map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+    const infobulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "300px"})
+    const montrer = (e) => {
+      map.getCanvas().style.cursor = "pointer"
+      infobulle.setLngLat(e.lngLat).setHTML(bulle(e.features[0].properties).replaceAll("\n", "<br>")).addTo(map)
+    }
+    map.on("mousemove", "pays", montrer)
+    map.on("click", "pays", montrer)  // au doigt, sur mobile
+    map.on("mouseleave", "pays", () => {
+      map.getCanvas().style.cursor = ""
+      infobulle.remove()
+    })
+  })
+  return bloc
+}
 // Des cercles (lon, lat) sur le Plan IGN : rayon selon la colonne r, couleur par seuils
 // (color.domain, color.range) de la colonne fill. La carte précédente est détruite quand on
 // en dessine une autre (changement de thème).
@@ -765,16 +857,7 @@ cartes = [
     id: "injep", sigle: "INJEP · Medes", ministere: "Sports, Jeunesse",
     service: "Mission enquêtes, données et études statistiques",
     titre: "Après le football, quel sport ?",
-    texte: (d) => html`Le football a le plus de licenciés presque partout. Mais derrière lui ? Dans
-      chaque intercommunalité, le sport qui compte le plus de clubs, ou le plus de licenciés,
-      football mis à part. En nombre de clubs, les <strong>boules</strong> (pétanque et lyonnaise)
-      l'emportent dans ${entier(d.meta.epci.clubs.Boules)} intercommunalités, du Lyonnais au Sud-Ouest
-      ; le tennis dans ${entier(d.meta.epci.clubs.Tennis)}, le cyclisme dans
-      ${entier(d.meta.epci.clubs.Cyclisme)}, surtout dans l'Ouest et le Grand Est. En nombre de
-      licenciés, la carte change : le <strong>tennis</strong> est en tête dans
-      ${entier(d.meta.epci.licences.Tennis)} intercommunalités, l'équitation dans
-      ${entier(d.meta.epci.licences["Équitation"])}, le rugby dans ${entier(d.meta.epci.licences.Rugby)},
-      presque toutes dans le Sud-Ouest.`,
+    texte: (d) => html`Le football a le plus de licenciés presque partout. Mais derrière lui ?`,
     source: "INJEP (Medes), recensement des licences et clubs auprès des fédérations sportives 2023",
     note: "Choisissez de compter les clubs ou les licenciés ; zoomez et déplacez la carte, survolez une intercommunalité pour le détail. ",
     // La vignette en Observable Plot (les clubs), la grande carte en MapLibre, pour se promener.
@@ -829,8 +912,7 @@ cartes = [
     texte: (d) => html`Au ${d.meta.date}, ${entier(d.meta.detenus)} personnes sont détenues pour
       ${entier(d.meta.places)} places opérationnelles. La surpopulation se concentre dans les maisons
       d'arrêt, où attendent les prévenus et où purgent les condamnés à de courtes peines :
-      <strong>${d.meta.double} établissements</strong> comptent au moins deux détenus pour une place.
-      Les centres de détention, pour les longues peines, sont rarement au-delà de 100 %.`,
+      <strong>${d.meta.double} établissements</strong> comptent au moins deux détenus pour une place.`,
     source: "SSER, statistique mensuelle de la population détenue ; annuaire de service-public.fr",
     dessiner: (d, mini) => points(d, mini, {
       rMax: 16, r: "detenus", fill: "densite",
@@ -848,8 +930,7 @@ cartes = [
     titre: "La dotation de l'État aux communes en 2026",
     texte: (d) => html`La dotation globale de fonctionnement (DGF) est la principale aide de l'État aux
       communes : ${virgule(d.meta.total / 1e9)} milliards d'euros en 2026, soit
-      ${entier(d.meta.par_habitant)} € par habitant en moyenne. Elle compense en partie les écarts de
-      richesse fiscale : les communes rurales et de montagne, peu peuplées mais étendues, reçoivent
+      ${entier(d.meta.par_habitant)} € par habitant en moyenne. Les communes rurales et de montagne, peu peuplées mais étendues, reçoivent
       souvent <strong>plus par habitant</strong> que les communes périurbaines.`,
     source: "DGCL (DESL), critères de répartition de la DGF 2026",
     dessiner: (d, mini) => communesParClasse(d, mini, {
@@ -866,23 +947,23 @@ cartes = [
     service: "Sous-direction des études, des statistiques et des systèmes d'information",
     titre: "Combien d'agents publics pour 1 000 habitants ?",
     texte: (d) => html`Fin 2023, la fonction publique civile compte ${d.meta.france} agents (en
-      équivalent temps plein) pour 1 000 habitants. Le taux est le plus élevé à Paris, qui concentre
-      les administrations centrales, outre-mer et dans les départements qui ont un grand CHU ou une
-      préfecture de région (Haute-Vienne, Vienne, Puy-de-Dôme…). Il est plus faible dans les
-      départements résidentiels voisins d'une grande ville (Ain, Haute-Savoie, Oise…), dont
-      beaucoup d'habitants travaillent dans le département d'à côté.`,
+      équivalent temps plein) pour 1 000 habitants. Quelle est la répartition géographique et la structure de l'emploi public dans chaque département ? Chaque département est une colonne de
+      cases, <strong>une case par agent pour 1 000 habitants</strong>, dix par rangée, colorées selon le versant :
+      l'État, la territoriale (communes, départements, régions) ou l'hospitalière.`,
     source: "DGAFP, rapport annuel sur l'état de la fonction publique 2025 (Siasp, Insee)",
-    dessiner: (d, mini) => parCode(d, "departements", mini, {
-      remplir: (l) => l.taux,
-      color: {type: "quantize", n: 6, scheme: "Blues", domain: [40, 100], clamp: true,
-              label: "Agents civils (ETP) pour 1 000 habitants, 2023"},
-      bulle: (l) => `${l.departement}\n${entier(l.taux)} agents pour 1 000 habitants\n` +
+    dessiner: (d, mini) => gaufres(d, mini, {
+      valeur: "taux",
+      parts: [{nom: "État", champ: "part_etat"}, {nom: "Territoriale", champ: "part_territoriale"},
+              {nom: "Hospitalière", champ: "part_hospitaliere"}],
+      couleurs: sombre ? ["#7aa6d6", "#f5a65b", "#ef7f82"] : ["#4e79a7", "#f28e2b", "#e15759"],
+      label: "Fonction publique civile, 2023 (une case : un agent en ETP pour 1 000 habitants ; une rangée : dix)",
+      bulle: (l) => `${l.departement}\n${entier(l.agents)} agents civils\n${entier(l.taux)} agents (ETP) pour 1 000 habitants\n` +
         `État ${pourcent(l.part_etat)}, territoriale ${pourcent(l.part_territoriale)}, hospitalière ${pourcent(l.part_hospitaliere)}`
     }),
     fichier: "taux_administration_departements_2023.csv",
-    colonnes: {code: "Code", departement: "Département", taux: "Agents pour 1 000 habitants",
+    colonnes: {code: "Code", departement: "Département", agents: "Agents civils", taux: "Agents (ETP) pour 1 000 habitants",
                part_etat: "Part État", part_territoriale: "Part territoriale", part_hospitaliere: "Part hospitalière"},
-    formats: {taux: entier, part_etat: (x) => pourcent(x), part_territoriale: (x) => pourcent(x),
+    formats: {agents: entier, taux: entier, part_etat: (x) => pourcent(x), part_territoriale: (x) => pourcent(x),
               part_hospitaliere: (x) => pourcent(x)}
   },
   {
@@ -891,26 +972,68 @@ cartes = [
     titre: "D'où viennent les premiers titres de séjour ?",
     texte: (d) => html`En 2024, ${entier(d.meta.total)} premiers titres de séjour ont été délivrés à des
       étrangers majeurs. Les ressortissants du Maghreb en reçoivent le plus (Maroc, Algérie,
-      Tunisie), suivis de ceux d'Afrique de l'Ouest, d'Asie du Sud et de Chine. Le service ne publie
-      pas de répartition par département : la carte est celle des pays de nationalité.`,
+      Tunisie), suivis de ceux d'Afrique de l'Ouest, d'Asie du Sud et de Chine. L'Europe est
+      presque vide : <strong>les citoyens de l'Union européenne, de l'Espace économique européen
+      et de la Suisse n'ont pas besoin de titre de séjour</strong> pour s'installer en France. Le
+      service ne publie pas de répartition par département : la carte est celle des pays de
+      nationalité.`,
     source: "DSED, stock et flux des titres de séjour 2024 ; Natural Earth",
+    note: "Faites tourner le globe, zoomez, survolez un pays pour le détail. ",
     dessiner: (d, mini) => {
+      // Libre circulation : Union européenne, Espace économique européen (Islande, Liechtenstein,
+      // Norvège) et Suisse. L'espace Schengen n'est pas tout à fait le même ensemble : sans
+      // l'Irlande ni Chypre, mais avec les quatre pays hors Union.
+      const ue = ["AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "DEU", "GRC", "HUN",
+                  "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROU", "SVK", "SVN",
+                  "ESP", "SWE"]
+      const libre = new Map([...ue.map((c) => [c, "membre de l'Union européenne"]),
+                             ...["ISL", "LIE", "NOR"].map((c) => [c, "membre de l'Espace économique européen"]),
+                             ["CHE", "liée à l'Union par un accord de libre circulation"]])
+      const horsSchengen = new Set(["IRL", "CYP"])
+      const couleurFrance = sombre ? "#ddd" : "#333"
+      const couleurLibre = sombre ? "#4d7d70" : "#b3d5ca"
+      const couleur = {type: "threshold", domain: [500, 2000, 5000, 15000], range: sequence("BuPu", 5),
+                       tickFormat: entier, label: "Premiers titres de séjour délivrés en 2024"}
       const index = new Map(d.lignes.map((l) => [l.iso3, l]))
       const pays = monde.features.map((f) => ({...f, ligne: index.get(f.properties.iso3)}))
-      return Plot.plot({
-        ...cadre(mini, {type: "equal-earth"}, 430),
-        color: legende(mini, {type: "threshold", domain: [500, 2000, 5000, 15000],
-                              range: sequence("BuPu", 5), tickFormat: entier,
-                              label: "Premiers titres de séjour délivrés en 2024"}),
+      if (mini) return Plot.plot({
+        ...cadre(mini, {type: "equal-earth"}),
+        color: legende(mini, couleur),
         marks: [
           Plot.sphere({stroke: trait, strokeWidth: 0.5}),
-          Plot.geo(pays, {fill: (f) => (f.properties.iso3 === "FRA" ? (sombre ? "#ddd" : "#333")
-                                        : f.ligne?.titres ?? gris), stroke: fond, strokeWidth: mini ? 0.1 : 0.3}),
-          mini ? null : Plot.tip(pays.filter((f) => f.ligne), Plot.pointer(Plot.geoCentroid({fill: fond,
-            title: (f) => `${f.properties.nom}\n${f.ligne.titres == null ? "moins de 50 (non communiqué)"
-                                                 : entier(f.ligne.titres) + " premiers titres"}`
-          })))
+          Plot.geo(pays, {fill: (f) => (f.properties.iso3 === "FRA" ? couleurFrance
+                                        : libre.has(f.properties.iso3) ? couleurLibre
+                                        : f.ligne?.titres ?? gris), stroke: fond, strokeWidth: 0.1})
         ]
+      })
+      const caseCouleur = (c) => html`<span style="display: inline-block; width: 0.9em; height: 0.9em;
+        background: ${c}; vertical-align: -0.1em; margin-right: 0.3em"></span>`
+      return globeMaplibre(d, {
+        pays: {type: "FeatureCollection", features: pays.map((f) => ({
+          type: "Feature", geometry: f.geometry,
+          properties: {...f.properties, titres: f.ligne?.titres ?? -1, connu: f.ligne != null}
+        }))},
+        remplissage: ["case",
+          ["==", ["get", "iso3"], "FRA"], couleurFrance,
+          ["in", ["get", "iso3"], ["literal", [...libre.keys()]]], couleurLibre,
+          ["<", ["get", "titres"], 0], gris,
+          ["step", ["get", "titres"], couleur.range[0], ...couleur.domain.flatMap((s, i) => [s, couleur.range[i + 1]])]],
+        legende: html`<div>${Plot.legend({color: couleur, style: {background: "transparent", color: "inherit"}})}
+          <div style="font-size: 0.8em; display: flex; flex-wrap: wrap; gap: 0.3em 1.5em; margin-bottom: 0.5em">
+            <span>${caseCouleur(couleurLibre)}Libre circulation : pas de titre de séjour</span>
+            <span>${caseCouleur(gris)}Moins de 50 ou aucun</span>
+          </div></div>`,
+        attribution: "DSED ; Natural Earth",
+        bulle: (p) => {
+          if (p.iso3 === "FRA") return `<strong>${p.nom}</strong>`
+          if (libre.has(p.iso3)) return `<strong>${p.nom}</strong>, ${libre.get(p.iso3)}` +
+            `${horsSchengen.has(p.iso3) ? ", hors de l'espace Schengen" : " et de l'espace Schengen"}.\n` +
+            "Libre circulation : ses ressortissants s'installent en France sans titre de séjour ; " +
+            "ils n'apparaissent donc pas dans ces chiffres."
+          return `<strong>${p.nom}</strong>\n${!p.connu ? "Aucun premier titre recensé"
+            : p.titres < 0 ? "Moins de 50 premiers titres (non communiqué)"
+            : `<strong>${entier(p.titres)}</strong> premiers titres de séjour en 2024`}`
+        }
       })
     },
     fichier: "premiers_titres_sejour_nationalites_2024.csv",
@@ -920,24 +1043,29 @@ cartes = [
   {
     id: "armees", sigle: "S2E · Armées", ministere: "Armées",
     service: "Sous-direction Statistiques et études économiques",
-    titre: "La fréquentation des lieux de mémoire en 2023",
-    texte: (d) => html`Plages du Débarquement, champs de bataille de la Grande Guerre, musées et
-      mémoriaux : les lieux de mémoire des conflits contemporains ont reçu
-      ${virgule(d.meta.total / 1e6)} millions de visites en 2023. <strong>La Normandie en accueille
-      ${pourcent(d.meta.normandie)}</strong> ; viennent ensuite l'Île-de-France et le Grand Est, avec
-      Verdun. En Normandie et dans les Hauts-de-France, une grande part des visiteurs vient de
-      l'étranger.`,
-    source: "Ministère des Armées (S2E), EcoDef Statistiques n° 255",
-    dessiner: (d, mini) => parCode(d, "regions", mini, {
-      remplir: (l) => l.visites,
-      color: {type: "threshold", domain: [250e3, 500e3, 1e6, 2e6], range: sequence("Oranges", 5),
-              tickFormat: (x) => (x >= 1e6 ? `${x / 1e6} M` : `${x / 1e3} k`), label: "Visites en 2023"},
-      bulle: (l) => `${l.region}\n${entier(l.visites)} visites en 2023` +
+    titre: "Les lieux de mémoire en 2022",
+    texte: (d) => html`Nécropoles, forts, plages du Débarquement, musées et mémoriaux : les
+      ${entier(d.meta.sites)} lieux de mémoire des conflits contemporains qui publient leurs chiffres
+      ont reçu ${virgule(d.meta.total / 1e6)} millions d'entrées en 2022. Le plus visité,
+      <strong>${d.meta.premier.nom} (${d.meta.premier.commune}), en compte
+      ${virgule(d.meta.premier.entrees / 1e6, 2)} million${d.meta.premier.entrees >= 2e6 ? "s" : ""}</strong>.
+      La Seconde Guerre mondiale attire les grandes foules en Normandie ; la Grande Guerre a laissé, du
+      Nord à la Lorraine, une multitude de petits sites.`,
+    source: "Ministère des Armées (S2E), enquête de fréquentation des lieux de mémoire 2023 ; géocodage IGN, Géoplateforme",
+    dessiner: (d, mini) => points(d, mini, {
+      rMax: 22, r: "entrees", fill: "periode",
+      color: {type: "ordinal",
+              domain: ["Première Guerre mondiale", "Seconde Guerre mondiale", "Plusieurs conflits", "Autre conflit"],
+              range: sombre ? ["#d9b27c", "#8fb0d9", "#e38fa3", "#aaa"] : ["#9c6b30", "#3f6c9e", "#b5455f", "#888"],
+              label: "Conflit évoqué"},
+      bulle: (l) => `${l.nom}\n${l.commune}\n${entier(l.entrees)} entrées en 2022\nConflits : ${l.conflits}` +
         (l.part_etrangers == null ? "" : `\n${pourcent(l.part_etrangers)} de visiteurs étrangers`)
     }),
-    fichier: "lieux_memoire_regions_2023.csv",
-    colonnes: {region: "Région", visites: "Visites 2023", part_etrangers: "Part de visiteurs étrangers"},
-    formats: {visites: entier, part_etrangers: (x) => (x == null ? "" : pourcent(x))}
+    fichier: "lieux_memoire_2022.csv",
+    colonnes: {nom: "Lieu", commune: "Commune", conflits: "Conflits", entrees: "Entrées 2022",
+               part_etrangers: "Part de visiteurs étrangers", mois: "Mois d'ouverture"},
+    formats: {entrees: (x) => (x == null ? "nc" : entier(x)), part_etrangers: (x) => (x == null ? "" : pourcent(x)),
+              mois: (x) => (x == null ? "" : entier(x))}
   }
 ]
 ```
@@ -1172,7 +1300,7 @@ html`<p><small>${(typeof carte.note === "function" ? carte.note(vue) : carte.not
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Rapport annuel sur l'état de la fonction publique 2025](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023) | DGAFP (Fonction publique) | le taux d'administration par département, 2023 | {{< iconify vscode-icons file-type-excel >}} Excel (zip) |
+| [Rapport annuel sur l'état de la fonction publique 2025](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023) | DGAFP (Fonction publique) | le taux d'administration et les agents civils par département, 2023 | {{< iconify vscode-icons file-type-excel >}} Excel (zip) |
 | [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire les départements | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
 :::
@@ -1190,8 +1318,9 @@ html`<p><small>${(typeof carte.note === "function" ? carte.note(vue) : carte.not
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [EcoDef Statistiques n° 255](https://www.data.gouv.fr/datasets/ecodef-statistiques-ndeg-255) | S2E (Armées) | les visites des lieux de mémoire par région, 2023 | {{< iconify vscode-icons file-type-excel >}} Excel |
-| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les contours des communes, d'où l'on tire les régions | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Enquête de fréquentation des lieux de mémoire 2023](https://www.data.gouv.fr/datasets/enquete-sur-la-frequentation-des-lieux-de-memoire-en-2022) | S2E (Armées) | les entrées de chaque lieu de mémoire en 2022, sa commune, les conflits évoqués | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Service de géocodage](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) | IGN, Géoplateforme | la position de chaque lieu, au centre de sa commune | {{< iconify vscode-icons file-type-json >}} JSON (API) |
+| [Communes et départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le fond de carte, et de quoi replacer les points de la petite couronne | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
 :::
 
@@ -2391,7 +2520,7 @@ FROM communes c JOIN dgf d USING (code) ORDER BY code
 
 ### DGAFP : le taux d'administration {.unnumbered .unlisted}
 
-Le [[rapport annuel sur l'état de la fonction publique]{.underline}](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023) est accompagné de classeurs. Celui des données complémentaires donne, par département, le taux d'administration (agents civils en équivalent temps plein pour 1 000 habitants, figure 4) et les effectifs des trois versants (figure 2). Les départements n'y sont désignés que par leur nom : on les rapproche des noms de cartiflette.
+Le [[rapport annuel sur l'état de la fonction publique]{.underline}](https://www.fonction-publique.gouv.fr/toutes-les-publications/les-caracteristiques-et-la-localisation-des-postes-de-la-fonction-publique-en-2023) est accompagné de classeurs. Celui des données complémentaires donne, par département, le taux d'administration (agents civils en équivalent temps plein pour 1 000 habitants, figure 4) et les effectifs des trois versants (figure 2, en milliers d'agents). Les départements n'y sont désignés que par leur nom : on les rapproche des noms de cartiflette. Chaque département est placé au centre de ses communes ; Paris et la petite couronne, dans l'encart agrandi.
 
 ```{python}
 #| filename: "Taux d'administration par département (DGAFP)"
@@ -2408,7 +2537,18 @@ for versant in ["etat", "territoriale", "hospitaliere"]:
 departements_cartiflette = con.sql("SELECT DISTINCT dep AS code, departement FROM communes").df()
 departements_cartiflette["cle"] = departements_cartiflette["departement"].map(cle)
 administration = departements_cartiflette.merge(administration, on="cle")
-administration = administration[["code", "departement", "taux", "part_etat", "part_territoriale", "part_hospitaliere"]]
+administration["agents"] = (administration["total"].astype(float) * 1000).round()
+administration = administration[["code", "departement", "agents", "taux", "part_etat", "part_territoriale", "part_hospitaliere"]]
+# Le centre de chaque département ; pour la petite couronne, celui de l'encart (les morceaux
+# à l'ouest de la métropole), où il y a la place.
+centres = con.sql("""
+WITH morceaux AS (SELECT dep, unnest(ST_Dump(geom), recursive := true) FROM communes)
+SELECT dep AS code, round(ST_X(ST_Centroid(ST_Collect(list(geom)))), 4) AS lon,
+       round(ST_Y(ST_Centroid(ST_Collect(list(geom)))), 4) AS lat
+FROM morceaux WHERE dep NOT IN ('75', '92', '93', '94') OR ST_XMax(geom) < 0
+GROUP BY dep
+""").df()
+administration = administration.merge(centres, on="code")
 france = taux.loc[taux["nom"].astype(str).str.startswith("Total France"), "taux"].iloc[0]
 ecrire("dgafp", {"meta": {"france": int(france)}, "lignes": enregistrements(administration.sort_values("code"))})
 len(administration), france
@@ -2455,25 +2595,89 @@ total_titres, sorted(sans_contour)
 
 ### S2E (Armées) : les lieux de mémoire {.unnumbered .unlisted}
 
-Le service statistique du ministère des Armées publie avec chaque numéro d'[[*EcoDef*]{.underline}](https://www.data.gouv.fr/datasets/ecodef-statistiques-ndeg-255) les données de ses figures. Le n° 255 porte sur la fréquentation des lieux de mémoire des conflits contemporains : visites par région en 2023, en milliers (figure 2), et part des visiteurs résidant à l'étranger (figure 3). Seule la France métropolitaine est couverte.
+Le service statistique du ministère des Armées interroge chaque année les lieux de mémoire des conflits contemporains (nécropoles, forts, champs de bataille, musées, mémoriaux) sur leur fréquentation. Il publie, pour les [[sites qui l'acceptent]{.underline}](https://www.data.gouv.fr/datasets/enquete-sur-la-frequentation-des-lieux-de-memoire-en-2022), le détail site par site : les entrées de 2022, mois par mois, la part de visiteurs étrangers, les conflits que le site évoque (1870, 1914-1918, 1939-1945, après 1945), son code postal et sa commune.
 
 ```{python}
-#| filename: "Visites des lieux de mémoire par région (Armées)"
-classeur = telecharger(SOURCES["ecodef"], "ecodef.xlsx")
-visites = pd.read_excel(classeur, sheet_name="Figure 2", header=None, engine="calamine").iloc[:, [0, 2]]
-etrangers = pd.read_excel(classeur, sheet_name="Figure 3", header=None, engine="calamine").iloc[:, [0, 2]]
-visites.columns, etrangers.columns = ["nom", "visites"], ["nom", "part_etrangers"]
-visites = visites[pd.to_numeric(visites["visites"], errors="coerce").notna()].astype({"visites": float})
-total_visites = 1000 * visites.loc[visites["nom"] == "France métropolitaine", "visites"].iloc[0]
-etrangers = etrangers[pd.to_numeric(etrangers["part_etrangers"], errors="coerce").notna()].astype({"part_etrangers": float})
-memoire = visites.merge(etrangers, on="nom", how="left").assign(
-    cle=lambda t: t["nom"].map(cle), visites=lambda t: 1000 * t["visites"], part_etrangers=lambda t: t["part_etrangers"] / 100)
-regions_cartiflette = con.sql("SELECT DISTINCT reg AS code, region FROM communes").df().assign(cle=lambda t: t["region"].map(cle))
-lieux = regions_cartiflette.merge(memoire, on="cle")[["code", "region", "visites", "part_etrangers"]]
-armees = {"total": float(total_visites),
-          "normandie": float(memoire.loc[memoire["cle"] == "NORMANDIE", "visites"].iloc[0] / total_visites)}
-ecrire("armees", {"meta": armees, "lignes": enregistrements(lieux)})
-lieux
+#| filename: "Les lieux de mémoire (Armées)"
+lieux = pd.read_excel(telecharger(SOURCES["lieux_memoire"], "lieux_memoire.xlsx"), sheet_name="DATA",
+                      engine="calamine", dtype={"CP": str})
+CONFLITS = {"CONFLIT_1870": "1870", "CONFLIT_WW1": "1914-1918", "CONFLIT_WW2": "1939-1945", "CONFLIT_POST45": "après 1945"}
+lieux["conflits"] = lieux[list(CONFLITS)].eq("OUI").apply(lambda l: ", ".join(CONFLITS[c] for c in l.index[l]), axis=1)
+lieux["periode"] = lieux["conflits"].map(
+    lambda c: {"1914-1918": "Première Guerre mondiale", "1939-1945": "Seconde Guerre mondiale"}.get(
+        c, "Plusieurs conflits" if "," in c else "Autre conflit"))
+lieux["periode"].value_counts()
+```
+
+Le fichier n'a pas de coordonnées. On place chaque lieu au centre de sa commune avec le [service de géocodage de la Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) de l'IGN. Les communes sont écrites de toutes les façons (« ROUSIS », « Montjoie st martin », « LYON cedex 07 ») et certains codes postaux sont des Cedex, qui ne désignent aucune commune : on cherche la commune avec son code postal, puis la commune seule, puis le code postal seul, et on garde la première réponse dans le bon département et dans la région du lieu. À Paris et à Lyon, le code postal désigne l'arrondissement : on le cherche en premier.
+
+Quelques lieux sont déclarés à l'adresse de leur gestionnaire : le Musée national de la Marine donne celle de son siège parisien pour ses musées de Brest, Port-Louis, Rochefort et Toulon, le fort du Barbonnet (Sospel, Alpes-Maritimes) un code postal des Yvelines. La région est en général celle du lieu (le musée de Falaise, dans le Calvados, est déclaré à Paris et en Nouvelle-Aquitaine) : on corrige à la main les lieux dont on connaît la commune, et ceux dont la commune trouvée n'est pas dans leur région restent hors de la carte.
+
+```{python}
+#| filename: "Position des lieux (géocodage de la Géoplateforme)"
+from requests.adapters import HTTPAdapter, Retry
+
+# Si l'API refuse (trop de requêtes) ou tombe en panne, on réessaie en attendant de plus en plus
+session = requests.Session()
+session.mount("https://", HTTPAdapter(max_retries=Retry(
+    total=6, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504]
+)))
+
+
+def communes_candidates(**params):
+    reponse = session.get("https://data.geopf.fr/geocodage/search",
+                          params={"type": "municipality", "limit": 5, **params}, timeout=30)
+    reponse.raise_for_status()
+    return reponse.json()["features"]
+
+
+def position(code_postal, commune, region):
+    """La commune trouvée (nom, lon, lat), ou None."""
+    commune = re.sub(r"\s+cedex.*$", "", commune, flags=re.I)
+    essais = [{"q": code_postal}] if cle(commune) in ("PARIS", "LYON", "MARSEILLE") else []
+    essais += [{"q": commune, "postcode": code_postal}, {"q": commune}, {"q": code_postal}]
+    for params in essais:
+        for resultat in communes_candidates(**params):
+            p = resultat["properties"]
+            # context : « 29, Finistère, Bretagne »
+            if p["citycode"][:2] == code_postal[:2] and cle(p["context"].split(", ")[-1]) == cle(region):
+                return p["city"], *resultat["geometry"]["coordinates"]
+    return None
+
+
+# Les lieux déclarés à l'adresse de leur gestionnaire : les musées de la Marine des ports (siège
+# parisien, 75116), et quatre lieux dont la commune est hors de leur région.
+CORRECTIONS = {"SDM205": ("29200", "Brest"), "SDM207": ("56290", "Port-Louis"),
+               "SDM209": ("17300", "Rochefort"), "SDM210": ("83000", "Toulon"),
+               "SDM006": ("43230", "Frugières-le-Pin"), "SDM194": ("06380", "Sospel"),
+               "SDM348": ("63140", "Châtel-Guyon"), "SDM464": ("17300", "Rochefort"),
+               "SDM418": ("14700", "Falaise")}
+for site, (code_postal, commune) in CORRECTIONS.items():
+    lieux.loc[lieux["ID_site"] == site, ["CP", "COMMUNE"]] = [code_postal, commune]
+lieux.loc[lieux["ID_site"] == "SDM418", "REGION"] = "Normandie"  # Falaise (Calvados), déclaré en Nouvelle-Aquitaine
+
+lieux["position"] = [position(cp, str(commune), region)
+                     for cp, commune, region in zip(lieux["CP"], lieux["COMMUNE"], lieux["REGION"])]
+non_places = lieux.loc[lieux["position"].isna(), "SITE"].tolist()
+lieux = lieux.dropna(subset=["position"]).copy()
+# « ville » : DuckDB ne distingue pas commune de COMMUNE, le nom écrit dans le fichier.
+lieux[["ville", "lon", "lat"]] = pd.DataFrame(lieux.pop("position").tolist(), index=lieux.index)
+
+con.sql("""
+CREATE TABLE lieux_memoire AS
+SELECT SITE AS nom, ville AS commune, conflits, periode, ENTREES_2022 AS entrees,
+       PART_NATIONALITES_2022 / 100 AS part_etrangers, MOIS_2022 AS mois,
+       round(lon, 4) AS lon, round(lat, 4) AS lat
+FROM lieux
+""")
+armees = con.sql("SELECT count(*) AS sites, sum(entrees) AS total FROM lieux_memoire").df().to_dict("records")[0]
+armees["premier"] = con.sql("""
+SELECT nom, commune, entrees FROM lieux_memoire ORDER BY entrees DESC NULLS LAST LIMIT 1
+""").df().to_dict("records")[0]
+rapprocher("lieux_memoire")
+ecrire("armees", {"meta": armees, "lignes": enregistrements(
+    con.sql("FROM lieux_memoire ORDER BY entrees DESC NULLS LAST").df())})
+armees, non_places
 ```
 
 :::
@@ -2575,10 +2779,17 @@ DOM.download(
 
 ::: {producteur="dgafp"}
 - Les militaires ne sont pas comptés, faute de localisation.
+- Le taux est en équivalent temps plein, la part des versants en effectifs physiques : la répartition des cases entre versants est une approximation, le temps partiel n'étant pas le même partout.
 :::
 
 ::: {producteur="dsed"}
 - Le service ne publie pas de répartition par département : la carte est celle des pays de nationalité, pas des lieux de délivrance.
+:::
+
+::: {producteur="armees"}
+- Seuls les lieux qui ont accepté de diffuser leurs chiffres sont dans le fichier : la carte n'est pas un inventaire des lieux de mémoire. Ceux qui n'ont pas donné leurs entrées sont dans le tableau, pas sur la carte.
+- Les entrées et la part de visiteurs étrangers sont déclarées par chaque site, parfois estimées et arrondies. La part de visiteurs étrangers manque, ou vaut 0, pour certains grands sites.
+- Chaque lieu est placé au centre de sa commune, pas à son adresse : les lieux déclarés dans la même commune se superposent (le cimetière américain et la pointe du Hoc, tous deux déclarés à Colleville-sur-Mer). Un lieu déclaré dans une ancienne commune est placé dans la commune nouvelle qui l'a absorbée.
 :::
 
 :::

@@ -43,6 +43,6 @@ SOURCES = {
     "dsed": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/2024-sejour-flux-region-monde-nationalites.csv",
     # https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_110m_admin_0_countries.geojson
     "monde": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/ne_110m_admin_0_countries.geojson",
-    # https://static.data.gouv.fr/resources/ecodef-statistiques-ndeg-255/20241212-133351/donnes-ecodef-255.xlsx
-    "ecodef": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/donnes-ecodef-255.xlsx",
+    # https://static.data.gouv.fr/resources/enquete-sur-la-frequentation-des-lieux-de-memoire-en-2022/20240208-153029/eflm-2023-donnees-detaillees.xlsx
+    "lieux_memoire": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/eflm-2023-donnees-detaillees.xlsx",
 }
