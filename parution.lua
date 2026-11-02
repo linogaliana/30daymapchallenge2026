@@ -58,6 +58,10 @@ return {
       end
       return tableau
     end,
+  },
+  -- Pandoc traite les inlines avant les blocs dans une même passe : les liens ne
+  -- sont dé-liés qu'après le tri des lignes de tableau, qui les cherche.
+  {
     Link = function(lien)
       if parution and a_venir(lien) then
         return lien.content
