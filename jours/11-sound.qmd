@@ -1,13 +1,23 @@
 ---
-title: "J11 · Sound. Un suffixe, six prononciations"
-description: "Cognac, Choisy, Vitré, Vénissieux : le même suffixe gaulois -acum s'entend différemment d'une région à l'autre. Les noms des 35 000 communes, classés par leur terminaison."
+title: "J11 · Sound. Les lieux de la musique"
+description: "Conservatoires, scènes de musiques actuelles, opéras et festivals : les lieux où la musique s'apprend, se joue et se fête, d'après la base permanente des équipements de l'Insee, la base Basilic et le recensement des festivals du ministère de la Culture. Une carte qui s'écoute."
 image: vignettes/11-sound.webp
 resources:
-  - donnees/j11/*.csv
+  - donnees/j11/lieux.csv
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#c2185b"
+  sombre: "#f06292"
 ---
+
+Après les villes et les campagnes, le son 🔊. Pour la onzième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Sound"**]{.underline color="#0A5927"}), on cartographie les lieux où la musique [s'apprend]{.underline color="#2a78d6"} (les conservatoires classés par l'État, les écoles supérieures de musique), où [elle se joue]{.underline} (scènes de musiques actuelles, Zéniths, opéras, orchestres nationaux) et où [elle se fête]{.underline color="#e6a23c"} (les festivals). Pour cela, on s'appuie sur la [[base permanente des équipements]{.underline}](https://www.insee.fr/fr/statistiques/8217525) de l'[Insee]{.underline color="#0A5927"}, sur la [[base des lieux et équipements culturels]{.underline}](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) (Basilic) du [Deps]{.underline color="#0A5927"}, le service statistique ministériel de la culture, et sur le [[recensement des festivals]{.underline}](https://www.data.gouv.fr/datasets/liste-des-festivals-en-france) du ministère de la Culture. Et puisque le thème est le son, la carte s'écoute : le bouton ▶ la balaie d'ouest en est, et chaque lieu sonne quand la ligne le croise (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -15,20 +25,183 @@ virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, max
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
 pourcent = (x) => `${virgule(100 * x, 0)} %`
 html`<p class="lead">
-  Dans <em>Cognac</em>, <em>Choisy</em>, <em>Vitré</em> ou <em>Vénissieux</em>, on n'entend pas la
-  même terminaison. C'est pourtant souvent le même suffixe gaulois, <em>-acum</em>, qui désignait
-  un domaine, prononcé différemment selon les régions. Sur les
-  ${entier(totaux.communes)} communes de France, <strong>${entier(totaux.familles)}
-  (${pourcent(totaux.familles / totaux.communes)}) ont un nom qui finit par l'un de ses six
-  aboutissements</strong> : -ac, -at, -ieu, -é, -ay ou -ey, -y.
+  La musique s'apprend en ville : ${pourcent(chiffres.conservatoires_villes)} des
+  <span class="souligne" style="--souligne: ${couleur.get("Conservatoire")}">${entier(chiffres.conservatoires)}
+  conservatoires</span> classés par l'État sont dans une commune de 5 000 habitants ou plus. Elle se
+  fête aussi à la campagne : <span class="souligne" style="--souligne: ${couleur.get("Festival")}">${pourcent(chiffres.festivals_villages)}
+  des ${entier(chiffres.festivals)} festivals de musique</span> se tiennent dans une commune de moins
+  de 5 000 habitants, et ${pourcent(chiffres.festivals_ete)} ont lieu l'été, entre le 21 juin et le
+  5 septembre.
 </p>`
 ```
 
-Pour ce onzième jour, consacré au son, on écoute les noms des communes. Chaque carte rassemble
-celles qui finissent de la même façon ; cliquez sur un point, ou sur un bouton 🔊, pour entendre
-le nom (making of 👇).
+```{ojs}
+//| echo: false
+// Les groupes à afficher (et à entendre), avec leur couleur et leur nombre de lieux.
+viewof choix = Inputs.checkbox(groupes, {
+  value: groupes,
+  format: (g) => html`<span><span class="pastille pastille-${groupes.indexOf(g)}"></span>
+    ${libelles[g]} (${entier(effectifs.get(g))})</span>`
+})
+```
 
---------
+```{ojs}
+//| echo: false
+// Les couleurs des pastilles suivent le thème sans recréer les cases à cocher.
+html`<style>
+  .pastille { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; margin-right: 0.2em }
+  ${groupes.map((g, i) => `.pastille-${i} { background: ${couleur.get(g)} }`).join("\n")}
+</style>`
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+// La carte, son lecteur, et la ligne qui la balaie.
+carte = {
+  const DUREE = 30  // secondes pour traverser la carte
+  const visibles = groupes.filter((g) => choix.includes(g))
+    .map((g) => lieux.filter((d) => d.groupe === g))
+  const largeur = Math.min(width, 900)
+  // Sur mobile, des points plus petits.
+  const echelle = Math.max(0.6, Math.min(1, largeur / 800))
+  const plot = Plot.plot({
+    width: largeur,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 6},
+    r: {type: "identity"},
+    marks: [
+      Plot.geo(departements, {fill: couleurTerre, stroke: fond, strokeWidth: 0.6}),
+      Plot.geo(medaillon, {fill: "none", stroke: "currentColor", strokeOpacity: 0.4, strokeWidth: 0.8}),
+      Plot.text([medaillon.properties], {
+        x: "lon", y: "lat", text: () => "Paris et petite couronne", fill: "currentColor",
+        fillOpacity: 0.7, fontSize: 10, textAnchor: "start", dy: -6
+      }),
+      // Un calque par groupe, dans l'ordre des groupes : le lecteur retrouve chaque lieu par son rang.
+      ...visibles.map((points) => Plot.dot(points, {
+        x: "x", y: "y", r: (d) => echelle * rayon(d), sort: null,
+        fill: couleur.get(points[0]?.groupe),
+        fillOpacity: points[0]?.groupe === "Festival" ? 0.6 : 0.9,
+        stroke: points[0]?.groupe === "Festival" ? "none" : fond, strokeWidth: 0.6
+      })),
+      Plot.tip(visibles.flat(), Plot.pointer({x: "x", y: "y", maxRadius: 12, title: decrire}))
+    ]
+  })
+  plot.style.cursor = "pointer"
+  plot.addEventListener("click", () => plot.value && jouer(plot.value))
+
+  // Par-dessus le dessin : la ligne et les ondes des lieux qu'elle croise.
+  const ns = "http://www.w3.org/2000/svg"
+  const calque = document.createElementNS(ns, "g")
+  calque.setAttribute("pointer-events", "none")
+  const ligne = document.createElementNS(ns, "line")
+  ligne.setAttribute("y1", 0)
+  ligne.setAttribute("y2", plot.getAttribute("height"))
+  ligne.setAttribute("stroke", "currentColor")
+  ligne.setAttribute("stroke-opacity", 0.5)
+  ligne.style.display = "none"
+  calque.appendChild(ligne)
+  plot.appendChild(calque)
+
+  const onde = (p) => {
+    const c = document.createElementNS(ns, "circle")
+    c.setAttribute("cx", p.x)
+    c.setAttribute("cy", p.y)
+    c.setAttribute("r", p.lieu.groupe === "Festival" ? 2 : 3)
+    c.setAttribute("fill", "none")
+    c.setAttribute("stroke", couleur.get(p.lieu.groupe))
+    c.style.transformBox = "fill-box"
+    c.style.transformOrigin = "center"
+    calque.appendChild(c)
+    c.animate([{transform: "scale(1)", opacity: 1}, {transform: "scale(5)", opacity: 0}], {duration: 800})
+      .onfinish = () => c.remove()
+  }
+
+  // Les lieux tels que dessinés : position à l'écran, triés d'ouest en est.
+  const positions = () => d3.sort(
+    [...plot.querySelectorAll('g[aria-label="dot"]')].flatMap((g, k) =>
+      [...g.querySelectorAll("circle")].map((c, i) => ({
+        lieu: visibles[k][i], x: +c.getAttribute("cx"), y: +c.getAttribute("cy")
+      }))),
+    (p) => p.x
+  )
+
+  const lecteur = html`<form class="lecteur">
+    <button type="button" name="lire">▶ Écouter la carte</button>
+    <output name="sortie"></output>
+  </form>`
+  lecteur.onsubmit = (event) => event.preventDefault()
+  let image = null
+  const arreter = () => {
+    cancelAnimationFrame(image)
+    image = null
+    ligne.style.display = "none"
+    lecteur.lire.textContent = "▶ Écouter la carte"
+  }
+  lecteur.lire.onclick = () => {
+    if (image) return arreter()
+    audio()
+    const liste = positions()
+    if (!liste.length) return
+    const [x0, x1] = [liste[0].x - 2, liste.at(-1).x + 2]
+    let suivant = 0
+    const debut = performance.now()
+    ligne.style.display = null
+    lecteur.lire.textContent = "⏸ Arrêter"
+    const avancer = (t) => {
+      const avance = Math.min(1, (t - debut) / (DUREE * 1000))
+      const x = x0 + avance * (x1 - x0)
+      ligne.setAttribute("x1", x)
+      ligne.setAttribute("x2", x)
+      const croises = []
+      while (suivant < liste.length && liste[suivant].x <= x) croises.push(liste[suivant++])
+      // Quelques notes à la fois, pas plus : les lieux rares d'abord, puis un festival.
+      const rares = croises.filter((p) => p.lieu.groupe !== "Festival")
+      const festivals = croises.filter((p) => p.lieu.groupe === "Festival")
+      for (const p of [...rares.slice(0, 3), ...festivals.slice(0, 1)]) jouer(p.lieu)
+      for (const p of croises) onde(p)
+      if (rares.length) lecteur.sortie.value = `${rares.at(-1).lieu.nom} · ${rares.at(-1).lieu.commune}`
+      image = avance < 1 ? requestAnimationFrame(avancer) : (arreter(), null)
+    }
+    image = requestAnimationFrame(avancer)
+  }
+  invalidation.then(arreter)
+  return html`<div>${lecteur}${plot}</div>`
+}
+```
+
+:::
+
+:::
+
+<small>
+<i>Survolez un lieu pour le détail, cliquez dessus pour l'entendre. Le bouton ▶ balaie la carte d'ouest en est : chaque lieu croisé sonne, d'autant plus aigu qu'il est au nord ; chaque type de lieu a son timbre (pincé pour les festivals, doux pour les conservatoires, grave et cuivré pour les scènes et orchestres, en cloche pour l'enseignement supérieur). Paris et la petite couronne sont agrandis dans le médaillon, les départements d'outre-mer rapprochés.</i>
+
+Source : Insee, base permanente des équipements 2025 ; Deps, base des lieux et équipements culturels (Basilic) 2026 ; ministère de la Culture, liste des festivals en France ; IGN, ADMIN EXPRESS COG CARTO 2026 via cartiflette.
+
+</small>
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+{
+  const [premiere, deuxieme, troisieme] = chiffres.regions_festivals
+  const idf = chiffres.regions_festivals.findIndex((r) => r.region === "Île-de-France")
+  return html`<p>Les points bleus et les points orange ne se superposent pas. Les conservatoires
+    suivent la population : les ${entier(chiffres.rayonnement_regional)} conservatoires à rayonnement
+    régional sont dans les grandes villes (Lyon, Marseille, Bordeaux, Lille, Toulouse…) et autour de
+    Paris, et le médaillon de Paris et de la petite couronne en est couvert. Les festivals de musique
+    se dispersent : ${premiere.region} (${entier(premiere.festivals)}), ${deuxieme.region}
+    (${entier(deuxieme.festivals)}) et ${troisieme.region} (${entier(troisieme.festivals)}) en
+    comptent le plus, l'Île-de-France n'arrive qu'au ${idf + 1}<sup>e</sup> rang. Entre les deux, les
+    ${entier(chiffres.smac)} scènes de musiques actuelles labellisées par l'État sont dans
+    ${entier(chiffres.departements_smac)} départements sur 101.</p>`
+}
+```
+
+:::
 
 ```{ojs}
 //| echo: false
@@ -42,168 +215,114 @@ sombre = Generators.observe((notifier) => {
 })
 fond = sombre ? "#222" : "#fff"
 stylePlot = `--plot-background: ${fond}; background: transparent`
-couleurPoint = sombre ? "#3987e5" : "#2a78d6"
 couleurTerre = sombre ? "#333" : "#eceae4"
 
-// Les 35 000 communes sont dans un fichier à part, chargé après la page.
-communes = d3.csv("donnees/j11/communes.csv", (d) => ({
-  ...d, population: +d.population, lon: +d.lon, lat: +d.lat
+// Les groupes de lieux, dans l'ordre du dessin : les festivals, nombreux, dessous.
+groupes = ["Festival", "Conservatoire", "Scène ou orchestre", "Enseignement supérieur"]
+libelles = ({
+  "Festival": "Festivals de musique", "Conservatoire": "Conservatoires",
+  "Scène ou orchestre": "Scènes et orchestres", "Enseignement supérieur": "Enseignement supérieur"
+})
+couleur = new Map(d3.zip(groupes, sombre
+  ? ["#f0b75a", "#5b9cf0", "#f06292", "#3cc48f"]
+  : ["#e6a23c", "#2a78d6", "#c2185b", "#0f8a5f"]))
+
+// Les lieux, chargés après la page. Ceux de Paris et de la petite couronne sont deux fois :
+// à leur place et dans le médaillon (medaillon = true).
+lieux = d3.csv("donnees/j11/lieux.csv", (d) => ({
+  ...d, x: +d.x, y: +d.y, lon: +d.lon, lat: +d.lat, medaillon: d.medaillon === "true"
 }))
+effectifs = d3.rollup(lieux.filter((d) => !d.medaillon), (v) => v.length, (d) => d.groupe)
 
-// Prononcer un nom avec la synthèse vocale du navigateur, en français.
-parler = (texte) => {
-  if (!("speechSynthesis" in window)) return
-  speechSynthesis.cancel()
-  const enonce = new SpeechSynthesisUtterance(texte)
-  enonce.lang = "fr-FR"
-  const voix = speechSynthesis.getVoices().find((v) => v.lang.startsWith("fr"))
-  if (voix) enonce.voice = voix
-  enonce.rate = 0.9
-  speechSynthesis.speak(enonce)
-}
-bouton = (nom) => {
-  const b = html`<button type="button" class="ecouter" title="Écouter">🔊 ${nom}</button>`
-  b.onclick = () => parler(nom)
-  return b
-}
+rayonConservatoire = ({"régional": 4.5, "départemental": 3.6, "intercommunal": 2.8, "communal": 2.4})
+rayon = (d) => d.groupe === "Festival" ? 1.7
+  : d.groupe === "Conservatoire" ? rayonConservatoire[d.precision] ?? 2.4
+  : d.groupe === "Scène ou orchestre" ? 3.4 : 4.5
 
-// Une carte de points ; un clic sur une commune la prononce.
-carte = (points, {width = 320, r = 1.4} = {}) => {
-  const plot = Plot.plot({
-    width,
-    style: stylePlot,
-    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 4},
-    marks: [
-      Plot.geo(departements, {fill: couleurTerre, stroke: fond, strokeWidth: 0.5}),
-      Plot.dot(points, {x: "lon", y: "lat", r, fill: couleurPoint, fillOpacity: 0.8}),
-      Plot.tip(points, Plot.pointer({
-        x: "lon", y: "lat", maxRadius: 12,
-        title: (c) => `${c.nom} (${c.departement})\n${entier(c.population)} habitants\nCliquer pour écouter`
-      }))
-    ]
-  })
-  plot.style.cursor = "pointer"
-  plot.addEventListener("click", () => plot.value && parler(plot.value.nom))
-  return plot
+decrire = (d) => {
+  const detail = {
+    "Festival": `Festival de musique${d.precision ? ` · ${d.precision}` : ""}${d.periode ? `\n${d.periode}` : ""}`,
+    "Conservatoire": `Conservatoire à rayonnement ${d.precision}`,
+    "Scène ou orchestre": d.precision ? d.precision[0].toUpperCase() + d.precision.slice(1) : "",
+    "Enseignement supérieur": "Enseignement supérieur de la musique"
+  }[d.groupe]
+  return `${d.nom}\n${detail}\n${d.commune}\nCliquer pour écouter`
 }
 ```
 
-## Les six sons d'*-acum*
-
-::: {.column-page}
-
 ```{ojs}
 //| echo: false
-html`<div class="multiples">${familles.map((f) => html`<figure>
-  <figcaption><strong>-${f.famille}</strong> · ${entier(f.communes)} communes<br>
-  ${f.exemples.map(bouton)}</figcaption>
-  ${carte(communes.filter((c) => c.famille === f.famille))}
-</figure>`)}</div>`
-```
-
-:::
-
-```{ojs}
-//| echo: false
-html`<p><small><span style="color:${couleurPoint}">●</span> Une commune dont le nom (sans article
-ni complément : <em>Ambérieu</em> pour Ambérieu-en-Bugey) finit par la terminaison indiquée. Les
-noms en Saint- et Sainte- sont écartés. Les départements d'outre-mer sont rapprochés.
-Source : IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small></p>`
-```
-
-Chaque prononciation a son territoire. Le **-ac** couvre l'ouest du domaine occitan, de la
-Charente au Lot et à l'Aveyron, et reparaît en Bretagne (Loudéac, Muzillac, Carnac…) ; le **-at** se
-concentre en Auvergne, dans la Creuse et en Bresse ; le **-ieu** dans le Lyonnais, le Bugey et le Dauphiné.
-Plus au nord, le suffixe s'est réduit à une voyelle : **-é** dans le Maine, l'Anjou et la
-Haute-Bretagne, **-ay** et **-ey** en Bourgogne et en Franche-Comté, **-y** dans tout le Bassin
-parisien, de la Picardie à la Bourgogne.
-
-Tout nom qui finit ainsi ne vient pas d'*-acum* : La Ciotat, Sélestat ou Lisieux ont d'autres
-origines. Mais à l'échelle de milliers de communes, ces aboutissements dessinent les grands
-ensembles linguistiques : langue d'oc, francoprovençal, langue d'oïl.
-
-## À vous d'écouter
-
-D'autres terminaisons, d'autres origines. Tapez une fin de nom précédée d'un tiret
-(`-ville`), ou un début suivi d'un tiret (`plou-`), ou choisissez une proposition.
-
-```{ojs}
-//| echo: false
-viewof motif = Inputs.text({label: "Terminaison", value: "-ville", placeholder: "-ville, -heim, plou-…"})
-```
-
-```{ojs}
-//| echo: false
-{
-  const propositions = ["-ville", "-court", "-heim", "-ange", "-willer", "-ghem", "-tot", "-argues",
-                        "-ens", "-euil", "plou-", "ker-"]
-  return html`<p class="propositions">${propositions.map((p) => {
-    const b = html`<button type="button" class="ecouter">${p}</button>`
-    b.onclick = () => {
-      viewof motif.value = p
-      viewof motif.dispatchEvent(new Event("input", {bubbles: true}))
+// Le son : un contexte audio créé au premier clic (les navigateurs l'exigent), et un
+// compresseur en sortie pour que les notes qui se superposent ne saturent pas.
+audio = {
+  let contexte = null
+  let sortie = null
+  return () => {
+    if (!contexte) {
+      contexte = new (window.AudioContext || window.webkitAudioContext)()
+      sortie = contexte.createDynamicsCompressor()
+      sortie.connect(contexte.destination)
     }
-    return b
-  })}</p>`
+    if (contexte.state === "suspended") contexte.resume()
+    return {contexte, sortie}
+  }
+}
+
+// Un timbre par groupe : forme d'onde, octave, durée, volume et filtre passe-bas.
+timbres = ({
+  "Festival": {onde: "triangle", octave: 1, duree: 0.18, volume: 0.07, filtre: 3000},
+  "Conservatoire": {onde: "triangle", octave: 0, duree: 1.2, volume: 0.22, filtre: 2000},
+  "Scène ou orchestre": {onde: "sawtooth", octave: -1, duree: 0.8, volume: 0.16, filtre: 900},
+  "Enseignement supérieur": {onde: "sine", octave: 1, duree: 1.8, volume: 0.25, filtre: 5000}
+})
+
+// La hauteur suit la latitude sur la carte : deux octaves de gamme pentatonique, du sud au nord.
+gamme = [0, 2, 4, 7, 9]
+frequence = (d) => {
+  const h = Math.max(0, Math.min(0.999, (d.y - 41.3) / (51.1 - 41.3)))
+  const degre = Math.floor(h * 2 * gamme.length)
+  const demiTons = 12 * Math.floor(degre / gamme.length) + gamme[degre % gamme.length]
+  return 220 * 2 ** (demiTons / 12 + timbres[d.groupe].octave)
+}
+
+jouer = (d) => {
+  const {contexte, sortie} = audio()
+  const t = timbres[d.groupe]
+  const debut = contexte.currentTime
+  const oscillateur = contexte.createOscillator()
+  oscillateur.type = t.onde
+  oscillateur.frequency.value = frequence(d)
+  const filtre = contexte.createBiquadFilter()
+  filtre.type = "lowpass"
+  filtre.frequency.value = t.filtre
+  const volume = contexte.createGain()
+  volume.gain.setValueAtTime(0.0001, debut)
+  volume.gain.exponentialRampToValueAtTime(t.volume, debut + 0.01)
+  volume.gain.exponentialRampToValueAtTime(0.0001, debut + t.duree)
+  oscillateur.connect(filtre).connect(volume).connect(sortie)
+  oscillateur.start(debut)
+  oscillateur.stop(debut + t.duree + 0.05)
 }
 ```
 
-```{ojs}
-//| echo: false
-recherche = {
-  const m = motif.trim().toLowerCase()
-  const coeur = m.replace(/^-|-$/g, "")
-  if (!coeur) return []
-  const correspond = m.startsWith("-") ? (t) => t.endsWith(coeur)
-    : m.endsWith("-") ? (t) => t.startsWith(coeur)
-    : (t) => t.includes(coeur)
-  return communes.filter((c) => c.toponyme && correspond(c.toponyme))
-}
-```
-
-::: {.column-page}
-
-```{ojs}
-//| echo: false
-{
-  const plusPeuplees = d3.sort(recherche, (c) => -c.population).slice(0, 8)
-  return html`<div class="duo">
-    ${carte(recherche, {width: 560, r: 1.8})}
-    <div>
-      <p><strong>${entier(recherche.length)} communes</strong>
-      ${recherche.length ? html`(${virgule(100 * recherche.length / communes.length)} %)` : ""}
-      ${recherche.length ? "Les plus peuplées :" : ""}</p>
-      <p>${plusPeuplees.map((c) => bouton(c.nom))}</p>
-    </div>
-  </div>`
-}
-```
-
-:::
-
-Quelques pistes : **-ville** et **-court** (« domaine », « ferme ») datent du haut Moyen Âge et
-couvrent le nord ; **-heim**, **-willer** et **-ange** (forme romane de l'allemand *-ingen*)
-marquent l'Alsace et la Moselle, **-ghem** la Flandre ; **-tot** est un mot scandinave
-(« terrain, ferme ») laissé en Normandie ; **plou-** et **ker-** sont bretons (« paroisse »,
-« village »).
-
---------
-
-On va maintenant décrire comment obtenir les données de ces cartes.
+# Making of
 
 ## Les données
 
+La carte croise quatre sources publiques :
+
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le nom, le code officiel, la population et le contour de chaque commune, outre-mer rapproché | GeoParquet |
-| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le fond de carte | GeoParquet |
+| [Base permanente des équipements 2025, fichier détail](https://www.insee.fr/fr/statistiques/8217525) | Insee | les conservatoires, leur rayonnement et leur position | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Base des lieux et équipements culturels (Basilic)](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) | Deps, ministère de la Culture | les scènes de musiques actuelles, Zéniths, opéras, orchestres nationaux et écoles supérieures de musique | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Liste des festivals en France](https://www.data.gouv.fr/datasets/liste-des-festivals-en-france) | Ministère de la Culture | les festivals de musique, leur commune, leur genre et leur saison | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Départements et communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le fond de carte, et la population des communes | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Les noms et les codes sont ceux du [code officiel géographique](https://www.insee.fr/fr/information/2560452)
-de l'Insee au 1^er^ janvier 2026, repris par l'IGN dans ADMIN EXPRESS. Comme pour les autres
-jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import pathlib
 
@@ -215,205 +334,347 @@ INSTALL spatial; LOAD spatial;
 SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
 SET enable_progress_bar = false
 """)
-
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
-    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
-    "vectorfile_format=parquet/simplification=50/raw.parquet"
-)
 ```
 
 ```{python}
+#| filename: "Les sources"
+{{< include _liens/11-sound.py >}}
+```
+
+### Les conservatoires (Insee, BPE)
+
+La [[base permanente des équipements]{.underline}](https://www.insee.fr/fr/statistiques/8217525) (BPE) de l'Insee recense chaque année 2,8 millions d'équipements et de services : commerces, écoles, médecins, gymnases… Son fichier détail donne, pour chacun, le type, l'adresse et la position. Il est diffusé en {{< iconify vscode-icons file-type-parquet >}} `Parquet` : {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` le lit à son adresse, et ne télécharge que les colonnes et les lignes demandées.
+
+Les équipements culturels de la BPE viennent de Basilic, la base du ministère de la Culture (voir plus bas), mais les conservatoires y ont tous leur rayonnement, ce qui n'est pas le cas dans Basilic. Les conservatoires sont le type `F305` : ce sont ceux que l'État a classés, à rayonnement communal ou intercommunal, départemental, ou régional, selon les enseignements qu'ils proposent et le territoire qu'ils desservent.
+
+```{python}
+#| filename: "Lecture des conservatoires (Insee, BPE)"
 con.sql(f"""
-CREATE TABLE contours AS
-SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS code_departement,
-       LIBELLE_DEPARTEMENT AS departement, POPULATION AS population, geometry AS geom
-FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false)
+CREATE TABLE conservatoires AS
+SELECT NOMRS AS nom, DEPCOM AS code_commune, LIBCOM AS libelle_commune,
+       regexp_replace(lower(CATEGORIE), '^conservatoire à rayonnement ', '') AS rayonnement,
+       LONGITUDE AS lon, LATITUDE AS lat
+FROM read_parquet('{SOURCES["bpe"]}')
+WHERE TYPEQU = 'F305'
 """)
-con.sql("SELECT count(*) AS communes, sum(population) AS population FROM contours").df()
+con.sql("SELECT rayonnement, count(*) AS conservatoires FROM conservatoires GROUP BY ALL ORDER BY 2 DESC").df()
+```
+
+### Les scènes, orchestres et écoles supérieures (Deps, Basilic)
+
+La [[base des lieux et équipements culturels]{.underline}](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) (Basilic) du Deps recense quelque 86 000 lieux culturels géolocalisés : monuments, bibliothèques, cinémas, théâtres… Pour la musique, on garde les lieux qui ont un label de l'État :
+
+- les scènes de musiques actuelles (SMAC), les Zéniths et les opéras ;
+- les orchestres nationaux en région et les centres nationaux de création musicale ;
+- les établissements d'enseignement supérieur dont l'un des domaines est la musique : les conservatoires nationaux supérieurs de Paris et de Lyon, et les pôles d'enseignement supérieur.
+
+```{python}
+#| filename: "Lecture des lieux de musique (Deps, Basilic)"
+con.sql(f"""
+CREATE TABLE basilic AS
+SELECT Nom AS nom, code_insee AS code_commune, libelle_geographique AS libelle_commune,
+       "Type équipement ou lieu" AS type_lieu, "Label et appellation" AS label,
+       Sous_domaine AS sous_domaine,
+       TRY_CAST(Longitude AS DOUBLE) AS lon, TRY_CAST(Latitude AS DOUBLE) AS lat
+FROM read_csv('{SOURCES["basilic"]}', delim = ';', all_varchar = true)
+WHERE label IN ('Scène de musiques actuelles', 'Zénith', 'Orchestre national en région',
+                'Centre national de création musicale')
+   OR type_lieu = 'Opéra'
+   OR (type_lieu = 'Établissement d''enseignement supérieur' AND sous_domaine ILIKE '%musique%')
+""")
+con.sql("SELECT type_lieu, label, count(*) AS lieux FROM basilic GROUP BY ALL ORDER BY 3 DESC").df()
+```
+
+### Les festivals de musique (ministère de la Culture)
+
+Le ministère de la Culture a recensé, avec les régions et le Centre national de la musique, les [[festivals de France]{.underline}](https://www.data.gouv.fr/datasets/liste-des-festivals-en-france) : plus de 7 000, de toutes les disciplines. Pour chacun, on a sa commune principale, sa discipline dominante, un genre pour la musique, la période de l'année où il a lieu, et la position du centre de sa commune. On garde les festivals dont la discipline dominante est la musique.
+
+Le genre est donné par deux colonnes, l'une libre, l'autre selon la nomenclature du Centre national de la musique : on prend la première, à défaut la seconde. Deux défauts du fichier sont à corriger à la lecture. Le nom de sa première colonne commence par un caractère invisible (une marque d'ordre des octets) : on la désigne par une expression régulière, `COLUMNS('Nom du festival$')`. Et les codes de commune des départements 01 à 09 ont perdu leur zéro initial, sans doute passés par un tableur : on le remet.
+
+```{python}
+#| filename: "Lecture des festivals (ministère de la Culture)"
+con.sql(rf"""
+CREATE TABLE festivals AS
+SELECT COLUMNS('Nom du festival$') AS nom,
+       -- Les codes des départements 01 à 09 ont perdu leur zéro initial (« 1053 » pour Bourg-en-Bresse).
+       CASE WHEN length("Code Insee commune") = 4 THEN '0' || "Code Insee commune"
+            ELSE "Code Insee commune" END AS code_commune,
+       "Commune principale de déroulement" AS libelle_commune,
+       "Région principale de déroulement" AS region,
+       coalesce("Sous-catégorie musique",
+                regexp_replace("Sous-catégorie Musique CNM", '^\d+- ', '')) AS genre,
+       CASE
+           WHEN lower("Période principale de déroulement du festival") LIKE 'saison%' THEN 'L''été (21 juin - 5 septembre)'
+           WHEN lower("Période principale de déroulement du festival") LIKE 'avant-saison%' THEN 'Du 1er janvier au 20 juin'
+           WHEN lower("Période principale de déroulement du festival") LIKE 'après-saison%' THEN 'Du 6 septembre au 31 décembre'
+           ELSE "Période principale de déroulement du festival"
+       END AS periode,
+       -- « Géocodage xy » : latitude, puis longitude.
+       TRY_CAST(split_part("Géocodage xy", ',', 2) AS DOUBLE) AS lon,
+       TRY_CAST(split_part("Géocodage xy", ',', 1) AS DOUBLE) AS lat
+FROM read_csv('{SOURCES["festivals"]}', delim = ';', all_varchar = true)
+WHERE "Discipline dominante" = 'Musique'
+""")
+con.sql("SELECT periode, count(*) AS festivals FROM festivals GROUP BY ALL ORDER BY 2 DESC").df()
+```
+
+### Les départements et les communes avec `cartiflette`
+
+Le fond de carte vient du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/). On lit les départements 2026 deux fois : à leur place (`filter_by="FRANCE_ENTIERE"`), et dans la version où les départements d'outre-mer sont rapprochés de la métropole et où Paris et la petite couronne sont agrandis dans un médaillon (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`). La comparaison des deux dira où placer les lieux de ces départements.
+
+On lit aussi la population et le nom des communes, par arrondissement pour Paris, Lyon et Marseille, comme les sources, avec en plus ces trois villes entières : certains festivals y sont codés par la commune.
+
+```{python}
+#| output: false
+#| filename: "Lecture des départements et des communes (cartiflette)"
+from cartiflette import carti_download
+
+parametres = dict(values="France", year=2026, simplification=50, crs=4326, engine="duckdb", con=con)
+departements_vrais = carti_download(borders="DEPARTEMENT", filter_by="FRANCE_ENTIERE", **parametres)
+departements_rapproches = carti_download(
+    borders="DEPARTEMENT", filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES", **parametres
+)
+communes_arrondissements = carti_download(
+    borders="COMMUNE_ARRONDISSEMENT", filter_by="FRANCE_ENTIERE", **parametres
+)
+paris_lyon_marseille = carti_download(
+    borders="COMMUNE", filter_by="FRANCE_ENTIERE", where="INSEE_COM IN ('75056', '69123', '13055')",
+    **parametres
+)
+
+con.sql("""
+CREATE TABLE communes AS
+SELECT INSEE_COG AS code, NOM AS nom, POPULATION AS population FROM communes_arrondissements
+UNION ALL
+SELECT INSEE_COM, NOM, POPULATION FROM paris_lyon_marseille
+""")
 ```
 
 ## Les traitements
 
-### Le cœur du nom
+### Rassembler les lieux
 
-Le suffixe se cherche à la fin du toponyme proprement dit, pas du nom officiel complet. On
-retire donc :
-
-- l'article initial (*Le*, *La*, *Les*, *L'*) : *Les Abymes* donne *Abymes* ;
-- les compléments introduits par une préposition ou un article (*-sur-*, *-en-*, *-lès-*,
-  *-le-*, *-d'*…) : *Ambérieu-en-Bugey* donne *Ambérieu*, *Saint-Martin-d'Hères* donne
-  *Saint-Martin* ;
-- pour un nom composé restant, on garde le premier élément : *Neuville-Coppegueule* donne
-  *Neuville*.
-
-Les noms en Saint- ou Sainte- (des noms de saints, ou hagiotoponymes) n'ont pas de toponyme à
-proprement parler : ils sont mis à part.
-
-```{python}
-con.sql(r"""
-CREATE TABLE noms AS
-WITH sans_article AS (
-    SELECT *, regexp_replace(nom, '^(Le |La |Les |L'')', '') AS nom_court FROM contours
-),
-tetes AS (
-    SELECT *,
-           regexp_replace(
-               nom_court,
-               '(-(sur|sous|en|lès|lez|les|le|la|de|du|des|aux|au|à|près|et)-|-[dl]'').*$', ''
-           ) AS tete
-    FROM sans_article
-)
-SELECT * EXCLUDE (nom_court, tete),
-       CASE WHEN NOT (tete LIKE 'Saint-%' OR tete LIKE 'Sainte-%' OR tete LIKE 'Saintes-%')
-            THEN lower(split_part(tete, '-', 1)) END AS toponyme
-FROM tetes
-""")
-con.sql("""
-SELECT nom, toponyme FROM noms
-WHERE nom IN ('Ambérieu-en-Bugey', 'Saint-Martin-d''Hères', 'Neuville-Coppegueule', 'Les Abymes',
-              'Cognac', 'Vitré')
-""").df().style.hide(axis="index")
-```
-
-### Les six aboutissements d'*-acum*
-
-Le suffixe *-(i)acum* a donné **-ac** en langue d'oc et en Bretagne, **-at** dans une partie de
-l'Auvergne et du Limousin, **-ieu** (ou **-ieux**) en francoprovençal, et en langue d'oïl
-**-é**, **-ay**, **-ey** ou **-y**. On classe chaque toponyme par sa terminaison, de la plus longue à
-la plus courte (un nom en -ay n'est pas compté en -y). *Vieux*, premier élément de noms comme
-Vieux-Condé, n'est pas un nom de domaine : on l'écarte.
-
-```{python}
-con.sql(r"""
-CREATE TABLE communes AS
-SELECT *,
-       CASE
-           WHEN toponyme = 'vieux' THEN NULL
-           WHEN regexp_matches(toponyme, '(ac|acq)$') THEN 'ac'
-           WHEN regexp_matches(toponyme, 'at$') THEN 'at'
-           WHEN regexp_matches(toponyme, 'ieux?$') THEN 'ieu'
-           WHEN regexp_matches(toponyme, 'é$') THEN 'é'
-           WHEN regexp_matches(toponyme, '[ae]y$') THEN 'ay, -ey'
-           WHEN regexp_matches(toponyme, 'y$') THEN 'y'
-       END AS famille
-FROM noms
-""")
-con.sql("""
-SELECT coalesce(famille, CASE WHEN toponyme IS NULL THEN '(Saint-, Sainte-)' ELSE '(autre)' END) AS famille,
-       count(*) AS communes
-FROM communes GROUP BY ALL ORDER BY communes DESC
-""").df().style.hide(axis="index")
-```
-
-Pour les exemples à écouter, on prend, dans les trois départements qui comptent le plus de
-communes de la famille, la plus peuplée : on entend ainsi la terminaison là où elle est la
-plus fréquente, plutôt que des noms isolés qui n'ont souvent pas la même origine.
-
-```{python}
-familles = con.sql("""
-WITH par_departement AS (
-    SELECT famille, code_departement, count(*) AS communes,
-           arg_max(nom, population) AS exemple
-    FROM communes WHERE famille IS NOT NULL
-    GROUP BY ALL
-)
-SELECT famille, sum(communes)::INTEGER AS communes,
-       list(exemple ORDER BY communes DESC, code_departement)[:3] AS exemples
-FROM par_departement
-GROUP BY famille
-ORDER BY array_position(['ac', 'at', 'ieu', 'é', 'ay, -ey', 'y'], famille)
-""").df()
-familles
-```
-
-```{python}
-totaux = con.sql("""
-SELECT count(*) AS communes, count(famille) AS familles,
-       count(*) FILTER (toponyme IS NULL) AS saints
-FROM communes
-""").df().to_dict("records")[0]
-totaux
-```
-
-### Les points et le fond de carte
-
-Chaque commune est réduite à un point intérieur (`ST_PointOnSurface`). La table des 35 000
-communes est écrite à part, en CSV, dans `donnees/j11/` : la page la charge après coup, sans
-s'alourdir.
+On met les quatre groupes dans une seule table. Les noms de la BPE sont en capitales (« CONSERVATOIRE JEAN-BAPTISTE LULLY ») : une petite macro les remet en minuscules, avec une capitale en tête de chaque mot, sauf pour les articles et prépositions. Le nom de la commune vient de cartiflette, et à défaut des sources. Le département se lit dans le code de la commune : ses deux premiers caractères, trois outre-mer.
 
 ```{python}
 #| output: false
-SORTIE = pathlib.Path("donnees/j11")
-SORTIE.mkdir(parents=True, exist_ok=True)
-con.sql(f"""
-COPY (
-    SELECT code, nom, departement, population, toponyme, famille,
-           round(ST_X(p), 3) AS lon, round(ST_Y(p), 3) AS lat
-    FROM (SELECT *, ST_PointOnSurface(geom) AS p FROM communes)
-    ORDER BY code
-) TO '{SORTIE / "communes.csv"}' (HEADER)
+#| filename: "Les lieux de la musique"
+con.sql("""
+CREATE MACRO capitales(s) AS array_to_string(list_transform(string_split(lower(s), ' '),
+    m -> CASE WHEN m IN ('de', 'du', 'des', 'et', 'la', 'le', 'les', 'à', 'en', 'sur', 'au', 'aux') THEN m
+              ELSE array_to_string(list_transform(string_split(m, '-'), p -> upper(p[1]) || p[2:]), '-')
+         END), ' ')
+""")
+con.sql("""
+CREATE TABLE lieux AS
+WITH ensemble AS (
+    SELECT 'Conservatoire' AS groupe, capitales(nom) AS nom, code_commune, libelle_commune,
+           rayonnement AS precision, NULL AS periode, NULL AS region, lon, lat
+    FROM conservatoires
+    UNION ALL
+    SELECT CASE WHEN type_lieu = 'Établissement d''enseignement supérieur' THEN 'Enseignement supérieur'
+                ELSE 'Scène ou orchestre' END,
+           nom, code_commune, libelle_commune,
+           CASE WHEN type_lieu = 'Opéra' THEN 'opéra'
+                WHEN type_lieu <> 'Établissement d''enseignement supérieur' THEN lower(label) END,
+           NULL, NULL, lon, lat
+    FROM basilic
+    UNION ALL
+    SELECT 'Festival', nom, code_commune, libelle_commune, genre, periode, region, lon, lat
+    FROM festivals
+)
+SELECT e.* EXCLUDE (libelle_commune), coalesce(c.nom, e.libelle_commune) AS commune, c.population,
+       CASE WHEN code_commune LIKE '97%' THEN left(code_commune, 3) ELSE left(code_commune, 2) END AS departement
+FROM ensemble e LEFT JOIN communes c ON c.code = e.code_commune
 """)
 ```
 
-Le fond de carte, ce sont les départements, simplifiés ensemble à 1 km environ
-(`ST_CoverageSimplify`) pour rester jointifs.
+```{python}
+con.sql("""
+SELECT groupe, count(*) AS lieux, count(lon) AS positionnes, count(population) AS commune_retrouvee
+FROM lieux GROUP BY ALL ORDER BY 2 DESC
+""").df()
+```
+
+### Rapprocher l'outre-mer, agrandir Paris
+
+Dans le fond rapproché, chaque département d'outre-mer est déplacé et agrandi près de la métropole. Paris et les trois départements de la petite couronne y sont deux fois : à leur place, et agrandis environ quatre fois dans un médaillon à l'ouest de la Bretagne. Les lieux, eux, ont leurs vraies coordonnées : il faut leur appliquer le même déplacement.
+
+Les zones déplacées sont connues : chaque département d'outre-mer, et Paris et la petite couronne ensemble. On découpe le fond rapproché en morceaux (`ST_Dump`) et, pour ces zones, on garde ceux qui ne touchent pas le rectangle de la zone à sa place : ce sont les morceaux déplacés. Le rectangle de la zone à sa place et celui des morceaux déplacés donnent une translation et une mise à l'échelle, en longitude et en latitude.
 
 ```{python}
-departements = con.sql(f"""
+#| filename: "Le recalage de chaque zone déplacée"
+con.sql("""
+CREATE TABLE recalage AS
+WITH zones AS (
+    SELECT INSEE_DEP AS departement,
+           CASE WHEN INSEE_DEP IN ('75', '92', '93', '94') THEN 'Paris et petite couronne'
+                ELSE INSEE_DEP END AS zone,
+           geometry
+    FROM departements_vrais
+    WHERE INSEE_DEP IN ('75', '92', '93', '94') OR INSEE_DEP LIKE '97%'
+),
+morceaux AS (
+    SELECT INSEE_DEP AS departement, unnest(ST_Dump(geometry), recursive := true)
+    FROM departements_rapproches
+),
+deplaces AS (
+    SELECT z.zone, ST_Extent_Agg(m.geom) AS cadre
+    FROM morceaux m JOIN zones z USING (departement)
+    WHERE NOT ST_Intersects(m.geom, ST_Envelope(z.geometry))
+    GROUP BY z.zone
+),
+places AS (
+    SELECT zone, ST_Extent_Agg(geometry) AS cadre FROM zones
+    WHERE zone IN (SELECT zone FROM deplaces) GROUP BY zone
+)
+SELECT zone,
+       ST_XMin(p.cadre) AS x0, ST_YMin(p.cadre) AS y0, ST_XMin(d.cadre) AS x1, ST_YMin(d.cadre) AS y1,
+       (ST_XMax(d.cadre) - ST_XMin(d.cadre)) / (ST_XMax(p.cadre) - ST_XMin(p.cadre)) AS echelle_x,
+       (ST_YMax(d.cadre) - ST_YMin(d.cadre)) / (ST_YMax(p.cadre) - ST_YMin(p.cadre)) AS echelle_y
+FROM places p JOIN deplaces d USING (zone)
+ORDER BY zone
+""")
+con.sql("SELECT * FROM recalage").df()
+```
+
+On en tire la position de chaque lieu sur la carte. Les lieux de Paris et de la petite couronne sont gardés à leur place et ajoutés dans le médaillon (`medaillon = true`), ceux d'outre-mer sont seulement déplacés. Les lieux sans position, ou d'une collectivité d'outre-mer hors des départements (Saint-Martin, Saint-Barthélemy…), ne sont pas sur la carte.
+
+```{python}
+#| filename: "La position des lieux sur la carte"
+con.sql("""
+CREATE TABLE points AS
+WITH places AS (
+    SELECT l.*, CASE WHEN departement IN ('75', '92', '93', '94') THEN 'Paris et petite couronne'
+                     ELSE departement END AS zone
+    FROM lieux l
+    WHERE lon IS NOT NULL AND departement IN (SELECT INSEE_DEP FROM departements_vrais)
+)
+SELECT * EXCLUDE (zone), lon AS x, lat AS y, false AS medaillon
+FROM places WHERE departement NOT LIKE '97%'
+UNION ALL
+SELECT p.* EXCLUDE (zone),
+       r.x1 + (p.lon - r.x0) * r.echelle_x, r.y1 + (p.lat - r.y0) * r.echelle_y,
+       r.zone = 'Paris et petite couronne'
+FROM places p JOIN recalage r USING (zone)
+""")
+con.sql("""
+SELECT groupe, count(*) FILTER (NOT medaillon) AS sur_la_carte, count(*) FILTER (medaillon) AS dans_le_medaillon
+FROM points GROUP BY ALL ORDER BY 2 DESC
+""").df()
+```
+
+### Les chiffres de l'accroche
+
+```{python}
+#| filename: "Les chiffres de l'accroche"
+chiffres = con.sql("""
+SELECT count(*) FILTER (groupe = 'Conservatoire') AS conservatoires,
+       count(*) FILTER (groupe = 'Conservatoire' AND precision = 'régional') AS rayonnement_regional,
+       count(*) FILTER (precision = 'scène de musiques actuelles') AS smac,
+       count(DISTINCT departement) FILTER (precision = 'scène de musiques actuelles') AS departements_smac,
+       avg((population >= 5000)::INTEGER) FILTER (groupe = 'Conservatoire') AS conservatoires_villes,
+       count(*) FILTER (groupe = 'Festival') AS festivals,
+       avg((population < 5000)::INTEGER) FILTER (groupe = 'Festival') AS festivals_villages,
+       avg((periode LIKE 'L''été%')::INTEGER) FILTER (groupe = 'Festival') AS festivals_ete
+FROM lieux
+""").df().to_dict("records")[0]
+chiffres["regions_festivals"] = con.sql("""
+SELECT region, count(*) AS festivals FROM lieux
+WHERE groupe = 'Festival' AND region IS NOT NULL GROUP BY ALL ORDER BY festivals DESC
+""").df().to_dict("records")
+{k: v for k, v in chiffres.items() if k != "regions_festivals"}
+```
+
+La part des communes de moins de 5 000 habitants est calculée sur les lieux dont la commune est retrouvée dans les communes 2026 (voir les précautions).
+
+### Ce qui passe à la carte
+
+Le fond de carte, ce sont les départements rapprochés, simplifiés ensemble (`ST_CoverageSimplify`) pour rester jointifs. Le cadre du médaillon est le rectangle de ses morceaux, un peu élargi. Les lieux sont écrits à part, en CSV, dans `donnees/j11/` : la page les charge après coup.
+
+```{python}
+#| output: false
+#| filename: "Le fond de carte et le médaillon"
+lignes = con.sql("""
 WITH couverture AS (
     SELECT list(INSEE_DEP ORDER BY INSEE_DEP) AS codes,
            ST_CoverageSimplify(list(geometry ORDER BY INSEE_DEP), 0.01) AS geom
-    FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+    FROM departements_rapproches
 ),
 morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
-SELECT codes[path[1]] AS code, ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.001)) AS geojson
+SELECT codes[path[1]] AS code, ST_AsGeoJSON(ST_ReducePrecision(ST_Collect(list(geom)), 0.001)) AS geojson
 FROM morceaux GROUP BY ALL
 """).fetchall()
 departements = {
     "type": "FeatureCollection",
     "features": [
         {"type": "Feature", "properties": {"code": code}, "geometry": json.loads(geojson)}
-        for code, geojson in departements
+        for code, geojson in lignes
     ],
 }
-len(departements["features"])
+
+x0, y0, x1, y1 = con.sql("""
+SELECT x1 - 0.1, y1 - 0.1, x1 + (x0_max - x0) * echelle_x + 0.1, y1 + (y0_max - y0) * echelle_y + 0.1
+FROM recalage, (SELECT ST_XMax(ST_Extent_Agg(geometry)) AS x0_max, ST_YMax(ST_Extent_Agg(geometry)) AS y0_max
+                FROM departements_vrais WHERE INSEE_DEP IN ('75', '92', '93', '94'))
+WHERE zone = 'Paris et petite couronne'
+""").fetchone()
+# Le contour dans le sens des aiguilles d'une montre : pour d3-geo, l'autre sens désigne
+# tout le globe sauf le rectangle.
+medaillon = {
+    "type": "Feature",
+    "properties": {"lon": x0, "lat": y1},
+    "geometry": {"type": "Polygon", "coordinates": [[[x0, y0], [x0, y1], [x1, y1], [x1, y0], [x0, y0]]]},
+}
 ```
 
-### Ce qui passe à la carte
-
 ```{python}
-ojs_define(
-    departements=departements,
-    familles=familles.assign(exemples=familles["exemples"].map(list)).to_dict("records"),
-    totaux=totaux,
-)
+#| filename: "Les lieux, pour la carte et le tableau"
+SORTIE = pathlib.Path("donnees/j11")
+SORTIE.mkdir(parents=True, exist_ok=True)
+con.sql(f"""
+COPY (
+    SELECT groupe, nom, commune, departement, precision, periode,
+           round(x, 4) AS x, round(y, 4) AS y, round(lon, 5) AS lon, round(lat, 5) AS lat, medaillon
+    FROM points
+    ORDER BY array_position(['Festival', 'Conservatoire', 'Scène ou orchestre', 'Enseignement supérieur'], groupe),
+             departement, nom
+) TO '{SORTIE / "lieux.csv"}' (HEADER)
+""")
+ojs_define(departements=departements, medaillon=medaillon, chiffres=chiffres)
+f"{(SORTIE / 'lieux.csv').stat().st_size / 1e3:.0f} ko"
 ```
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient une table des lieux de la musique, avec leur groupe et leur position. La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/), le son avec l'[API Web Audio](https://developer.mozilla.org/fr/docs/Web/API/Web_Audio_API) du navigateur ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
-viewof tableau = Inputs.search(communes, {
-  placeholder: "Rechercher une commune…",
-  format: (n) => `${entier(n)} communes`
+tableau = lieux.filter((d) => !d.medaillon).map((d) => ({
+  groupe: d.groupe, nom: d.nom, commune: d.commune, departement: d.departement,
+  precision: d.precision, periode: d.periode, lon: d.lon, lat: d.lat
+}))
+viewof recherche = Inputs.search(tableau, {
+  placeholder: "Rechercher un lieu, une commune…",
+  format: (n) => `${entier(n)} lieux`
 })
 ```
 
 ```{ojs}
 //| echo: false
-Inputs.table(tableau, {
-  columns: ["code", "nom", "departement", "population", "toponyme", "famille"],
+Inputs.table(recherche, {
+  columns: ["groupe", "nom", "commune", "departement", "precision", "periode"],
   header: {
-    code: "Code", nom: "Commune", departement: "Département", population: "Population",
-    toponyme: "Toponyme", famille: "Aboutissement d'-acum"
+    groupe: "Groupe", nom: "Nom", commune: "Commune", departement: "Département",
+    precision: "Rayonnement, label ou genre", periode: "Période (festivals)"
   },
-  format: {population: entier, famille: (f) => (f ? `-${f}` : "")},
-  sort: "population",
-  reverse: true,
   rows: 15
 })
 ```
@@ -421,31 +682,34 @@ Inputs.table(tableau, {
 ```{ojs}
 //| echo: false
 DOM.download(
-  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "population", "toponyme", "famille"])], {type: "text/csv"}),
-  "communes_toponymes_2026.csv",
+  () => new Blob([d3.csvFormat(recherche)], {type: "text/csv"}),
+  "lieux_de_la_musique.csv",
   "Télécharger (CSV)"
 )
 ```
 
 :::
 
-## Précautions
+:::
 
-- Le classement repose sur la seule graphie actuelle. Une terminaison n'est pas une étymologie :
-  beaucoup de noms en -y, -at ou -ieux ne viennent pas d'*-acum* (La Ciotat, Lisieux…), et des
-  noms issus d'*-acum* ont pris d'autres formes (-ai, -ecques, -ies…). Seuls les dictionnaires de
-  toponymie, appuyés sur les formes anciennes, tranchent nom par nom.
-- Les communes nouvelles ont souvent un nom neuf (Sèvremoine, Chemillé-en-Anjou) : les noms des
-  communes fusionnées, devenues déléguées, n'apparaissent pas ici. Les régions où les fusions ont
-  été nombreuses (Normandie, Anjou) sont donc moins bien représentées.
-- La prononciation passe par la synthèse vocale du navigateur : elle peut se tromper sur des noms
-  locaux (le *-ac* final se prononce, le *-x* de *-ieux* non), et ne fonctionne pas si aucune
-  voix française n'est installée.
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
+- Seuls les conservatoires classés par l'État sont comptés. Les écoles de musique municipales ou associatives, bien plus nombreuses, ne sont ni dans la BPE ni dans Basilic.
+- Les scènes et orchestres sont ceux qui ont un label de l'État : les salles de concert privées, les salles polyvalentes municipales, les églises où l'on joue ne sont pas sur la carte. Basilic compte un même lieu plusieurs fois quand il a plusieurs bâtiments : l'Opéra national de Paris y est une fois en tant qu'institution, une fois pour Garnier et une fois pour Bastille.
+- Les festivals sont placés au centre de leur commune principale : plusieurs festivals d'une même commune se superposent, et ceux qui se tiennent dans plusieurs communes n'apparaissent que dans la principale. Le recensement compte les festivals connus du ministère, des régions et du Centre national de la musique : certains ont pu s'arrêter, d'autres manquer.
+- `{python} int(con.sql("SELECT count(*) FROM lieux WHERE groupe = 'Festival' AND population IS NULL").fetchone()[0])` festivals n'ont pas de code de commune, ou un code absent des communes 2026 (une collectivité d'outre-mer, une commune qui a fusionné depuis) : leur population n'est pas connue, et ils ne comptent pas dans la part des festivals des communes de moins de 5 000 habitants.
+- Le genre des festivals est déclaré, dans des termes libres : il n'est pas harmonisé.
+- Le son est fait par le navigateur. Pour ne pas saturer, le balayage ne joue que quelques notes à la fois : là où les festivals sont denses, on en entend une partie seulement.
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
-- Insee, [Code officiel géographique](https://www.insee.fr/fr/information/2560452).
-- Ernest Nègre, *Toponymie générale de la France*, Droz, 1990-1998, et Albert Dauzat et
-  Charles Rostaing, *Dictionnaire étymologique des noms de lieux en France*, Larousse, 1963.
-- Wiktionnaire, [-ac](https://fr.wiktionary.org/wiki/-ac) : les aboutissements du suffixe
-  *-acum*.
+- Insee, [Base permanente des équipements](https://www.insee.fr/fr/metadonnees/source/serie/s1161) : la documentation, la nomenclature des équipements, et les [dénombrements par commune](https://www.insee.fr/fr/statistiques/8217527).
+- Deps, [Base des lieux et des équipements culturels](https://www.culture.gouv.fr/espace-documentation/statistiques-ministerielles-de-la-culture2/statistiques-culturelles/Donnees-territoriales/Base-des-lieux-et-des-equipements-culturels), qui alimente la BPE pour les équipements culturels.
+- Ministère de la Culture, [Liste des festivals en France](https://www.data.gouv.fr/datasets/liste-des-festivals-en-france), toutes disciplines confondues.
+- MDN, [API Web Audio](https://developer.mozilla.org/fr/docs/Web/API/Web_Audio_API), pour fabriquer des sons dans le navigateur.
+:::
