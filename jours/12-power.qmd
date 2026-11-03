@@ -330,6 +330,7 @@ html`<div class="multiples">${indicateurs.map((i) => {
                               },
                               stroke: fond, strokeWidth: 0.5}),
       Plot.tip(departements, Plot.pointer(Plot.geoCentroid({
+        fill: fond,  // la version de Plot de Quarto met un fond blanc d'office
         title: (f) => {
           const d = parDepartement.get(f.properties.code)
           return `${d.departement}\n${i.format(d[i.cle])}\n${entier(d.maires)} maires`
@@ -388,7 +389,7 @@ Le maire est élu par le conseil municipal, parmi ses membres. Les deux populati
     marks: [
       Plot.barX(lignes, {
         fy: "groupe", y: "qui", x: (d) => 100 * d.part, fill: "qui",
-        tip: true, title: (d) => `${d.qui}\n${d.groupe}\n${pourcent(d.part, 1)}`
+        tip: {fill: fond}, title: (d) => `${d.qui}\n${d.groupe}\n${pourcent(d.part, 1)}`
       })
     ]
   })
