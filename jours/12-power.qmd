@@ -424,10 +424,8 @@ Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify
 #| filename: "Configuration de l'environnement"
 import json
 import pathlib
-import tempfile
 
 import duckdb
-import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -452,24 +450,12 @@ naissance, sa catégorie socioprofessionnelle (déclarée par l'élu) et les dat
 mandat et de sa fonction.
 
 On lit la version du 11 août 2026 de chaque fichier. Ce sont des CSV séparés par des
-points-virgules.
+points-virgules, que {{< iconify vscode-icons file-type-duckdb >}} `DuckDB` lit directement
+à leur adresse.
 
 ```{python}
 #| filename: "Lecture des maires et des conseillers (ministère de l'Intérieur)"
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
-                reponse.raise_for_status()
-                for bloc in reponse.iter_content(chunk_size=1 << 20):
-                    f.write(bloc)
-            return
-        except OSError:
-            if essai == essais - 1:
-                raise
-
-
-def lire_elus(chemin):
+def lire_elus(url):
     return f"""
     SELECT "Code de la commune" AS code, "Code sexe" AS sexe,
            -- âge révolu à l'entrée en fonction (date_sub compte les années pleines)
@@ -477,15 +463,12 @@ def lire_elus(chemin):
                     coalesce("Date de début de la fonction", "Date de début du mandat")::DATE) AS age,
            "Code de la catégorie socio-professionnelle" AS csp,
            "Libellé de la catégorie socio-professionnelle" AS profession
-    FROM read_csv('{chemin}', delim = ';', header = true, all_varchar = true)
+    FROM read_csv('{url}', delim = ';', header = true, all_varchar = true)
     """
 
 
-with tempfile.TemporaryDirectory() as dossier:
-    telecharger(SOURCES["maires"], f"{dossier}/maires.csv")
-    telecharger(SOURCES["conseillers"], f"{dossier}/conseillers.csv")
-    con.sql(f"CREATE TABLE maires AS {lire_elus(f'{dossier}/maires.csv')}")
-    con.sql(f"CREATE TABLE conseillers AS {lire_elus(f'{dossier}/conseillers.csv')}")
+con.sql(f"CREATE TABLE maires AS {lire_elus(SOURCES['maires'])}")
+con.sql(f"CREATE TABLE conseillers AS {lire_elus(SOURCES['conseillers'])}")
 ```
 
 ```{python}
