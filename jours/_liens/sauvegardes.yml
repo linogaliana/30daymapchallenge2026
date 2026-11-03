@@ -81,8 +81,10 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/historique
 - source: https://www.data.gouv.fr/fr/datasets/r/29406189-15e9-4f2f-9e9d-d18649762198
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/liste
-- source: https://www.insee.fr/fr/statistiques/fichier/7655475/Filosofi2019_carreaux_200m_csv.zip
-  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/Filosofi2019_carreaux_200m_csv.zip
+- source: https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/gares-de-voyageurs/exports/parquet
+  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/gares-de-voyageurs.parquet
+- source: https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-annuaire-education/exports/parquet?select=identifiant_de_l_etablissement%2C+nom_commune%2C+libelle_region%2C+longitude%2C+latitude&where=type_etablissement+%3D+%27Ecole%27
+  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/annuaire.parquet
 - source: https://www.data.gouv.fr/api/1/datasets/r/a4153e14-68b4-41b7-937c-53c0c62ff4a3
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/deces
 - source: https://www.data.gouv.fr/api/1/datasets/r/7bcdfa57-dc50-43a8-beb6-6c76537e7057
@@ -113,8 +115,6 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/ips.parquet
 - source: https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-ecoles-effectifs-nb_classes/exports/parquet?where=rentree_scolaire+%3D+date%272024-01-01%27
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/effectifs.parquet
-- source: https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-annuaire-education/exports/parquet?select=identifiant_de_l_etablissement%2C+nom_commune%2C+libelle_region%2C+longitude%2C+latitude&where=type_etablissement+%3D+%27Ecole%27
-  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/annuaire.parquet
 - source: https://equipements.sports.gouv.fr/api/explore/v2.1/catalog/datasets/data-es/exports/parquet?select=equip_numero%2Cinst_nom%2Cequip_nom%2Cequip_type_code%2Cequip_nature%2Cnew_name%2Cdep_code_filled%2Cdens_lib%2Cequip_x%2Cequip_y%2Cinst_hs_bool
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/res.parquet
 - source: https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/datasets/projections-des-effectifs-de-medecins/attachments/drees_projections_medecins_2026xlsx
@@ -131,8 +131,6 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/lignes-par-statut.parquet
 - source: https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/frequentation-gares/exports/parquet
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/frequentation-gares.parquet
-- source: https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/gares-de-voyageurs/exports/parquet
-  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/gares-de-voyageurs.parquet
 - source: https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/liste-des-gares/exports/parquet
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/liste-des-gares.parquet
 - source: https://www.douane.gouv.fr/sites/default/files/2026-10/07/202608-National-2025-export.zip
