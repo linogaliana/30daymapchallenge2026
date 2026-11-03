@@ -3,8 +3,6 @@
 SOURCES = {
     # https://www.insee.fr/fr/statistiques/fichier/8217525/BPE25.parquet
     "bpe": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/BPE25.parquet",
-    # https://www.insee.fr/fr/metadonnees/source/fichier/BPE25_anonymisee_varmod.csv
-    "nomenclature_bpe": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/BPE25_anonymisee_varmod.csv",
     # https://static.data.gouv.fr/resources/base-des-lieux-et-equipements-culturels-basilic/20260218-084338/base-des-lieux-et-des-equipements-culturels.csv
     "basilic": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/base-des-lieux-et-des-equipements-culturels.csv",
     # https://www.data.gouv.fr/fr/datasets/r/29406189-15e9-4f2f-9e9d-d18649762198
