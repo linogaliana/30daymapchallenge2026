@@ -602,13 +602,11 @@ Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify
 #| filename: "Configuration de l'environnement"
 import json
 import pathlib
-import tempfile
 
 import duckdb
-import requests
 
 con = duckdb.connect()
-con.sql("INSTALL excel; LOAD excel; SET enable_progress_bar = false")
+con.sql("INSTALL excel; LOAD excel; INSTALL httpfs; LOAD httpfs; SET enable_progress_bar = false")
 ```
 
 ```{python}
@@ -630,66 +628,55 @@ La [[liste des musées de France]{.underline}](https://www.data.gouv.fr/datasets
 donne, pour chacun, son nom officiel, sa commune et sa position. Elle porte deux identifiants :
 celui de la base Muséofile, et celui des fichiers de fréquentation.
 
-On télécharge les trois fichiers par leur lien stable sur data.gouv.
+DuckDB lit directement les trois fichiers depuis leur adresse, la copie sur le SSP Cloud (voir
+l'encadré sur les données), sans les télécharger au préalable.
 
 ```{python}
 #| filename: "Lecture des trois fichiers (ministère de la Culture)"
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
-                reponse.raise_for_status()
-                for bloc in reponse.iter_content(chunk_size=1 << 20):
-                    f.write(bloc)
-            return
-        except OSError:
-            if essai == essais - 1:
-                raise
-
-
-def feuille(chemin, nom, colonne):
+def feuille(source, nom, colonne):
     # Une feuille du classeur : une colonne par année, à remettre en lignes. Les cellules
     # sans nombre (« NC » non communiqué, « F » fermé…) deviennent des valeurs manquantes.
+    # `source` est l'adresse du classeur, lue directement par DuckDB.
     return f"""
     SELECT id, annee::INTEGER AS annee, TRY_CAST(valeur AS BIGINT) AS {colonne}
     FROM (
         UNPIVOT (SELECT COLUMNS('^REF') AS id, COLUMNS('^20\\d\\d$')
-                 FROM read_xlsx('{chemin}', sheet = '{nom}', all_varchar = true))
+                 FROM read_xlsx('{source}', sheet = '{nom}', all_varchar = true))
         ON COLUMNS('^20') INTO NAME annee VALUE valeur
     )
     """
 
 
-with tempfile.TemporaryDirectory() as dossier:
-    telecharger(SOURCES["frequentation"], f"{dossier}/frequentation.csv")
-    telecharger(SOURCES["historique"], f"{dossier}/historique.xlsx")
-    telecharger(SOURCES["liste"], f"{dossier}/liste.csv")
-    con.sql(f"""
-    CREATE TABLE recent AS
-    SELECT IDPatrimostat AS id, IDMuseofile AS museofile, nom_du_musee AS nom,
-           lien_avec, annee::INTEGER AS annee,
-           payant::BIGINT AS payant, gratuit::BIGINT AS gratuit, total::BIGINT AS total
-    FROM read_csv('{dossier}/frequentation.csv', delim = ';', header = true, all_varchar = true)
-    """)
-    con.sql(f"""
-    CREATE TABLE historique AS
-    SELECT *
-    FROM ({feuille(f"{dossier}/historique.xlsx", "FREQUENTATION TOTALE", "total")})
-    FULL JOIN ({feuille(f"{dossier}/historique.xlsx", "FREQ PAYANTE", "payant")}) USING (id, annee)
-    FULL JOIN ({feuille(f"{dossier}/historique.xlsx", "FREQ GRATUITE", "gratuit")}) USING (id, annee)
-    """)
-    con.sql(f"""
-    CREATE TABLE noms_historiques AS
-    SELECT "REF DU MUSEE" AS id, "NOM DU MUSEE" AS nom, VILLE AS commune
-    FROM read_xlsx('{dossier}/historique.xlsx', sheet = 'FREQUENTATION TOTALE', all_varchar = true)
-    """)
-    con.sql(f"""
-    CREATE TABLE liste AS
-    SELECT "Identifiant Muséofile" AS museofile, REF_Deps AS ref,
-           "Nom officiel du musée" AS nom, Commune AS commune, "Département" AS departement,
-           Longitude::DOUBLE AS lon, Latitude::DOUBLE AS lat
-    FROM read_csv('{dossier}/liste.csv', delim = ';', header = true, all_varchar = true)
-    """)
+historique_total = feuille(SOURCES["historique"], "FREQUENTATION TOTALE", "total")
+historique_payant = feuille(SOURCES["historique"], "FREQ PAYANTE", "payant")
+historique_gratuit = feuille(SOURCES["historique"], "FREQ GRATUITE", "gratuit")
+
+con.sql(f"""
+CREATE TABLE recent AS
+SELECT IDPatrimostat AS id, IDMuseofile AS museofile, nom_du_musee AS nom,
+       lien_avec, annee::INTEGER AS annee,
+       payant::BIGINT AS payant, gratuit::BIGINT AS gratuit, total::BIGINT AS total
+FROM read_csv('{SOURCES["frequentation"]}', delim = ';', header = true, all_varchar = true)
+""")
+con.sql(f"""
+CREATE TABLE historique AS
+SELECT *
+FROM ({historique_total})
+FULL JOIN ({historique_payant}) USING (id, annee)
+FULL JOIN ({historique_gratuit}) USING (id, annee)
+""")
+con.sql(f"""
+CREATE TABLE noms_historiques AS
+SELECT "REF DU MUSEE" AS id, "NOM DU MUSEE" AS nom, VILLE AS commune
+FROM read_xlsx('{SOURCES["historique"]}', sheet = 'FREQUENTATION TOTALE', all_varchar = true)
+""")
+con.sql(f"""
+CREATE TABLE liste AS
+SELECT "Identifiant Muséofile" AS museofile, REF_Deps AS ref,
+       "Nom officiel du musée" AS nom, Commune AS commune, "Département" AS departement,
+       Longitude::DOUBLE AS lon, Latitude::DOUBLE AS lat
+FROM read_csv('{SOURCES["liste"]}', delim = ';', header = true, all_varchar = true)
+""")
 
 con.sql("""
 SELECT 'depuis 2014' AS fichier, min(annee) AS de, max(annee) AS a, count(DISTINCT id) AS musees FROM recent
