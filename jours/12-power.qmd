@@ -278,9 +278,10 @@ indicateurs = [
   {cle: "part_agriculteurs", titre: "Part d'agriculteurs exploitants parmi les maires", format: (x) => pourcent(x)}
 ]
 parDepartement = new Map(departementsChiffres.map((d) => [d.code, d]))
-// Une seule teinte, l'orange de la page : la couleur la plus marquée (foncée sur fond clair,
-// claire sur fond sombre) va aux valeurs les plus élevées.
-teintes = sombre ? d3.quantize(d3.interpolateLab("#4a2a1a", "#fdc49a"), 5) : d3.schemeOranges[5]
+// Du jaune au rouge foncé (YlOrRd) : la teinte change en même temps que la clarté, ce qui
+// sépare bien les classes. Même sens dans les deux thèmes : le rouge foncé va aux valeurs
+// les plus élevées.
+teintes = d3.quantize((t) => d3.interpolateYlOrRd(0.12 + 0.88 * t), 5)
 // Cinq classes de même effectif (quintiles), nommées par leurs bornes.
 classes = (i) => {
   const echelle = d3.scaleQuantile(departementsChiffres.map((d) => d[i.cle]), teintes)
@@ -341,8 +342,8 @@ html`<div class="multiples">${indicateurs.map((i) => {
   va de ${virgule(a.bas.age_moyen)} ans (${a.bas.departement}) à ${virgule(a.haut.age_moyen)} ans
   (${a.haut.departement}). Les agriculteurs en activité sont ${pourcent(g.haut.part_agriculteurs)}
   des maires en ${g.haut.departement}, la part la plus élevée.</p>
-  <p><small>Chaque classe regroupe un cinquième des départements (quintiles) ; plus la couleur
-  est ${sombre ? "claire" : "foncée"}, plus la valeur est élevée. Les départements de moins de 20 communes (Paris,
+  <p><small>Chaque classe regroupe un cinquième des départements (quintiles) ; du jaune au rouge
+  foncé, la valeur augmente. Les départements de moins de 20 communes (Paris,
   Mayotte) sont écartés des extrêmes.</small></p>`
 }
 ```
