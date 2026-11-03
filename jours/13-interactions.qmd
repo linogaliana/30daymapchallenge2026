@@ -14,7 +14,9 @@ charte:
   sombre: "#b58be0"
 ---
 
-Pour la treizième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Interactions"**]{.underline color="#e0700b"}), on regarde la rencontre entre des lieux et leur public : [les musées de France]{.underline}, et leur [fréquentation]{.underline}, que le [ministère de la Culture]{.underline color="#1f78b4"} recense chaque année, musée par musée, de 2001 à 2024 ([[fréquentation des musées de France]{.underline}](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1) sur data.gouv). Cherchez un musée par son nom ou sa ville, ou cliquez sur la carte : le graphique à côté montre ses entrées depuis 2001. En choisissant plusieurs musées (jusqu'à six), on compare leurs courbes (voir @tip-pour-aller-plus-loin pour aller plus loin).
+Le musée est un lieu d'interactions multiples: entre une oeuvre et son public, ou entre personnes comme le cinéma aime bien le représenter. Puisque ([**"Interactions"**]{.underline color="#e0700b"}) est le thème du 13e jour, regardons [la fréquentation des musées de France]{.underline} que le [ministère de la Culture]{.underline color="#1f78b4"} recense chaque année depuis 2001  ([[fréquentation des musées de France]{.underline}](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1) sur data.gouv). 
+
+Cherchez un musée par son nom ou sa ville, ou cliquez sur la carte : le graphique à côté montre ses entrées depuis 2001. En choisissant plusieurs musées (jusqu'à six), on compare leurs courbes (voir @tip-pour-aller-plus-loin pour aller plus loin).
 
 ---------------------------------
 
@@ -573,7 +575,9 @@ html`<p><small>Un cercle par musée de France, d'aire proportionnelle à ses ent
 choisie ; les musées sans entrées déclarées cette année-là ne sont pas dessinés. Cliquez sur un
 musée, ou cherchez-le par son nom ou sa ville, pour voir ses entrées depuis ${annees[0]} ; un clic
 sur la carte ajoute ou retire un musée, jusqu'à six pour les comparer. Zoomez pour séparer les
-musées de Paris. Source : ministère de la Culture, fréquentation des musées de France
+musées de Paris. 
+
+Source : ministère de la Culture, fréquentation des musées de France
 ; fond Plan IGN.</small></p>`
 ```
 
@@ -885,6 +889,7 @@ len(geojson["features"]), f"{(SORTIE / 'musees.geojson').stat().st_size / 1e3:.0
 ```{python}
 #| output: false
 #| filename: "Ce qui passe à la page (ojs_define)"
+#| output: false
 ojs_define(
     geojson=geojson,
     ensemble=ensemble.to_dict("records"),
