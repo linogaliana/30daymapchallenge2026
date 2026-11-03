@@ -8,7 +8,17 @@ resources:
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#d95f02"
+  sombre: "#f08a3c"
 ---
+
+Après les lieux de la musique, le pouvoir 🏛️. Pour la douzième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Power"**]{.underline color="#0A5927"}), on regarde celui qui s'exerce au plus près des habitants : celui du maire. Le [[répertoire national des élus]{.underline}](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), tenu par le [ministère de l'Intérieur]{.underline color="#0A5927"}, donne pour chaque élu son sexe, sa date de naissance et sa [profession]{.underline color="#1a9850"}. La carte montre [les maires]{.underline} commune par commune, puis, département par département, la part de [femmes]{.underline}, l'âge moyen, la part de retraités et d'agriculteurs (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -16,19 +26,13 @@ virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, max
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
 pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
 html`<p class="lead">
-  Après les élections municipales de mars 2026, <strong>${entier(totaux.maires)} maires</strong>
+  Après les élections municipales de mars 2026, <span class="souligne">${entier(totaux.maires)} maires</span>
   sont en fonction en France métropolitaine et dans les départements d'outre-mer.
-  ${pourcent(totaux.part_femmes)} sont des femmes, contre ${pourcent(totaux.part_femmes_conseil)}
+  <span class="souligne">${pourcent(totaux.part_femmes)} sont des femmes</span>, contre ${pourcent(totaux.part_femmes_conseil)}
   de l'ensemble des conseillers municipaux. Ils ont en moyenne ${entier(totaux.age_moyen)} ans à
   leur entrée en fonction, et ${pourcent(totaux.part_retraites)} sont retraités.
 </p>`
 ```
-
-Pour ce douzième jour, consacré au pouvoir, on regarde celui qui s'exerce au plus près des
-habitants : celui du maire. Le répertoire national des élus donne, pour chacun, son sexe, sa date
-de naissance et sa profession. La carte les montre commune par commune (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -259,7 +263,11 @@ national des élus (${extraction}) ; IGN, ADMIN EXPRESS COG CARTO 2026, via cart
 Plan IGN.</small></p>`
 ```
 
-### Par département
+:::
+
+## Par département {.unnumbered}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -318,10 +326,14 @@ html`<div class="multiples">${indicateurs.map((i) => html`<figure>
 }
 ```
 
-### Les maires et leur conseil
+:::
+
+## Les maires et leur conseil {.unnumbered}
 
 Le maire est élu par le conseil municipal, parmi ses membres. Les deux populations n'ont pas tout
 à fait le même profil : les maires sont plus âgés, plus souvent retraités ou agriculteurs.
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -358,62 +370,25 @@ comprennent les maires et les adjoints. Âge moyen à l'entrée en fonction : ${
 pour les maires, ${virgule(totaux.age_moyen_conseil)} ans pour l'ensemble des conseillers.</small></p>`
 ```
 
-### Le maire et ses adjoints
+:::
 
-Une fois le maire élu, le conseil élit ses adjoints, sur une liste qui doit alterner les sexes : un
-homme puis une femme, ou une femme puis un homme. Depuis 2026, la règle vaut dans toutes les
-communes. On la voit dans les données : la part de femmes oscille d'un rang à l'autre, autour de
-celle des conseillers sans fonction.
-
-```{ojs}
-//| echo: false
-{
-  const couleur = sombre ? "#f08a3c" : "#d95f02"
-  const nom = (r) => (r === 0 ? "Maire" : r === 1 ? "1er adj." : `${r}e adj.`)
-  return Plot.plot({
-    width: 760,
-    height: 320,
-    style: stylePlot,
-    x: {label: null, tickFormat: nom, ticks: rangs.map((r) => r.rang)},
-    y: {label: "↑ Part de femmes (%)", domain: [0, 70], grid: true},
-    marks: [
-      Plot.ruleY([100 * totaux.part_femmes_sans_fonction], {stroke: "currentColor", strokeDasharray: "4,3", strokeOpacity: 0.6}),
-      Plot.text([100 * totaux.part_femmes_sans_fonction], {
-        x: 0, y: (d) => d, dx: 4, dy: -8, textAnchor: "start", fontSize: 11,
-        text: () => "conseillers sans fonction"
-      }),
-      Plot.line(rangs, {x: "rang", y: (d) => 100 * d.part_femmes, stroke: couleur, strokeOpacity: 0.5}),
-      Plot.dot(rangs, {
-        x: "rang", y: (d) => 100 * d.part_femmes, fill: couleur, r: 5,
-        tip: true, title: (d) => `${nom(d.rang)}\n${pourcent(d.part_femmes, 1)} de femmes\n${entier(d.elus)} élus`
-      })
-    ]
-  })
-}
-```
-
-```{ojs}
-//| echo: false
-html`<p><small>Part de femmes selon la fonction. ${pourcent(totaux.alternance, 1)} des paires
-d'adjoints de rangs consécutifs (1er et 2e, 2e et 3e…) sont de sexes différents.</small></p>`
-```
-
---------
-
-On va maintenant décrire comment obtenir les données de cette carte.
+# Making of
 
 ## Les données
 
+La carte croise trois sources publiques :
+
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), fichier des maires | Ministère de l'Intérieur | le sexe, la date de naissance et la profession du maire de chaque commune | CSV |
-| [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), fichier des conseillers municipaux | Ministère de l'Intérieur | les mêmes informations pour les 500 000 conseillers, et leur fonction (maire, adjoint) | CSV |
-| [Communes et départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune et de chaque département | GeoParquet |
+| [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), fichier des maires | Ministère de l'Intérieur | le sexe, la date de naissance et la profession du maire de chaque commune | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), fichier des conseillers municipaux | Ministère de l'Intérieur | les mêmes informations pour les 500 000 conseillers | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Communes et départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune et de chaque département | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import pathlib
 import tempfile
@@ -436,7 +411,7 @@ SET enable_progress_bar = false
 
 ### Le répertoire national des élus (ministère de l'Intérieur)
 
-Le [répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/)
+Le [[répertoire national des élus]{.underline}](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/)
 recense les élus en fonction, mandat par mandat : un fichier pour les maires, un pour les
 conseillers municipaux, d'autres pour les conseillers départementaux, les députés… Il est tenu par
 les préfectures et mis à jour plusieurs fois par an. Chaque élu y figure avec son sexe, sa date de
@@ -447,6 +422,7 @@ On lit la version du 11 août 2026 de chaque fichier. Ce sont des CSV séparés 
 points-virgules.
 
 ```{python}
+#| filename: "Lecture des maires et des conseillers (ministère de l'Intérieur)"
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -460,9 +436,9 @@ def telecharger(url, chemin, essais=5):
                 raise
 
 
-def lire_elus(chemin, colonnes=""):
+def lire_elus(chemin):
     return f"""
-    SELECT "Code de la commune" AS code, "Code sexe" AS sexe,{colonnes}
+    SELECT "Code de la commune" AS code, "Code sexe" AS sexe,
            -- âge révolu à l'entrée en fonction (date_sub compte les années pleines)
            date_sub('year', "Date de naissance"::DATE,
                     coalesce("Date de début de la fonction", "Date de début du mandat")::DATE) AS age,
@@ -476,18 +452,19 @@ with tempfile.TemporaryDirectory() as dossier:
     telecharger(SOURCES["maires"], f"{dossier}/maires.csv")
     telecharger(SOURCES["conseillers"], f"{dossier}/conseillers.csv")
     con.sql(f"CREATE TABLE maires AS {lire_elus(f'{dossier}/maires.csv')}")
-    fonction = '\n           "Libellé de la fonction" AS fonction,'
-    con.sql(f"CREATE TABLE conseillers AS {lire_elus(f'{dossier}/conseillers.csv', fonction)}")
+    con.sql(f"CREATE TABLE conseillers AS {lire_elus(f'{dossier}/conseillers.csv')}")
 ```
 
 ```{python}
 #| output: false
+#| filename: "Date de la version"
 extraction = "version du 11/08/2026"  # la date de la version, dans son adresse officielle
 ```
 
 Un maire par commune, et aucune valeur manquante pour le sexe, l'âge et la profession :
 
 ```{python}
+#| filename: "Contrôle des maires"
 con.sql("""
 SELECT count(*) AS maires, count(DISTINCT code) AS communes,
        count(*) FILTER (sexe IS NULL OR age IS NULL OR csp IS NULL) AS incomplets
@@ -495,33 +472,31 @@ FROM maires
 """).df().style.hide(axis="index")
 ```
 
-### Les communes et les départements (cartiflette)
+### Les communes et les départements avec `cartiflette`
 
-Pour la carte interactive, on prend les contours des communes de 2026 à leur place réelle
-(`layout=FRANCE_ENTIERE`), outre-mer compris. Pour les petites cartes par département, on prend
-les départements dans la version où l'outre-mer est rapproché de la métropole
-(`layout=FRANCE_ENTIERE_DROM_RAPPROCHES`).
+Le fond de carte vient du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/). Pour la carte interactive, on prend les contours des communes de 2026 à leur place réelle (`filter_by="FRANCE_ENTIERE"`), outre-mer compris. Pour les petites cartes par département, on prend les départements dans la version où l'outre-mer est rapproché de la métropole (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`).
 
 ```{python}
-def cartiflette(niveau, disposition):
-    return (
-        "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-        "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
-        f"administrative_level={niveau}/crs=4326/layout={disposition}/"
-        "vectorfile_format=parquet/simplification=50/raw.parquet"
-    )
+#| output: false
+#| filename: "Lecture des communes et des départements (cartiflette)"
+from cartiflette import carti_download
 
+parametres = dict(values="France", year=2026, simplification=50, crs=4326, engine="duckdb", con=con)
+communes_cartiflette = carti_download(borders="COMMUNE", filter_by="FRANCE_ENTIERE", **parametres)
+departements_cartiflette = carti_download(
+    borders="DEPARTEMENT", filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES", **parametres
+)
 
-con.sql(f"""
+con.sql("""
 CREATE TABLE contours AS
 SELECT INSEE_COM AS code, NOM AS nom, INSEE_DEP AS code_departement,
        LIBELLE_DEPARTEMENT AS departement, geometry AS geom
-FROM read_parquet('{cartiflette("COMMUNE", "FRANCE_ENTIERE")}', hive_partitioning = false)
+FROM communes_cartiflette
 """)
-con.sql(f"""
+con.sql("""
 CREATE TABLE contours_departements AS
 SELECT INSEE_DEP AS code, geometry AS geom
-FROM read_parquet('{cartiflette("DEPARTEMENT", "FRANCE_ENTIERE_DROM_RAPPROCHES")}', hive_partitioning = false)
+FROM departements_cartiflette
 """)
 ```
 
@@ -535,6 +510,7 @@ de l'Insee, en une quarantaine de postes : le premier chiffre du code donne la g
 Les anciens agriculteurs, artisans, cadres… sont tous rangés avec les retraités (code `7x`).
 
 ```{python}
+#| filename: "Les grandes catégories de profession"
 con.sql("""
 CREATE TABLE groupes AS
 SELECT * FROM (VALUES
@@ -568,6 +544,7 @@ saisie n'est pas faite ou l'élection n'a pas abouti. À l'inverse, Saint-Pierre
 collectivités du Pacifique ont des maires, mais pas de contours dans cartiflette.
 
 ```{python}
+#| filename: "Le maire de chaque commune"
 con.sql("""
 CREATE TABLE communes AS
 SELECT c.code, c.nom, c.code_departement, c.departement, c.geom,
@@ -585,6 +562,7 @@ La suite porte sur les communes qui ont à la fois un contour et un maire. Pour 
 municipaux, on garde les mêmes communes.
 
 ```{python}
+#| filename: "Les chiffres de l'accroche"
 con.sql("CREATE TABLE conseil AS SELECT * FROM conseillers SEMI JOIN communes USING (code)")
 
 totaux = con.sql("""
@@ -593,7 +571,6 @@ SELECT (SELECT count(*) FROM communes WHERE sexe IS NOT NULL) AS maires,
        (SELECT avg(age) FROM communes) AS age_moyen,
        (SELECT avg((groupe = 'Retraités')::INTEGER) FROM communes) AS part_retraites,
        (SELECT avg((libelle_sexe = 'Femme')::INTEGER) FROM conseil) AS part_femmes_conseil,
-       (SELECT avg((libelle_sexe = 'Femme')::INTEGER) FROM conseil WHERE fonction IS NULL) AS part_femmes_sans_fonction,
        (SELECT avg(age) FROM conseil) AS age_moyen_conseil
 """).df().to_dict("records")[0]
 totaux
@@ -602,6 +579,7 @@ totaux
 ### Par département
 
 ```{python}
+#| filename: "Les chiffres par département"
 departements_chiffres = con.sql("""
 SELECT code_departement AS code, departement, count(sexe) AS maires,
        avg((sexe = 'Femme')::INTEGER) AS part_femmes,
@@ -616,6 +594,7 @@ departements_chiffres.head()
 ### Maires et conseillers par profession
 
 ```{python}
+#| filename: "Maires et conseillers par profession"
 professions = con.sql("""
 SELECT g.groupe,
        (SELECT count(*) FROM communes c WHERE c.groupe = g.groupe)
@@ -625,35 +604,6 @@ SELECT g.groupe,
 FROM groupes g ORDER BY g.chiffre
 """).df()
 professions
-```
-
-### Le rang des adjoints
-
-La fonction est un libellé : `Maire`, `1er adjoint au Maire`, `2ème adjoint au Maire`… Le rang
-est le nombre en tête du libellé, 0 pour le maire. Les maires délégués des communes nouvelles sont
-laissés de côté. Au-delà du huitième rang, les adjoints sont trop peu nombreux.
-
-```{python}
-con.sql("""
-CREATE TABLE fonctions AS
-SELECT code, libelle_sexe AS sexe,
-       CASE WHEN fonction = 'Maire' THEN 0
-            ELSE regexp_extract(fonction, '^(\\d+)', 1)::INTEGER END AS rang
-FROM conseil
-WHERE fonction = 'Maire' OR fonction LIKE '%adjoint%'
-""")
-rangs = con.sql("""
-SELECT rang, count(*) AS elus, avg((sexe = 'Femme')::INTEGER) AS part_femmes
-FROM fonctions WHERE rang <= 8 GROUP BY rang ORDER BY rang
-""").df()
-
-# Part des paires d'adjoints consécutifs (1er et 2e, 2e et 3e…) de sexes différents.
-totaux["alternance"] = con.sql("""
-SELECT avg((a.sexe <> b.sexe)::INTEGER)
-FROM fonctions a JOIN fonctions b ON a.code = b.code AND b.rang = a.rang + 1
-WHERE a.rang >= 1
-""").fetchone()[0]
-rangs
 ```
 
 ### Les contours de la carte
@@ -667,6 +617,7 @@ profession ; elles sont vides quand le maire n'est pas renseigné. Le fichier, �
 `donnees/j12/`, ne contient pas le nom des élus.
 
 ```{python}
+#| filename: "Contours simplifiés des communes"
 con.sql("""
 CREATE TABLE simplifiees AS
 WITH couverture AS (
@@ -721,6 +672,7 @@ La table des communes, pour le tableau et le téléchargement, est écrite à pa
 
 ```{python}
 #| output: false
+#| filename: "Table des communes (CSV)"
 con.sql(f"""
 COPY (
     SELECT code, nom, departement, sexe, age, groupe, profession
@@ -732,6 +684,7 @@ COPY (
 ### Ce qui passe à la carte
 
 ```{python}
+#| filename: "Ce qui passe à la carte"
 ojs_define(
     departements=departements,
     libelles={
@@ -743,13 +696,18 @@ ojs_define(
     extraction=extraction,
     departementsChiffres=departements_chiffres.to_dict("records"),
     professions=professions.to_dict("records"),
-    rangs=rangs.to_dict("records"),
 )
 ```
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient une table des communes, avec les caractéristiques de leur maire. La carte est faite en `Javascript` avec [MapLibre](https://maplibre.org/), les petites cartes avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -783,7 +741,10 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
+
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - La profession est celle que l'élu déclare, dans une nomenclature proche de celle de l'Insee.
   Un retraité est classé comme tel, quelle que soit son ancienne profession : les « anciens
@@ -796,7 +757,11 @@ DOM.download(
   fichier du répertoire : seul le maire de la commune est compté ici.
 - Saint-Pierre-et-Miquelon, la Polynésie française et la Nouvelle-Calédonie ne sont pas sur la
   carte, faute de contours.
+:::
 
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - Ministère de l'Intérieur, [Répertoire national des élus](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/),
@@ -804,5 +769,4 @@ DOM.download(
   les sénateurs.
 - Insee, [Nomenclature des professions et catégories socioprofessionnelles](https://www.insee.fr/fr/metadonnees/pcs2003/categorieSocioprofessionnelleAgregee/1),
   pour comparer les élus à la population, à partir du recensement.
-- Code général des collectivités territoriales, article L2122-7-2 : l'élection des adjoints au
-  scrutin de liste alternant les sexes.
+:::
