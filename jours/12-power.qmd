@@ -278,6 +278,19 @@ indicateurs = [
   {cle: "part_agriculteurs", titre: "Part d'agriculteurs exploitants parmi les maires", format: (x) => pourcent(x)}
 ]
 parDepartement = new Map(departementsChiffres.map((d) => [d.code, d]))
+// Une seule teinte, l'orange de la page : la couleur la plus marquée (foncée sur fond clair,
+// claire sur fond sombre) va aux valeurs les plus élevées.
+teintes = sombre ? d3.quantize(d3.interpolateLab("#4a2a1a", "#fdc49a"), 5) : d3.schemeOranges[5]
+// Cinq classes de même effectif (quintiles), nommées par leurs bornes.
+classes = (i) => {
+  const echelle = d3.scaleQuantile(departementsChiffres.map((d) => d[i.cle]), teintes)
+  const seuils = echelle.quantiles()
+  const noms = teintes.map((_, k) =>
+    k === 0 ? `moins de ${i.format(seuils[0])}`
+    : k === teintes.length - 1 ? `${i.format(seuils[k - 1])} ou plus`
+    : `de ${i.format(seuils[k - 1])} à ${i.format(seuils[k])}`)
+  return {echelle, noms}
+}
 extremes = (cle) => {
   const tries = d3.sort(departementsChiffres.filter((d) => d.maires >= 20), (d) => d[cle])
   return {bas: tries[0], haut: tries[tries.length - 1]}
@@ -288,16 +301,22 @@ extremes = (cle) => {
 
 ```{ojs}
 //| echo: false
-html`<div class="multiples">${indicateurs.map((i) => html`<figure>
+html`<div class="multiples">${indicateurs.map((i) => {
+  const {echelle, noms} = classes(i)
+  return html`<figure>
   <figcaption><strong>${i.titre}</strong></figcaption>
+  <p class="legende-carte">${teintes.map((couleur, k) => html`<span>
+    <svg width="14" height="14"><rect width="14" height="14" rx="2" fill="${couleur}"/></svg>
+    ${noms[k]}</span>`)}</p>
   ${Plot.plot({
     width: 360,
     style: stylePlot,
     projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 4},
-    color: {type: "quantile", n: 5, scheme: "viridis", legend: true, tickFormat: i.format,
-            label: null, style: {background: "transparent", color: "inherit"}},
     marks: [
-      Plot.geo(departements, {fill: (f) => parDepartement.get(f.properties.code)?.[i.cle],
+      Plot.geo(departements, {fill: (f) => {
+                                const valeur = parDepartement.get(f.properties.code)?.[i.cle]
+                                return valeur == null ? gris : echelle(valeur)
+                              },
                               stroke: fond, strokeWidth: 0.5}),
       Plot.tip(departements, Plot.pointer(Plot.geoCentroid({
         title: (f) => {
@@ -307,7 +326,8 @@ html`<div class="multiples">${indicateurs.map((i) => html`<figure>
       })))
     ]
   })}
-</figure>`)}</div>`
+</figure>`
+})}</div>`
 ```
 
 :::
@@ -321,7 +341,8 @@ html`<div class="multiples">${indicateurs.map((i) => html`<figure>
   va de ${virgule(a.bas.age_moyen)} ans (${a.bas.departement}) à ${virgule(a.haut.age_moyen)} ans
   (${a.haut.departement}). Les agriculteurs en activité sont ${pourcent(g.haut.part_agriculteurs)}
   des maires en ${g.haut.departement}, la part la plus élevée.</p>
-  <p><small>Classes par quintiles. Les départements de moins de 20 communes (Paris,
+  <p><small>Chaque classe regroupe un cinquième des départements (quintiles) ; plus la couleur
+  est ${sombre ? "claire" : "foncée"}, plus la valeur est élevée. Les départements de moins de 20 communes (Paris,
   Mayotte) sont écartés des extrêmes.</small></p>`
 }
 ```
