@@ -14,7 +14,7 @@ charte:
   sombre: "#f08a3c"
 ---
 
-Après les lieux de la musique, le pouvoir 🏛️. Pour la douzième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Power"**]{.underline color="#0A5927"}), on regarde celui qui s'exerce au plus près des habitants : celui du maire. Le [[répertoire national des élus]{.underline}](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), tenu par le [ministère de l'Intérieur]{.underline color="#0A5927"}, donne pour chaque élu son sexe, sa date de naissance et sa [profession]{.underline color="#1a9850"}. La carte montre [les maires]{.underline} commune par commune, puis, département par département, la part de [femmes]{.underline}, l'âge moyen, la part de retraités et d'agriculteurs (voir @tip-pour-aller-plus-loin pour aller plus loin).
+Pour la douzième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Power"**]{.underline color="#0A5927"}), on regarde ceux qui exercent le pouvoir au plus près des habitants : [les maires]{.underline}. Le [[répertoire national des élus]{.underline}](https://www.data.gouv.fr/fr/datasets/repertoire-national-des-elus-1/), produit par le [ministère de l'Intérieur]{.underline color="#0A5927"}, donne pour chaque élu son sexe, sa date de naissance et sa profession. La carte montre la répartition géographique de ces différentes populations d'édiles (voir @tip-pour-aller-plus-loin pour aller plus loin).
 
 ---------------------------------
 
@@ -574,7 +574,7 @@ assert con.sql("SELECT count(*) FROM maires WHERE groupe IS NULL").fetchone()[0]
 
 Toutes les communes n'ont pas de maire dans le répertoire : il manque quelques communes dont la
 saisie n'est pas faite ou l'élection n'a pas abouti. À l'inverse, Saint-Pierre-et-Miquelon et les
-collectivités du Pacifique ont des maires, mais pas de contours dans cartiflette.
+collectivités du Pacifique ont des maires, mais pas de contours dans cartiflette: on va perdre l'information sur ces édiles en rapprochant nos différentes sources.
 
 ```{python}
 #| filename: "Le maire de chaque commune"
@@ -643,7 +643,7 @@ professions
 
 La carte interactive dessine les 35 000 communes, chacune avec les caractéristiques de son maire.
 Pour alléger le fichier, les communes sont simplifiées ensemble, à 500 m environ
-(`ST_CoverageSimplify`), ce qui garde les limites communes jointives, et les coordonnées sont
+(`ST_CoverageSimplify`) et les coordonnées sont
 arrondies à 100 m environ. Les caractéristiques sont codées par le rang de leur classe : `s` pour
 le sexe (0 : femme, 1 : homme), `a` pour la classe d'âge, `g` pour la grande catégorie de
 profession ; elles sont vides quand le maire n'est pas renseigné. Le fichier, écrit dans
@@ -718,6 +718,7 @@ COPY (
 
 ```{python}
 #| filename: "Ce qui passe à la carte"
+#| output: false
 ojs_define(
     departements=departements,
     libelles={
