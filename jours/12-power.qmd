@@ -574,7 +574,7 @@ assert con.sql("SELECT count(*) FROM maires WHERE groupe IS NULL").fetchone()[0]
 
 Toutes les communes n'ont pas de maire dans le répertoire : il manque quelques communes dont la
 saisie n'est pas faite ou l'élection n'a pas abouti. À l'inverse, Saint-Pierre-et-Miquelon et les
-collectivités du Pacifique ont des maires, mais pas de contours dans cartiflette: on va perdre l'information sur ces édiles en rapprochant nos différentes sources.
+collectivités du Pacifique ont des maires, mais pas de contours dans cartiflette : on va perdre l'information sur ces édiles en rapprochant nos différentes sources.
 
 ```{python}
 #| filename: "Le maire de chaque commune"
