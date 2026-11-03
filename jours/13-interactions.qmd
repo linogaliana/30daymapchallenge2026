@@ -1,6 +1,6 @@
 ---
-title: "J13 · Interactions. Qui va au musée ?"
-description: "Les entrées dans les musées de France, de 2001 à 2024, musée par musée : cliquez sur la carte, le graphique suit."
+title: "J13 · Interactions. Où va-t-on au musée ?"
+description: "Les entrées dans les musées de France, de 2001 à 2024, musée par musée : cherchez-en un ou plusieurs, sur la carte ou par leur nom, pour comparer leurs entrées."
 image: vignettes/13-interactions.webp
 resources:
   - donnees/j13/*.csv
@@ -28,8 +28,9 @@ html`<p class="lead">
 
 Pour ce treizième jour, consacré aux interactions, on regarde la rencontre entre des lieux et leur
 public : les entrées dans les musées de France, que le ministère de la Culture recense chaque
-année, musée par musée. Cliquez sur un musée de la carte : le graphique à côté montre ses entrées
-depuis 2001 (making of 👇).
+année, musée par musée. Cherchez un musée par son nom ou sa ville, ou cliquez sur la carte : le
+graphique à côté montre ses entrées depuis 2001. En choisissant plusieurs musées (jusqu'à six), on
+compare leurs courbes (making of 👇).
 
 --------
 
@@ -46,10 +47,19 @@ sombre = Generators.observe((notifier) => {
 fond = sombre ? "#222" : "#fff"
 stylePlot = `--plot-background: ${fond}; background: transparent`
 couleurMusee = sombre ? "#b58be0" : "#6a3d9a"
-couleurChoisi = sombre ? "#f5a142" : "#e0700b"
-// Entrées payantes, gratuites, et non ventilées quand le musée ne donne que le total.
-types = ["Payantes", "Gratuites", "Non ventilées"]
-couleursTypes = sombre ? ["#7ea3d1", "#f08a3c", "#6b6b6b"] : ["#3a6aa8", "#d95f02", "#b0b0b0"]
+// Une couleur par musée choisi (sans violet, la couleur des cercles). Fonction à part : la carte
+// s'en sert sans dépendre du thème.
+paletteChoix = (estSombre) => estSombre
+  ? ["#f5a142", "#6aaee8", "#5cc97a", "#f07aa0", "#d6b456", "#4fd1d9"]
+  : ["#e0700b", "#1f78b4", "#2a9d4b", "#d6336c", "#8c6d1f", "#0f8f98"]
+couleursChoix = paletteChoix(sombre)
+// Contour des musées choisis sur la carte : filtre et couleur par musée.
+contourChoix = (ids, couleurs) => ({
+  filtre: ids.length ? ["in", ["get", "id"], ["literal", ids]] : ["==", ["get", "id"], ""],
+  couleur: ids.length
+    ? ["match", ["get", "id"], ...ids.flatMap((id, i) => [id, couleurs[i]]), "rgba(0, 0, 0, 0)"]
+    : "rgba(0, 0, 0, 0)"
+})
 
 // Les musées (nom, commune, position) et leurs entrées, année par année.
 musees = d3.csv("donnees/j13/musees.csv", (d) => ({...d3.autoType({...d}), id: d.id}))
@@ -172,84 +182,272 @@ conteneur = html`<div style="height: min(72vh, 640px); border-radius: 4px"></div
 
 ```{ojs}
 //| echo: false
-// Le musée choisi : par un clic sur la carte, ou dans la liste. Vide : l'ensemble des musées.
-viewof musee = Inputs.select(
-  ["", ...d3.sort(geojson.features.map((f) => f.properties), (p) => p.commune, (p) => p.nom).map((p) => p.id)],
-  {
-    format: (id) => (id ? `${infos.get(id).commune} · ${infos.get(id).nom}` : "Ensemble des musées de France"),
-    width: "100%"
+// Les musées choisis : recherche par nom ou ville, au plus six. Vide : l'ensemble des musées.
+// La valeur est le tableau des identifiants ; la méthode basculer(id) sert à la carte.
+viewof choix = {
+  const MAX = 6
+  const normaliser = (s) => String(s ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+  const derniereAnnee = String(chiffres.annee)
+  const candidats = geojson.features.map((f) => f.properties).map((p) => ({
+    id: p.id, nom: p.nom, commune: p.commune,
+    texte: normaliser(`${p.nom} ${p.commune}`), entrees: p[derniereAnnee] ?? 0
+  }))
+  const raccourcir = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s)
+
+  const form = html`<div class="choix-musees">
+    <input type="search" class="choix-champ" placeholder="Nom du musée ou ville…" autocomplete="off"
+           aria-label="Rechercher un musée par son nom ou sa ville">
+    <ul class="choix-suggestions" hidden></ul>
+    <div class="choix-pastilles"></div>
+    <p class="choix-message"></p>
+  </div>`
+  const champ = form.querySelector(".choix-champ")
+  const liste = form.querySelector(".choix-suggestions")
+  const pastilles = form.querySelector(".choix-pastilles")
+  const message = form.querySelector(".choix-message")
+
+  let selection = []
+  let suggestions = []
+  let actif = 0
+
+  const emettre = () => {
+    form.value = [...selection]
+    form.dispatchEvent(new Event("input", {bubbles: true}))
   }
-)
+
+  const dessinerPastilles = () => {
+    pastilles.replaceChildren(...selection.map((id, i) => {
+      const m = infos.get(id)
+      const pastille = html`<span class="pastille-musee choix-${i}" title="${m.nom} · ${m.commune}">
+        <span class="pastille-nom">${raccourcir(m.nom, 28)}</span>
+        <button type="button" aria-label="Retirer ${m.nom}">×</button>
+      </span>`
+      pastille.querySelector("button").onclick = () => form.basculer(id)
+      return pastille
+    }))
+    if (selection.length > 0) {
+      const effacer = html`<button type="button" class="choix-effacer">Tout effacer</button>`
+      effacer.onclick = () => {
+        selection = []
+        message.textContent = ""
+        dessinerPastilles()
+        emettre()
+      }
+      pastilles.appendChild(effacer)
+    }
+  }
+
+  const fermer = () => {
+    liste.hidden = true
+    suggestions = []
+  }
+
+  const dessinerSuggestions = () => {
+    liste.replaceChildren(...suggestions.map((s, i) => {
+      const li = html`<li class="${i === actif ? "actif" : ""}"><strong>${s.nom}</strong> · ${s.commune}</li>`
+      // mousedown plutôt que click : le champ ne perd pas le focus avant le choix.
+      li.onmousedown = (event) => {
+        event.preventDefault()
+        ajouter(s.id)
+      }
+      return li
+    }))
+    liste.hidden = suggestions.length === 0
+  }
+
+  const chercher = () => {
+    const texte = normaliser(champ.value).trim()
+    if (!texte) return fermer()
+    suggestions = d3.sort(candidats.filter((c) => c.texte.includes(texte)), (c) => -c.entrees).slice(0, 8)
+    actif = 0
+    dessinerSuggestions()
+  }
+
+  const ajouter = (id) => {
+    champ.value = ""
+    fermer()
+    if (!selection.includes(id)) form.basculer(id)
+  }
+
+  form.basculer = (id) => {
+    if (selection.includes(id)) {
+      selection = selection.filter((x) => x !== id)
+      message.textContent = ""
+    } else if (selection.length >= MAX) {
+      message.textContent = `Six musées au plus : retirez-en un pour en ajouter un autre.`
+      return
+    } else {
+      selection = [...selection, id]
+      message.textContent = ""
+    }
+    dessinerPastilles()
+    emettre()
+  }
+
+  champ.oninput = (event) => {
+    event.stopPropagation()
+    chercher()
+  }
+  champ.onfocus = chercher
+  champ.onblur = fermer
+  champ.onkeydown = (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (suggestions.length === 0) return
+      event.preventDefault()
+      actif = (actif + (event.key === "ArrowDown" ? 1 : suggestions.length - 1)) % suggestions.length
+      dessinerSuggestions()
+    } else if (event.key === "Enter") {
+      event.preventDefault()
+      if (suggestions.length > 0) ajouter(suggestions[actif].id)
+    } else if (event.key === "Escape") {
+      fermer()
+    }
+  }
+  form.onsubmit = (event) => event.preventDefault()
+
+  form.value = []
+  return form
+}
 ```
 
 ```{ojs}
 //| echo: false
-// Les entrées du musée choisi (ou de l'ensemble), réparties en payantes et gratuites.
+// Les entrées de l'ensemble des musées (aucun choix), d'un musée, ou de plusieurs à comparer.
 detail = {
-  if (!musee) {
+  if (choix.length === 0) {
     return {
       titre: "Ensemble des musées de France",
       sousTitre: "Somme des musées qui ont déclaré leur fréquentation",
-      lignes: ensemble.map((d) => ({...d, payant: d.payant, gratuit: d.gratuit, autre: d.total - d.payant - d.gratuit}))
+      lignes: ensemble.map((d) => ({...d, ventile: d.payant + d.gratuit > 0}))
     }
   }
-  const m = infos.get(musee)
+  const m = infos.get(choix[0])
   return {
     titre: m.nom,
     sousTitre: `${m.commune} (${m.departement})`,
     lien: m.lien_nom,
-    lignes: (parMusee.get(musee) ?? []).map((d) => ({
+    lignes: (parMusee.get(choix[0]) ?? []).map((d) => ({
       ...d,
-      payant: d.payant ?? 0,
-      gratuit: d.gratuit ?? 0,
-      autre: d.payant === null ? d.total : 0
+      ventile: d.payant !== null && d.payant !== undefined
     }))
   }
 }
+entreesChoix = (id) => (parMusee.get(id) ?? []).find((d) => d.annee === annee)
 cetteAnnee = detail.lignes.find((d) => d.annee === annee)
 
-html`<div class="fiche-musee">
-  <h4>${detail.titre}</h4>
-  <p class="sous-titre">${detail.sousTitre}</p>
-  <p>${cetteAnnee && cetteAnnee.total > 0
-    ? html`En <strong>${annee}</strong> : <strong>${entier(cetteAnnee.total)} entrées</strong>${
-        cetteAnnee.autre === 0 && cetteAnnee.total > 0
-          ? `, dont ${pourcent(cetteAnnee.gratuit / cetteAnnee.total)} gratuites` : ""}.`
-    : html`En <strong>${annee}</strong> : pas d'entrées déclarées.`}
-  ${detail.lien ? html`<br><small>Entrées comptées avec : ${detail.lien}.</small>` : ""}</p>
-</div>`
+choix.length > 1
+  ? html`<div class="fiche-musee">
+      <h4>Comparaison de ${choix.length} musées</h4>
+      <ul class="fiche-liste">${choix.map((id, i) => {
+        const m = infos.get(id)
+        const d = entreesChoix(id)
+        return html`<li style="--c: ${couleursChoix[i]}">
+          <span class="point"></span>
+          <span><strong>${m.nom}</strong> <span class="commune">${m.commune}</span><br>
+          ${d && d.total > 0 ? `${entier(d.total)} entrées en ${annee}` : `En ${annee} : pas d'entrées déclarées`}</span>
+        </li>`
+      })}</ul>
+    </div>`
+  : html`<div class="fiche-musee">
+      <h4>${detail.titre}</h4>
+      <p class="sous-titre">${detail.sousTitre}</p>
+      <p>${cetteAnnee && cetteAnnee.total > 0
+        ? html`En <strong>${annee}</strong> : <strong>${entier(cetteAnnee.total)} entrées</strong>${
+            cetteAnnee.ventile
+              ? `, dont ${pourcent(cetteAnnee.gratuit / cetteAnnee.total)} gratuites` : ""}.`
+        : html`En <strong>${annee}</strong> : pas d'entrées déclarées.`}
+      ${detail.lien ? html`<br><small>Entrées comptées avec : ${detail.lien}.</small>` : ""}</p>
+    </div>`
 ```
 
 ```{ojs}
 //| echo: false
+// Échelle logarithmique, utile pour comparer un grand musée et un petit.
+viewof logarithmique = {
+  const bascule = Inputs.toggle({label: "Échelle logarithmique", value: false})
+  bascule.style.setProperty("--label-width", "auto")
+  return bascule
+}
+```
+
+```{ojs}
+//| echo: false
+// Les courbes sur une base commune, étiquetées à leur extrémité (pas de légende, pas d'empilement).
 {
-  const long = detail.lignes.flatMap((d) => [
-    {annee: d.annee, type: "Payantes", n: d.payant},
-    {annee: d.annee, type: "Gratuites", n: d.gratuit},
-    {annee: d.annee, type: "Non ventilées", n: d.autre}
-  ]).filter((d) => d.n > 0)
-  const max = d3.max(detail.lignes, (d) => d.total) ?? 0
+  const plusieurs = choix.length > 1
+  const couleurTexte = sombre ? "#e6e6e6" : "#222"
+  const raccourcir = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s)
+  // Une valeur par année du domaine : NaN quand il n'y a rien, ce qui coupe la courbe.
+  const points = (nom, etiquette, lignes, valeur) => {
+    const parAnnee = new Map(lignes.map((d) => [d.annee, d]))
+    return annees.map((a) => {
+      const v = parAnnee.has(a) ? valeur(parAnnee.get(a)) : null
+      return {annee: a, serie: nom, etiquette, n: v > 0 ? v : NaN}
+    })
+  }
+  let courbes
+  let nonVentilees = 0
+  if (!plusieurs) {
+    const lignes = detail.lignes
+    const ventilees = lignes.filter((d) => d.ventile)
+    nonVentilees = lignes.filter((d) => d.total > 0 && !d.ventile).length
+    courbes = [
+      {couleur: couleurTexte, epaisseur: 2.5, pts: points("Total", "Total", lignes, (d) => d.total)},
+      {couleur: sombre ? "#7ea3d1" : "#3a6aa8", epaisseur: 1.8, pts: points("Payantes", "Payantes", ventilees, (d) => d.payant)},
+      {couleur: sombre ? "#f08a3c" : "#d95f02", epaisseur: 1.8, pts: points("Gratuites", "Gratuites", ventilees, (d) => d.gratuit)}
+    ]
+  } else {
+    courbes = choix.map((id, i) => {
+      const m = infos.get(id)
+      return {
+        couleur: couleursChoix[i], epaisseur: 2,
+        pts: points(m.nom, raccourcir(m.nom, 18), parMusee.get(id) ?? [], (d) => d.total)
+      }
+    })
+  }
+  const definis = (c) => c.pts.filter((p) => !Number.isNaN(p.n))
+  const tous = courbes.flatMap(definis)
+  const max = d3.max(tous, (p) => p.n) ?? 0
   const echelle = max >= 1e6 ? [1e6, "millions"] : max >= 1e4 ? [1e3, "milliers"] : [1, ""]
-  return Plot.plot({
+  const log = logarithmique
+  // En logarithmique, une graduation par puissance de dix, en nombre d'entrées.
+  const puissances = d3.range(0, 9).map((k) => 10 ** k)
+    .filter((p) => p >= (d3.min(tous, (d) => d.n) ?? 1) / 10 && p <= max)
+  const axeY = log
+    ? {type: "log", label: "↑ Entrées", ticks: puissances,
+       tickFormat: (d) => (d >= 1e6 ? `${(d / 1e6).toLocaleString("fr-FR")} M` : entier(d))}
+    : {label: `↑ Entrées${echelle[1] ? ` (${echelle[1]})` : ""}`,
+       tickFormat: (d) => (d / echelle[0]).toLocaleString("fr-FR")}
+  const graphique = Plot.plot({
     width: 460,
     height: 300,
     style: stylePlot,
     marginLeft: 44,
-    x: {type: "band", domain: annees, label: null, ticks: annees.filter((a) => a % 5 === 0), tickFormat: String},
-    y: {label: `↑ Entrées${echelle[1] ? ` (${echelle[1]})` : ""}`, grid: true,
-        tickFormat: (d) => (d / echelle[0]).toLocaleString("fr-FR")},
-    color: {domain: types, range: couleursTypes, legend: true,
-            style: {background: "transparent", color: "inherit"}},
+    marginRight: 110,
+    x: {type: "linear", domain: [annees[0], annees.at(-1)], label: null,
+        ticks: annees.filter((a) => a % 5 === 0), tickFormat: String},
+    y: axeY,
     marks: [
-      Plot.barY(long, {
-        x: "annee", y: "n", fill: "type", order: types,
-        fillOpacity: (d) => (d.annee === annee ? 1 : 0.55),
-        tip: true,
-        title: (d) => `${d.annee}\n${d.type} : ${entier(d.n)}`
-      }),
-      Plot.ruleY([0])
+      Plot.gridY(log ? puissances : undefined, {stroke: couleurTexte, strokeOpacity: 0.12}),
+      log ? null : Plot.ruleY([0]),
+      Plot.ruleX([annee], {stroke: couleurTexte, strokeOpacity: 0.3}),
+      courbes.map((c) => [
+        Plot.line(c.pts, {x: "annee", y: "n", stroke: c.couleur, strokeWidth: c.epaisseur}),
+        Plot.dot(definis(c).filter((p) => p.annee === annee), {x: "annee", y: "n", fill: c.couleur, r: 4}),
+        Plot.text(definis(c).slice(-1), {
+          x: "annee", y: "n", text: "etiquette", fill: c.couleur,
+          textAnchor: "start", dx: 6, fontWeight: 600
+        })
+      ]),
+      Plot.tip(tous, Plot.pointer({
+        x: "annee", y: "n",
+        title: (d) => `${d.annee}\n${d.serie} : ${entier(d.n)}`
+      }))
     ]
   })
+  return html`<div>${graphique}${nonVentilees > 0
+    ? html`<small>Répartition payantes/gratuites inconnue pour ${nonVentilees} ${nonVentilees > 1 ? "années" : "année"}.</small>`
+    : ""}</div>`
 }
 ```
 
@@ -275,7 +473,7 @@ carte = {
   map.addControl(new maplibregl.NavigationControl({showCompass: false}))
   map.styleCourant = styleDepart
   map.annee = annees.at(-1)
-  map.choix = ""
+  map.choix = []
   const filtre = (a) => [">", entreesAnnee(a), 0]
   // Nos couches, à rajouter à chaque changement de style (thème clair/sombre).
   const ajouterCouches = () => {
@@ -293,13 +491,14 @@ carte = {
         "circle-stroke-width": 0.6
       }
     })
+    const contour = contourChoix(map.choix, paletteChoix(sombreIci))
     map.addLayer({
       id: "choisi", type: "circle", source: "musees",
-      filter: ["==", ["get", "id"], map.choix],
+      filter: contour.filtre,
       paint: {
         "circle-radius": rayon(map.annee),
         "circle-color": "rgba(0, 0, 0, 0)",
-        "circle-stroke-color": sombreIci ? "#f5a142" : "#e0700b",
+        "circle-stroke-color": contour.couleur,
         "circle-stroke-width": 3
       }
     })
@@ -328,10 +527,9 @@ carte = {
     map.getCanvas().style.cursor = ""
     bulle.remove()
   })
-  // Un clic choisit le musée dans la liste, qui met à jour le graphique.
+  // Un clic ajoute le musée à la sélection, ou l'en retire.
   map.on("click", "musees", (e) => {
-    viewof musee.value = e.features[0].properties.id
-    viewof musee.dispatchEvent(new Event("input", {bubbles: true}))
+    viewof choix.basculer(e.features[0].properties.id)
   })
   return map
 }
@@ -341,15 +539,20 @@ carte = {
 //| echo: false
 // Cellules nommées : Quarto n'affiche pas leur valeur.
 miseAJourAnnee = carte.changerAnnee(annee)
-miseAJourMusee = {
-  carte.choix = musee
-  if (carte.getLayer("choisi")) carte.setFilter("choisi", ["==", ["get", "id"], musee])
-  // Choisi dans la liste : on recentre la carte s'il n'est pas dans le cadre.
-  const m = infos.get(musee)
+miseAJourChoix = {
+  const ancien = carte.choix
+  carte.choix = choix
+  if (carte.getLayer("choisi")) {
+    const contour = contourChoix(choix, couleursChoix)
+    carte.setFilter("choisi", contour.filtre)
+    carte.setPaintProperty("choisi", "circle-stroke-color", contour.couleur)
+  }
+  // Dernier musée ajouté : on recentre la carte s'il n'est pas dans le cadre.
+  const m = infos.get(choix.find((id) => !ancien.includes(id)))
   if (m && !carte.getBounds().contains([m.lon, m.lat])) {
     carte.easeTo({center: [m.lon, m.lat], zoom: Math.max(carte.getZoom(), 9)})
   }
-  return musee
+  return choix
 }
 theme = {
   const style = sombre ? styleSombre : styleClair
@@ -366,8 +569,9 @@ cadrage = carte.fitBounds(territoire, {padding: 20})
 //| echo: false
 html`<p><small>Un cercle par musée de France, d'aire proportionnelle à ses entrées de l'année
 choisie ; les musées sans entrées déclarées cette année-là ne sont pas dessinés. Cliquez sur un
-musée, ou choisissez-le dans la liste, pour voir ses entrées depuis ${annees[0]} ; zoomez pour
-séparer les musées de Paris. Source : ministère de la Culture, fréquentation des musées de France
+musée, ou cherchez-le par son nom ou sa ville, pour voir ses entrées depuis ${annees[0]} ; un clic
+sur la carte ajoute ou retire un musée, jusqu'à six pour les comparer. Zoomez pour séparer les
+musées de Paris. Source : ministère de la Culture, fréquentation des musées de France
 ; fond Plan IGN.</small></p>`
 ```
 
@@ -570,6 +774,11 @@ places AS (
 SELECT id, upper(nom[1]) || nom[2:] AS nom, commune, departement,
        round(lon, 5) AS lon, round(lat, 5) AS lat, lien_avec
 FROM places
+""")
+# Le Louvre-Lens n'est pas dans la liste des musées de France : on le place à la main.
+con.sql("""
+UPDATE musees SET commune = 'Lens', departement = 'Pas-de-Calais', lon = 2.80417, lat = 50.43028
+WHERE id = '6249801'
 """)
 con.sql("""
 SELECT count(*) AS musees, count(lon) AS places,
