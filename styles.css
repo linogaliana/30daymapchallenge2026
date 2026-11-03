@@ -691,6 +691,154 @@ button.ecouter:hover {
   opacity: 0.75;
 }
 
+/* J13 : sélecteur de musées (recherche, pastilles colorées) */
+.choix-musees {
+  position: relative;
+  --choix-0: #e0700b;
+  --choix-1: #1f78b4;
+  --choix-2: #2a9d4b;
+  --choix-3: #d6336c;
+  --choix-4: #8c6d1f;
+  --choix-5: #0f8f98;
+}
+
+body.quarto-dark .choix-musees {
+  --choix-0: #f5a142;
+  --choix-1: #6aaee8;
+  --choix-2: #5cc97a;
+  --choix-3: #f07aa0;
+  --choix-4: #d6b456;
+  --choix-5: #4fd1d9;
+}
+
+.choix-champ {
+  width: 100%;
+  padding: 0.4em 0.6em;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+
+.choix-suggestions {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 16em;
+  overflow-y: auto;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  border-radius: 4px;
+  background: #fff;
+  color: #222;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+body.quarto-dark .choix-suggestions {
+  background: #2d2d2d;
+  color: #e6e6e6;
+}
+
+.choix-suggestions[hidden] {
+  display: none;
+}
+
+.choix-suggestions li {
+  padding: 0.35em 0.6em;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.choix-suggestions li.actif,
+.choix-suggestions li:hover {
+  background: rgba(128, 128, 128, 0.25);
+}
+
+.choix-pastilles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35em;
+  margin-top: 0.4em;
+}
+
+.pastille-musee {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.1em 0.2em 0.1em 0.6em;
+  border: 2px solid var(--c);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+  font-size: 0.85em;
+}
+
+.pastille-musee button,
+.choix-effacer {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.pastille-musee button {
+  padding: 0 0.4em;
+  font-size: 1.1em;
+  line-height: 1.2;
+}
+
+.choix-effacer {
+  padding: 0.1em 0.3em;
+  font-size: 0.85em;
+  text-decoration: underline;
+}
+
+.choix-message {
+  margin: 0.3em 0 0;
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+.choix-message:empty {
+  display: none;
+}
+
+.choix-0 { --c: var(--choix-0); }
+.choix-1 { --c: var(--choix-1); }
+.choix-2 { --c: var(--choix-2); }
+.choix-3 { --c: var(--choix-3); }
+.choix-4 { --c: var(--choix-4); }
+.choix-5 { --c: var(--choix-5); }
+
+.fiche-liste {
+  list-style: none;
+  margin: 0.4em 0 0;
+  padding: 0;
+  font-size: 0.9em;
+}
+
+.fiche-liste li {
+  display: flex;
+  gap: 0.5em;
+  margin-bottom: 0.4em;
+}
+
+.fiche-liste .point {
+  flex: none;
+  width: 0.8em;
+  height: 0.8em;
+  margin-top: 0.3em;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+.fiche-liste .commune {
+  opacity: 0.75;
+}
+
 @media (max-width: 575.98px) {
   .mosaique {
     grid-template-columns: repeat(3, minmax(0, 1fr));
