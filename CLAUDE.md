@@ -6,6 +6,39 @@ Site Quarto des 30 cartes du [#30DayMapChallenge](https://30daymapchallenge.com/
 
 Ne jamais faire `git commit` ni `git push`, sauf demande explicite. Ne pas non plus modifier l'index (`git add`, `git restore --staged`) sans qu'on le demande.
 
+Quand un commit est demandé, ne pas le signer : pas de ligne `Co-Authored-By: Claude…` ni de mention « Generated with Claude Code » dans le message. Le message ne contient que la description du changement.
+
+## Branches : `dev`, pas `main`
+
+`main` est le site publié : tout push sur `main` déclenche la publication sur GitHub Pages (`publish.yml`). Ne jamais fusionner dans `main` sans demande explicite de mise en ligne. Le travail se fait dans des branches ; quand une ligne de travail est finie (et qu'on a demandé de committer), sa branche est fusionnée dans `dev`. Créer `dev` à partir de `main` si elle n'existe pas encore.
+
+## Travailler dans un worktree git
+
+Ne jamais modifier le code dans le dépôt principal (`C:\Users\linog\Documents\PROJECTS\30daymapchallenge2026`). Toute modification se fait dans un worktree git sur sa propre branche, créé par `git worktree add .claude/worktrees/<nom> -b <branche>` (`.claude/` est ignoré par git) ou par l'isolation en worktree de l'agent. Cela vaut pour les sous-agents : chacun a son worktree, pour que des travaux en parallèle ne se marchent pas dessus. Jamais de `git stash` pour déplacer du travail : passer par un worktree ou par `git diff` / `git apply`.
+
+Comme on ne committe pas sans demande, le travail d'un sous-agent se récupère par `git diff` dans son worktree, appliqué (`git apply`) dans le worktree d'intégration de l'agent principal.
+
+Un worktree ne contient que les fichiers versionnés : ni `_freeze/`, ni `jours/donnees/`, ni `.venv`, ni les fichiers non suivis (un `jours/_liens/NN-theme.py` pas encore ajouté, par exemple). Y lancer `uv sync` avant tout rendu, et s'attendre à ce que le premier rendu réexécute tout et retélécharge les sources.
+
+## Orchestrer, pas implémenter
+
+L'agent principal planifie, délègue, relit et vérifie. Il n'écrit pas le premier jet du code.
+
+- Découper. Diviser la tâche en morceaux indépendants aux frontières de fichiers nettes (une page `jours/NN-theme.qmd`, son `_liens/NN-theme.py`, un filtre Lua, `styles.css`…), avec pour chacun un brief précis : quoi changer, où, et à quoi on reconnaît que c'est fini.
+- Implémenter avec des sous-agents économiques en parallèle. Confier chaque morceau à un sous-agent sur le modèle le moins cher capable de le faire (Haiku sous Claude, le plus petit modèle mini sous Codex). Lancer les morceaux indépendants en même temps, chacun dans son worktree.
+- Relire au centre. Quand les sous-agents ont fini, l'agent principal lit lui-même chaque diff : justesse, cohérence entre les morceaux, accord avec le code voisin et avec les règles de ce fichier (français, typographie, `requests`, `SOURCES[...]`, thèmes clair et sombre…). Il ne réunit les morceaux qu'après cette relecture.
+- Vérifier au centre. Seulement après la relecture, l'agent principal lance les vérifications, une fois, sur le résultat réuni : `uv run quarto render jours/NN-theme.qmd` pour les pages touchées (ou `uv run quarto render` si le changement est commun), `scripts/sauvegardes.py` après un ajout de source, et un coup d'œil aux pages en clair et en sombre.
+- Déléguer les corrections. Les problèmes trouvés à la relecture ou aux vérifications repartent à des sous-agents économiques avec un brief précis, en parallèle quand c'est possible. Puis relire et vérifier de nouveau.
+- Corriger soi-même seulement à la toute fin. L'agent principal ne modifie le code directement que pour les dernières petites retouches, quand la délégation ne vaut plus la peine.
+
+## Les sous-agents ne vérifient rien
+
+Les sous-agents ne lancent ni rendu Quarto (`quarto render`, `quarto preview`), ni scripts (`scripts/*.py`), ni tests, linters, vérificateurs de types, ni formateurs qui réécrivent d'autres fichiers, ni aucune autre commande de vérification. Ils écrivent le code et rendent compte de ce qu'ils ont changé. Le dire explicitement dans chaque brief de sous-agent. Toute vérification revient à l'agent principal, après relecture.
+
+## Cas limites et sur-ingénierie
+
+Avant d'ajouter de la complexité pour un cas limite hypothétique ou très improbable (concurrence, sécurité, source qui change de format…), expliquer à l'utilisateur le scénario d'échec concret, sa probabilité et le coût en complexité, et obtenir son accord. Ne pas élargir le périmètre en silence au nom d'une robustesse théorique.
+
 ## Structure
 
 - `jours/NN-theme.qmd` : une page par jour (`01-points.qmd`…). Le numéro en tête du nom de fichier est le jour : l'accueil s'en sert.
