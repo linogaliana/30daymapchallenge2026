@@ -53,7 +53,8 @@ communes = d3.csv("donnees/j12/communes.csv", (d) => ({...d, age: d.age === "" ?
 
 // Une vue par caractéristique du maire, lue dans une propriété des contours (s, a, g) qui
 // donne le rang de la classe. Les communes sans maire renseigné sont en gris.
-// Sur fond sombre, l'âge va du foncé au clair : les plus âgés restent les plus visibles.
+// En vues « Âge » et « Profession », une seule classe en couleur (choisie dans une liste),
+// les autres en gris : `rang` donne la classe d'une commune du tableau, pour les décomptes.
 vues = [
   {
     nom: "Sexe",
@@ -65,17 +66,19 @@ vues = [
     nom: "Âge",
     propriete: "a",
     classes: libelles.age,
-    couleurs: sombre ? ["#4a2a1a", "#8c4a2a", "#d9603b", "#fbb48a"]
-                     : ["#fde0c5", "#f6a77a", "#d9603b", "#8c2d04"]
+    couleur: sombre ? "#f08a3c" : "#d95f02",
+    autres: "Autres âges",
+    rang: (c) => c.age === null ? null : c.age < 50 ? 0 : c.age < 60 ? 1 : c.age < 70 ? 2 : 3
   },
   {
     nom: "Profession",
     propriete: "g",
-    classes: libelles.groupe
+    classes: libelles.groupe,
+    couleur: sombre ? "#4cc26b" : "#1a9850",
+    autres: "Autres catégories",
+    rang: (c) => c.groupe === "" ? null : libelles.groupe.indexOf(c.groupe)
   }
 ]
-// En vue « Profession », une seule catégorie en couleur, les autres en gris.
-vert = sombre ? "#4cc26b" : "#1a9850"
 grisPale = sombre ? "#4a4a4a" : "#d4d4d4"
 ```
 
@@ -131,13 +134,19 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[2]}
 
 ```{ojs}
 //| echo: false
+viewof classeAge = Inputs.select(libelles.age, {label: "Âge", value: libelles.age[3]})
+```
+
+```{ojs}
+//| echo: false
 viewof categorie = Inputs.select(libelles.groupe, {label: "Catégorie", value: libelles.groupe[0]})
 ```
 
 ```{ojs}
 //| echo: false
-// Le choix de la catégorie ne sert qu'en vue « Profession ».
-afficherCategorie = {
+// Chaque liste ne s'affiche que dans sa vue.
+afficherListes = {
+  viewof classeAge.style.display = vue.nom === "Âge" ? "" : "none"
   viewof categorie.style.display = vue.nom === "Profession" ? "" : "none"
   return vue.nom
 }
@@ -147,14 +156,15 @@ afficherCategorie = {
 //| echo: false
 // Couleur de chaque commune (expression MapLibre) et légende de la vue choisie.
 coloriage = {
-  if (vue.nom === "Profession") {
-    const rang = libelles.groupe.indexOf(categorie)
-    const n = communes.filter((c) => c.groupe === categorie).length
-    const total = communes.filter((c) => c.groupe !== "").length
+  if (vue.rang) {
+    const choix = vue.nom === "Âge" ? classeAge : categorie
+    const rang = vue.classes.indexOf(choix)
+    const renseignees = communes.filter((c) => vue.rang(c) !== null)
+    const n = renseignees.filter((c) => vue.rang(c) === rang).length
     return {
-      expression: ["case", ["==", ["get", "g"], rang], vert, grisPale],
-      legende: [[`${categorie} : ${entier(n)} maires (${pourcent(n / total, 1)})`, vert],
-                ["Autres catégories, ou maire non renseigné", grisPale]]
+      expression: ["case", ["==", ["get", vue.propriete], rang], vue.couleur, grisPale],
+      legende: [[`${choix} : ${entier(n)} maires (${pourcent(n / renseignees.length, 1)})`, vue.couleur],
+                [`${vue.autres}, ou maire non renseigné`, grisPale]]
     }
   }
   const paires = vue.classes.map((c, i) => [c, vue.couleurs[i]])
