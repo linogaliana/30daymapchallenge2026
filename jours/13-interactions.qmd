@@ -8,7 +8,17 @@ resources:
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#6a3d9a"
+  sombre: "#b58be0"
 ---
+
+Pour la treizième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Interactions"**]{.underline color="#e0700b"}), on regarde la rencontre entre des lieux et leur public : [les musées de France]{.underline}, et leur [fréquentation]{.underline}, que le [ministère de la Culture]{.underline color="#1f78b4"} recense chaque année, musée par musée, de 2001 à 2024 ([[fréquentation des musées de France]{.underline}](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1) sur data.gouv). Cherchez un musée par son nom ou sa ville, ou cliquez sur la carte : le graphique à côté montre ses entrées depuis 2001. En choisissant plusieurs musées (jusqu'à six), on compare leurs courbes (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -18,21 +28,13 @@ pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
 millions = (x) => `${virgule(x / 1e6)} millions`
 html`<p class="lead">
   En ${chiffres.annee}, les ${entier(chiffres.musees)} musées de France qui ont déclaré leur
-  fréquentation ont reçu <strong>${millions(chiffres.entrees)} d'entrées</strong>. Le Louvre et
+  fréquentation ont reçu <span class="souligne">${millions(chiffres.entrees)} d'entrées</span>. Le Louvre et
   Versailles en font ${pourcent(chiffres.part_deux)} à eux deux, les dix premiers musées
   ${pourcent(chiffres.part_dix)}. Un musée sur deux reçoit moins de
   ${entier(chiffres.mediane)} visiteurs par an. En 2020, la fréquentation avait chuté de
   ${pourcent(chiffres.baisse_2020)} par rapport à 2019.
 </p>`
 ```
-
-Pour ce treizième jour, consacré aux interactions, on regarde la rencontre entre des lieux et leur
-public : les entrées dans les musées de France, que le ministère de la Culture recense chaque
-année, musée par musée. Cherchez un musée par son nom ou sa ville, ou cliquez sur la carte : le
-graphique à côté montre ses entrées depuis 2001. En choisissant plusieurs musées (jusqu'à six), on
-compare leurs courbes (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -575,22 +577,25 @@ musées de Paris. Source : ministère de la Culture, fréquentation des musées 
 ; fond Plan IGN.</small></p>`
 ```
 
---------
+:::
 
-On va maintenant décrire comment obtenir les données de cette carte.
+# Making of
 
 ## Les données
 
+La carte croise trois sources publiques :
+
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Fréquentation des musées de France](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1), fichier des entrées depuis 2014 | Ministère de la Culture | les entrées payantes, gratuites et totales de chaque musée, de 2014 à 2024 | CSV |
-| [Fréquentation des musées de France](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1), fichier historique | Ministère de la Culture | les mêmes entrées, de 2001 à 2016 | Excel |
-| [Liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france) | Ministère de la Culture | le nom officiel, la commune et la position de chaque musée | CSV |
+| [Fréquentation des musées de France](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1), fichier des entrées depuis 2014 | Ministère de la Culture | les entrées payantes, gratuites et totales de chaque musée, de 2014 à 2024 | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Fréquentation des musées de France](https://www.data.gouv.fr/datasets/frequentation-des-musees-de-france-1), fichier historique | Ministère de la Culture | les mêmes entrées, de 2001 à 2016 | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france) | Ministère de la Culture | le nom officiel, la commune et la position de chaque musée | {{< iconify vscode-icons file-type-csv >}} CSV |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import pathlib
 import tempfile
@@ -617,13 +622,14 @@ feuille par type d'entrées, une colonne par année), l'autre depuis 2014 (un CS
 musée et par année). Un musée y est repéré par un identifiant à sept chiffres, le même dans les
 deux fichiers.
 
-La [liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france)
+La [[liste des musées de France]{.underline}](https://www.data.gouv.fr/datasets/liste-des-musees-de-france)
 donne, pour chacun, son nom officiel, sa commune et sa position. Elle porte deux identifiants :
 celui de la base Muséofile, et celui des fichiers de fréquentation.
 
 On télécharge les trois fichiers par leur lien stable sur data.gouv.
 
 ```{python}
+#| filename: "Lecture des trois fichiers (ministère de la Culture)"
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -699,6 +705,7 @@ le fichier récent a été révisé pour quelque 200 musées par an, et l'écart
 l'ordre de 1 %.
 
 ```{python}
+#| filename: "Comparaison des deux fichiers"
 con.sql("""
 SELECT annee,
        (SELECT sum(total) FROM historique h WHERE h.annee = r.annee) AS total_historique,
@@ -715,6 +722,7 @@ le plus élevé. Enfin, la répartition entre entrées payantes et gratuites n'e
 lorsqu'elle s'additionne au total ; sinon, le total est dit « non ventilé ».
 
 ```{python}
+#| filename: "Les séries de chaque musée"
 con.sql("""
 CREATE TABLE series AS
 WITH toutes AS (
@@ -749,6 +757,7 @@ musées d'une ville partagent un même billet : la colonne `lien_avec` du fichie
 alors l'identifiant du musée qui les compte.
 
 ```{python}
+#| filename: "Placer les musées"
 con.sql("""
 CREATE TABLE musees AS
 WITH derniers AS (
@@ -794,6 +803,7 @@ musées qui répondent change d'une année à l'autre : il faut en tenir compte 
 totaux.
 
 ```{python}
+#| filename: "Les chiffres de l'accroche"
 ensemble = con.sql("""
 SELECT annee, count(*) FILTER (total > 0) AS musees, sum(total) AS total,
        coalesce(sum(payant), 0) AS payant, coalesce(sum(gratuit), 0) AS gratuit
@@ -818,6 +828,7 @@ ensemble.tail()
 Les dix musées les plus fréquentés :
 
 ```{python}
+#| filename: "Les dix musées les plus fréquentés"
 con.sql(f"""
 SELECT m.nom, m.commune, s.total
 FROM series s JOIN musees m USING (id)
@@ -832,6 +843,7 @@ propriété nommée par l'année (`"2024"`…). Les séries complètes et la tab
 écrites à part, en CSV, pour le graphique et le téléchargement, dans `donnees/j13/`.
 
 ```{python}
+#| filename: "Ce qui passe à la carte"
 SORTIE = pathlib.Path("donnees/j13")
 SORTIE.mkdir(parents=True, exist_ok=True)
 
@@ -871,6 +883,8 @@ len(geojson["features"]), f"{(SORTIE / 'musees.geojson').stat().st_size / 1e3:.0
 ```
 
 ```{python}
+#| output: false
+#| filename: "Ce qui passe à la page (ojs_define)"
 ojs_define(
     geojson=geojson,
     ensemble=ensemble.to_dict("records"),
@@ -881,7 +895,13 @@ ojs_define(
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient une table des musées de France, avec leurs entrées année par année. La carte est faite en `Javascript` avec [MapLibre](https://maplibre.org/), le graphique avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -931,8 +951,12 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
 
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
+
+- Le Louvre-Lens, absent de la liste des musées de France, est placé à la main.
 - Seuls les musées qui ont l'appellation « musée de France » sont comptés. Beaucoup de lieux
   très visités n'en sont pas : les monuments (le Mont-Saint-Michel, l'Arc de triomphe…), les
   lieux d'exposition sans collection, les musées privés sans appellation.
@@ -950,9 +974,16 @@ DOM.download(
 - La liste des musées de France, qui donne leur position, est archivée sur data.gouv depuis
   juin 2026. Les musées qui en sont sortis comptent dans le total, mais ne sont pas sur la carte.
 
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
-- Ministère de la Culture, [Base des lieux et équipements culturels (Basilic)](https://www.data.gouv.fr/datasets/61777ddaa9101d073e5506cd),
+- Ministère de la Culture, [[Base des lieux et équipements culturels (Basilic)]{.underline}](https://www.data.gouv.fr/datasets/61777ddaa9101d073e5506cd),
   qui recense les musées, mais aussi les cinémas, bibliothèques, salles de spectacle…
-- Ministère de la Culture, [Plateforme ouverte du patrimoine (POP)](https://pop.culture.gouv.fr/),
+- Ministère de la Culture, [[Plateforme ouverte du patrimoine (POP)]{.underline}](https://pop.culture.gouv.fr/),
   qui donne accès à la base Muséofile et aux collections des musées de France.
+
+:::

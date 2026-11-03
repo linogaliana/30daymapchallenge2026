@@ -721,10 +721,7 @@ body.quarto-dark .choix-musees {
 }
 
 .choix-suggestions {
-  position: absolute;
-  z-index: 20;
-  left: 0;
-  right: 0;
+  position: static;
   margin: 2px 0 0;
   padding: 0;
   list-style: none;
