@@ -3,7 +3,7 @@ title: "J14 · Borgesian map. La carte qui recouvre tout"
 description: "Une carte qui s'ouvre sur une adresse, où l'on ajoute couche après couche les équipements des autres jours, jusqu'à recouvrir le territoire, comme la carte de Borges."
 charte: {couleur: "#7048e8", sombre: "#b197fc"}
 resources:
-  - donnees/j14/*.fgb
+  - donnees/j14/*.parquet
 execute:
   echo: true
 code-overflow: wrap
@@ -109,6 +109,7 @@ body.quarto-dark .j14-pastille { background: var(--cs); }
 .j14-couche.trop-loin { opacity: 0.55; }
 .j14-couche.trop-loin .j14-zmin { display: inline; }
 .j14-carte { height: clamp(380px, 75vh, 600px); border-radius: 4px; }
+.j14-bulle { pointer-events: none; }
 </style>`
 ```
 
@@ -254,7 +255,29 @@ maplibregl = {
   return require("maplibre-gl@4.7.1")
 }
 
-fgb = require("https://cdn.jsdelivr.net/npm/flatgeobuf@3.36.0/dist/flatgeobuf-geojson.min.js")
+// DuckDB-WASM, chargé une fois : il lit les fichiers Parquet par requêtes HTTP partielles.
+duckdb = import("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm")
+
+base = {
+  const paquets = duckdb.getJsDelivrBundles()
+  const paquet = await duckdb.selectBundle(paquets)
+  const urlTravailleur = URL.createObjectURL(new Blob([`importScripts("${paquet.mainWorker}");`], {type: "text/javascript"}))
+  const travailleur = new Worker(urlTravailleur)
+  const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), travailleur)
+  await db.instantiate(paquet.mainModule, paquet.pthreadWorker)
+  URL.revokeObjectURL(urlTravailleur)
+  const connexion = await db.connect()
+  return connexion
+}
+
+urlPoints = new URL("donnees/j14/points.parquet", document.baseURI).href
+
+// Les entiers de DuckDB peuvent revenir en BigInt : on les convertit en nombres.
+requete = async (sql) => (await base.query(sql)).toArray().map((r) => {
+  const ligne = r.toJSON()
+  for (const k in ligne) if (typeof ligne[k] === "bigint") ligne[k] = Number(ligne[k])
+  return ligne
+})
 
 // Thème du site (clair/sombre), suivi quand l'utilisateur le change.
 sombre = Generators.observe((notifier) => {
@@ -332,6 +355,7 @@ carte = {
   // État propre à la carte.
   map.sombre = document.body.classList.contains("quarto-dark")
   map.activesCourantes = new Set()
+  map.requeteDetail = 0
   map.donnees = Object.fromEntries(toutes.map((c) => [c.cle, vide]))
   map.lignes = Object.fromEntries(toutes.map((c) => [c.cle, []]))
   map.statuts = {}
@@ -430,25 +454,39 @@ carte = {
       if ((donnees.numberMatched > donnees.numberReturned) || retournes >= PLAFOND_WFS) {
         statut = {etat: "plafond", message: `${entier(PLAFOND_WFS)} premiers objets`}
       }
-    } else {
-      const url = new URL(c.fichier, document.baseURI).href
-      const rect = {minX: emprise.ouest, minY: emprise.sud, maxX: emprise.est, maxY: emprise.nord}
-      for await (const f of fgb.deserialize(url, rect)) {
-        if (perime()) return null
-        if (objets.length >= PLAFOND_FICHIER) {
-          statut = {etat: "plafond", message: `${entier(PLAFOND_FICHIER)} premiers objets`}
-          break
-        }
-        const p = f.properties ?? {}
-        const [lon, lat] = f.geometry.coordinates
-        objets.push({type: "Feature", geometry: f.geometry, properties: p})
-        lignes.push({
-          couche: c.nom, nom: p.n ?? "", type: p.t == null ? "" : (libelles[p.t] ?? p.t),
-          lon: arrondir(lon), lat: arrondir(lat)
-        })
-      }
     }
     return {objets, lignes, statut}
+  }
+
+  // Les couches de points : une seule requête DuckDB-WASM sur points.parquet, pour toutes les
+  // couches actives et assez zoomées. Parquet ne télécharge que les blocs qui touchent la vue.
+  const lirePoints = async (cs, emprise) => {
+    const cles = cs.map((c) => c.cle)
+    if (!cles.every((cle) => /^[a-z_]+$/.test(cle))) throw new Error("clé de couche invalide")
+    const bornes = [emprise.ouest, emprise.est, emprise.sud, emprise.nord].map((x) => Math.round(Number(x) * 1e5))
+    if (!bornes.every(Number.isFinite)) throw new Error("emprise invalide")
+    const [ouest, est, sud, nord] = bornes
+    const lignesSql = await requete(`
+      SELECT couche, id, lon, lat FROM read_parquet('${urlPoints}')
+      WHERE couche IN (${cles.map((cle) => `'${cle}'`).join(", ")})
+        AND lon BETWEEN ${ouest} AND ${est} AND lat BETWEEN ${sud} AND ${nord}
+      QUALIFY row_number() OVER (PARTITION BY couche) <= ${PLAFOND_FICHIER + 1}`)
+    const resultats = new Map(cs.map((c) => [c.cle, {objets: [], lignes: [], statut: {etat: "ok"}}]))
+    for (const r of lignesSql) {
+      const resultat = resultats.get(r.couche)
+      if (!resultat) continue
+      if (resultat.objets.length >= PLAFOND_FICHIER) {
+        resultat.statut = {etat: "plafond", message: `${entier(PLAFOND_FICHIER)} premiers objets`}
+        continue
+      }
+      const lon = r.lon / 1e5
+      const lat = r.lat / 1e5
+      resultat.objets.push({
+        type: "Feature", geometry: {type: "Point", coordinates: [lon, lat]}, properties: {id: r.id}
+      })
+      resultat.lignes.push({couche: par_cle.get(r.couche).nom, id: r.id, lon, lat})
+    }
+    return resultats
   }
 
   // Charge, pour chaque couche active assez zoomée, les objets de l'emprise visible.
@@ -459,18 +497,34 @@ carte = {
       ouest: Math.max(-180, b.getWest()), est: Math.min(180, b.getEast()),
       sud: Math.max(-90, b.getSouth()), nord: Math.min(90, b.getNorth())
     }
+    const points = []
     for (const c of toutes) {
       if (!map.activesCourantes.has(c.cle)) { vider(c); continue }
       if (z < (c.zoom_min ?? 0)) { vider(c, {etat: "zoom"}); continue }
       const numero = (map.generations[c.cle] = (map.generations[c.cle] ?? 0) + 1)
       const perime = () => map.generations[c.cle] !== numero
       map.statuts[c.cle] = {etat: "chargement"}
+      if (!c.wfs) { points.push({c, numero, perime}); continue }
       lire(c, emprise, perime).then((resultat) => {
         if (resultat && !perime()) appliquer(c, resultat.objets, resultat.lignes, resultat.statut)
       }).catch((erreur) => {
         if (perime()) return
         console.error(c.cle, erreur)
         appliquer(c, [], [], {etat: "erreur", message: "indisponible"})
+      })
+    }
+    if (points.length) {
+      lirePoints(points.map((p) => p.c), emprise).then((resultats) => {
+        for (const {c, perime} of points) {
+          if (perime()) continue // requête périmée : ignorée
+          const r = resultats.get(c.cle)
+          appliquer(c, r.objets, r.lignes, r.statut)
+        }
+      }).catch((erreur) => {
+        console.error("points", erreur)
+        for (const {c, perime} of points) {
+          if (!perime()) appliquer(c, [], [], {etat: "erreur", message: "indisponible"})
+        }
       })
     }
     publier()
@@ -482,38 +536,69 @@ carte = {
   }
   map.on("moveend", map.planifier)
 
-  // Bulle : survol sur ordinateur, clic sur mobile.
-  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "280px"})
+  // Bulle : au survol, le nom de la couche ; au clic, le détail, lu dans points.parquet.
+  // Elle ignore la souris (classe j14-bulle) : sinon, ouverte sous le pointeur, elle ferait
+  // sortir la souris de la carte et se refermerait aussitôt.
+  const bulle = new maplibregl.Popup({
+    closeButton: false, closeOnClick: false, maxWidth: "280px", offset: 10, className: "j14-bulle"
+  })
   const par_cle = new Map(toutes.map((c) => [c.cle, c]))
   const decrire = (c, p) => {
-    if (c.decrire) {
-      const d = c.decrire(p)
-      return `<strong>${echapper(d.titre)}</strong><br>${d.lignes.filter(Boolean).join("<br>")}
-        <br><small>${echapper(c.nom)}</small>`
-    }
-    const type = p.t == null ? "" : (libelles[p.t] ?? p.t)
-    return `<strong>${echapper(p.n ?? "(sans nom)")}</strong>${type ? `<br>${echapper(type)}` : ""}
-      <br><small>${echapper(c.nom)}${c.jour ? ` · ${c.jour}` : ""}</small>`
+    const d = c.decrire(p)
+    return `<strong>${echapper(d.titre)}</strong><br>${d.lignes.filter(Boolean).join("<br>")}
+      <br><small>${echapper(c.nom)}</small>`
   }
-  const designer = (e) => {
+  const sous_titre = (c) => `<small>${echapper(c.nom)}${c.jour ? ` · ${c.jour}` : ""}</small>`
+  const trouver = (e) => {
     const ids = toutes.map((c) => c.cle).filter((id) => map.getLayer(id))
-    if (!ids.length) return
+    if (!ids.length) return null
     const {x, y} = e.point
     const objets = map.queryRenderedFeatures([[x - 4, y - 4], [x + 4, y + 4]], {layers: ids})
-    if (!objets.length) {
+    return objets.length ? objets[0] : null
+  }
+  let survolEnCours = true // la bulle de survol ne remplace pas une bulle ouverte par un clic
+  const designer = (e) => {
+    const objet = trouver(e)
+    if (!objet) {
       map.getCanvas().style.cursor = ""
-      bulle.remove()
+      if (survolEnCours) bulle.remove()
       return
     }
-    const objet = objets[0]
     const c = par_cle.get(objet.layer.id)
     map.getCanvas().style.cursor = "pointer"
-    bulle.setLngLat(e.lngLat).setHTML(decrire(c, objet.properties)).addTo(map)
+    if (!survolEnCours) return
+    bulle.setLngLat(e.lngLat)
+      .setHTML(c.decrire ? decrire(c, objet.properties)
+        : `<strong>${echapper(c.nom)}</strong><br><small>cliquez pour le détail</small>`)
+      .addTo(map)
   }
-  map.on("movestart", () => bulle.remove())
+  const cliquer = async (e) => {
+    const objet = trouver(e)
+    if (!objet) { survolEnCours = true; bulle.remove(); return }
+    const c = par_cle.get(objet.layer.id)
+    const numero = ++map.requeteDetail
+    if (c.decrire) { survolEnCours = true; bulle.setLngLat(e.lngLat).setHTML(decrire(c, objet.properties)).addTo(map); return }
+    survolEnCours = false
+    bulle.setLngLat(e.lngLat).setHTML("…").addTo(map)
+    const id = Number(objet.properties.id)
+    try {
+      if (!/^[a-z_]+$/.test(c.cle) || !Number.isInteger(id)) throw new Error("objet invalide")
+      const [d] = await requete(`SELECT identifiant, nom, type FROM read_parquet('${urlPoints}')
+        WHERE couche = '${c.cle}' AND id = ${id}`)
+      if (numero !== map.requeteDetail) return // un autre clic a eu lieu entre-temps
+      bulle.setHTML(`<strong>${echapper(d?.nom ?? "(sans nom)")}</strong>
+        ${d?.type ? `<br>${echapper(d.type)}` : ""}
+        ${d?.identifiant ? `<br>Identifiant : ${echapper(d.identifiant)}` : ""}
+        <br>${sous_titre(c)}`)
+    } catch (erreur) {
+      console.error(c.cle, erreur)
+      if (numero === map.requeteDetail) bulle.setHTML(`Détail indisponible<br>${sous_titre(c)}`)
+    }
+  }
+  map.on("movestart", () => { survolEnCours = true; bulle.remove() })
   map.on("mousemove", designer)
-  map.on("click", designer)
-  map.getCanvas().addEventListener("mouseleave", () => bulle.remove())
+  map.on("click", cliquer)
+  map.getCanvas().addEventListener("mouseleave", () => { if (survolEnCours) bulle.remove() })
 
   map.charger()
   return map
@@ -645,13 +730,12 @@ On va maintenant décrire comment obtenir les données de cette carte.
 
 ## Les données
 
-Sept fichiers sont téléchargés au rendu. Quatre services de l'IGN ne sont pas téléchargés : la carte
+Six fichiers sont téléchargés au rendu. Quatre services de l'IGN ne sont pas téléchargés : la carte
 les interroge directement, pour la vue affichée.
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
 | [Base permanente des équipements](https://www.insee.fr/fr/statistiques/8217525) (BPE) 2025 | Insee | la position, le nom et le type de 2,8 millions d'équipements et services, par domaine | {{< iconify vscode-icons file-type-parquet >}} Parquet |
-| [Nomenclature de la BPE](https://www.insee.fr/fr/metadonnees/source/fichier/BPE25_anonymisee_varmod.csv) | Insee | les domaines et les types d'équipements, avec leur libellé | {{< iconify vscode-icons file-type-csv >}} CSV |
 | [Base des lieux et équipements culturels](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) (Basilic) | Ministère de la Culture, Deps | le nom, le type et la position de chaque lieu culturel | {{< iconify vscode-icons file-type-csv >}} CSV |
 | [Liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france) | Ministère de la Culture | le nom officiel et la position de chaque musée | {{< iconify vscode-icons file-type-csv >}} CSV |
 | [Gares de voyageurs](https://ressources.data.sncf.com/explore/dataset/gares-de-voyageurs/) | SNCF Gares & Connexions | le nom et la position de chaque gare | {{< iconify vscode-icons file-type-parquet >}} Parquet |
@@ -685,33 +769,13 @@ SET enable_progress_bar = false
 {{< include _liens/14-borgesian-map.py >}}
 ```
 
-### La nomenclature de la BPE (Insee)
-
-La BPE est classée en sept domaines, de A (services pour les particuliers) à G (tourisme), et chaque
-équipement a un type, noté par un code : `D107` pour les maternités, `F305` pour les conservatoires.
-La nomenclature donne le libellé de chacun. Les types sont écrits en capitales dans le fichier : on
-les remet en minuscules, avec une capitale initiale.
-
-```{python}
-#| filename: "Lecture de la nomenclature (Insee)"
-con.sql(f"""
-CREATE TABLE nomenclature AS
-SELECT COD_VAR AS variable, COD_MOD AS code,
-       CASE WHEN COD_VAR = 'TYPEQU' THEN upper(left(LIB_MOD, 1)) || lower(substr(LIB_MOD, 2))
-            ELSE LIB_MOD END AS libelle
-FROM read_csv('{SOURCES["nomenclature_bpe"]}', delim = ';', header = true, all_varchar = true)
-WHERE COD_VAR IN ('DOM', 'TYPEQU')
-""")
-con.sql("""
-SELECT variable, count(*) AS modalites FROM nomenclature GROUP BY ALL ORDER BY ALL
-""").df().style.hide(axis="index")
-```
-
 ### Les équipements de la BPE (Insee)
 
 La [base permanente des équipements](https://www.insee.fr/fr/statistiques/8217525) recense chaque
-année 2,8 millions d'équipements et de services : commerces, écoles, médecins, gymnases… Son
-fichier détaillé donne, pour chacun, son domaine, son type, son nom et sa position. Il est diffusé
+année 2,8 millions d'équipements et de services : commerces, écoles, médecins, gymnases… Elle est
+classée en sept domaines, de A (services pour les particuliers) à G (tourisme), et chaque
+équipement a un type, noté par un code : `D107` pour les maternités, `F305` pour les conservatoires.
+Son fichier détaillé donne, pour chacun, son domaine, son type, son nom et sa position. Il est diffusé
 en {{< iconify vscode-icons file-type-parquet >}} `Parquet` : on ne garde que les colonnes utiles, et
 les équipements sans position sont écartés.
 
@@ -762,7 +826,7 @@ with tempfile.TemporaryDirectory() as dossier:
     pathlib.Path(f"{dossier}/musees.csv").write_bytes(reponse.content)
     con.sql(f"""
     CREATE TABLE musees AS
-    SELECT "Nom officiel du musée" AS nom, Commune AS commune,
+    SELECT "Identifiant Muséofile" AS identifiant, "Nom officiel du musée" AS nom, Commune AS commune,
            Longitude::DOUBLE AS lon, Latitude::DOUBLE AS lat
     FROM read_csv('{dossier}/musees.csv', delim = ';', header = true, all_varchar = true)
     WHERE Longitude IS NOT NULL AND Latitude IS NOT NULL
@@ -784,7 +848,7 @@ with tempfile.TemporaryDirectory() as dossier:
     pathlib.Path(f"{dossier}/gares.parquet").write_bytes(reponse.content)
     con.sql(f"""
     CREATE TABLE gares AS
-    SELECT nom, ST_X(position_geographique::GEOMETRY) AS lon,
+    SELECT codes_uic::VARCHAR AS identifiant, nom, ST_X(position_geographique::GEOMETRY) AS lon,
            ST_Y(position_geographique::GEOMETRY) AS lat
     FROM read_parquet('{dossier}/gares.parquet')
     WHERE position_geographique IS NOT NULL
@@ -802,7 +866,8 @@ que les écoles : on garde celles qui sont localisées.
 #| filename: "Lecture de l'annuaire (écoles)"
 con.sql(f"""
 CREATE TABLE ecoles AS
-SELECT longitude::DOUBLE AS lon, latitude::DOUBLE AS lat
+SELECT identifiant_de_l_etablissement AS identifiant,
+       longitude::DOUBLE AS lon, latitude::DOUBLE AS lat
 FROM read_parquet('{SOURCES["annuaire"]}')
 WHERE latitude IS NOT NULL AND longitude IS NOT NULL
 """)
@@ -820,7 +885,7 @@ déclarée hors service.
 #| filename: "Lecture des équipements sportifs (INJEP)"
 con.sql(f"""
 CREATE TABLE sport AS
-SELECT equip_nom AS nom, equip_type_name AS type,
+SELECT equip_numero::VARCHAR AS identifiant, equip_nom AS nom, equip_type_name AS type,
        ST_X(equip_coordonnees::GEOMETRY) AS lon, ST_Y(equip_coordonnees::GEOMETRY) AS lat
 FROM read_parquet('{SOURCES["data_es"]}')
 WHERE equip_coordonnees IS NOT NULL AND inst_hs_bool IS DISTINCT FROM 'Oui'
@@ -833,36 +898,46 @@ con.sql("SELECT count(*) AS equipements FROM sport").df().style.hide(axis="index
 ### Une table commune des objets
 
 Toutes les couches sont rangées dans une même table, `objets` : pour chaque objet, sa couche, son
-nom (`n`, vide si la source n'en donne pas), son type (`t`) et son point, en longitude et latitude,
-arrondi à 5 décimales (environ un mètre). Les lignes sans coordonnées ont déjà été écartées.
+identifiant d'origine (`identifiant`, quand la source en donne un), son nom (`n`, vide si la source
+n'en donne pas), son type (`t`) et son point, en longitude et latitude, arrondi à 5 décimales
+(environ un mètre). Les lignes sans coordonnées ont déjà été écartées.
 
-Pour la BPE, le nom est volontairement laissé vide : on ne garde que le code du type, pour alléger
-le fichier. Le libellé sera retrouvé dans le navigateur, avec la nomenclature.
+Les identifiants viennent de l'identifiant de l'équipement (`equip_numero`) pour Data ES, de
+l'identifiant de l'établissement (UAI) pour les écoles, de l'identifiant Muséofile pour les musées et
+des codes UIC pour les gares. La BPE et Basilic n'en donnent pas dans les colonnes qu'on lit : ils
+restent vides.
+
+Pour la BPE, le nom est volontairement laissé vide : on ne garde que le code du type (`D107`), tel
+quel, pour alléger le fichier.
 
 ```{python}
 #| filename: "Table des objets"
-con.sql("CREATE TABLE objets (couche VARCHAR, n VARCHAR, t VARCHAR, geom GEOMETRY)")
+con.sql("""
+CREATE TABLE objets (
+    couche VARCHAR, identifiant VARCHAR, n VARCHAR, t VARCHAR, lon DOUBLE, lat DOUBLE
+)
+""")
 con.sql("""
 INSERT INTO objets
-SELECT 'maternites', NOMRS, 'Maternité', ST_Point(round(lon, 5), round(lat, 5))
+SELECT 'maternites', NULL, NOMRS, 'Maternité', round(lon, 5), round(lat, 5)
 FROM bpe WHERE TYPEQU = 'D107'
 UNION ALL
-SELECT 'bpe_' || lower(DOM), NULL, TYPEQU, ST_Point(round(lon, 5), round(lat, 5))
+SELECT 'bpe_' || lower(DOM), NULL, NULL, TYPEQU, round(lon, 5), round(lat, 5)
 FROM bpe
 UNION ALL
-SELECT 'musees', nom, 'Musée de France', ST_Point(round(lon, 5), round(lat, 5))
+SELECT 'musees', identifiant, nom, 'Musée de France', round(lon, 5), round(lat, 5)
 FROM musees
 UNION ALL
-SELECT 'gares', nom, 'Gare', ST_Point(round(lon, 5), round(lat, 5))
+SELECT 'gares', identifiant, nom, 'Gare', round(lon, 5), round(lat, 5)
 FROM gares
 UNION ALL
-SELECT 'culture', nom, type_lieu, ST_Point(round(lon, 5), round(lat, 5))
+SELECT 'culture', NULL, nom, type_lieu, round(lon, 5), round(lat, 5)
 FROM basilic
 UNION ALL
-SELECT 'ecoles', NULL, 'École', ST_Point(round(lon, 5), round(lat, 5))
+SELECT 'ecoles', identifiant, NULL, 'École', round(lon, 5), round(lat, 5)
 FROM ecoles
 UNION ALL
-SELECT 'sport', nom, type, ST_Point(round(lon, 5), round(lat, 5))
+SELECT 'sport', identifiant, nom, type, round(lon, 5), round(lat, 5)
 FROM sport
 """)
 con.sql("""
@@ -873,37 +948,66 @@ SELECT couche, count(*) AS objets FROM objets GROUP BY ALL ORDER BY ALL
 Une même maternité figure donc deux fois : dans la couche « Maternités » et dans le domaine santé de
 la BPE. C'est voulu : chaque couche se lit pour elle-même.
 
-### Un fichier par couche
+### Un fichier Parquet
 
-Chaque couche est écrite dans un fichier FlatGeobuf, dans `donnees/j14/`. FlatGeobuf est un format
-binaire ouvert pour les données géographiques : un index spatial, un arbre R rangé selon une courbe
-de Hilbert, est placé en tête du fichier. Le navigateur peut ainsi ne télécharger, par requêtes HTTP
-partielles, que les objets de la vue, sans lire tout le fichier.
+Les millions d'objets ne peuvent pas être envoyés tels quels au navigateur. On les écrit donc dans
+un fichier {{< iconify vscode-icons file-type-parquet >}} `Parquet`, `donnees/j14/points.parquet`,
+dont le navigateur ne lit que la partie dont il a besoin : pour chaque objet, sa couche, un numéro
+(`id`), sa position, son identifiant d'origine, son nom et son type. Les coordonnées sont des
+entiers, des degrés multipliés par 100 000 (environ un mètre) : de petits entiers se compressent
+bien.
+
+Parquet range les données par colonne. Pour afficher une vue, la carte ne lit que la couche et la
+position ; le nom et le type ne sont lus qu'au clic sur un objet.
+
+Le numéro d'un objet est son rang le long d'une [courbe de
+Hilbert](https://fr.wikipedia.org/wiki/Courbe_de_Hilbert) dans sa couche. Cette courbe parcourt le
+plan en gardant ensemble les points voisins : une fois les objets triés ainsi, chaque bloc de
+10 000 lignes du fichier couvre une petite zone. Parquet garde, pour chaque bloc, le minimum et le
+maximum de chaque colonne. Pour afficher une vue, DuckDB, dans le navigateur, regarde ces bornes et
+ne télécharge (par requêtes HTTP partielles) que les blocs qui touchent la vue. De même, au clic,
+le numéro de l'objet désigne un seul bloc, dont on ne lit que le nom et le type.
 
 ```{python}
-#| filename: "Écriture des fichiers FlatGeobuf"
-#| output: false
+#| filename: "Écriture du fichier Parquet"
 SORTIE = pathlib.Path("donnees/j14")
 SORTIE.mkdir(parents=True, exist_ok=True)
 
+con.sql("""
+CREATE TABLE numerotes AS
+SELECT *, row_number() OVER (
+           PARTITION BY couche
+           ORDER BY ST_Hilbert(ST_Point(lon, lat), ST_Extent(ST_MakeEnvelope(-180, -90, 180, 90)))
+       ) AS id
+FROM objets
+""")
+
+con.sql(f"""
+COPY (
+    SELECT couche, id, round(lon * 1e5)::INTEGER AS lon, round(lat * 1e5)::INTEGER AS lat,
+           identifiant, n AS nom, t AS type
+    FROM numerotes ORDER BY couche, id
+) TO '{(SORTIE / "points.parquet").as_posix()}' (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 10000)
+""")
+f"points.parquet : {(SORTIE / 'points.parquet').stat().st_size / 1e6:.1f} Mo"
+```
+
+Et le nombre d'objets de chaque couche :
+
+```{python}
+#| filename: "Objets par couche"
 nombres = dict(con.sql("SELECT couche, count(*) FROM objets GROUP BY couche ORDER BY couche").fetchall())
-for cle in nombres:
-    fichier = (SORTIE / f"{cle}.fgb").as_posix()
-    con.sql(f"""
-    COPY (SELECT n, t, geom FROM objets WHERE couche = '{cle}')
-    TO '{fichier}' (FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326')
-    """)
+con.sql("""
+SELECT couche, count(*) AS objets FROM numerotes GROUP BY ALL ORDER BY ALL
+""").df().style.hide(axis="index")
 ```
 
 ### Ce qui passe à la carte
 
-La carte reçoit la liste des couches, dans l'ordre où on les ajoute, et le libellé de chaque type de
-la BPE. Les domaines de la BPE portent le nom de leur domaine dans la nomenclature.
+La carte reçoit la liste des couches, dans l'ordre où on les ajoute. Les noms des sept domaines de
+la BPE sont écrits ici. Pour la BPE, le type affiché au clic est le code du type, sans libellé.
 
 ```{python}
-DOMAINES = dict(con.sql("SELECT code, libelle FROM nomenclature WHERE variable = 'DOM'").fetchall())
-libelles = dict(con.sql("SELECT code, libelle FROM nomenclature WHERE variable = 'TYPEQU'").fetchall())
-
 couches = [
     {"cle": "maternites", "nom": "Maternités", "groupe": "Les autres jours", "jour": "J1",
      "zoom_min": 5, "couleur": "#d6336c", "sombre": "#f06595"},
@@ -917,31 +1021,33 @@ couches = [
      "zoom_min": 11, "couleur": "#f59f00", "sombre": "#fcc419"},
     {"cle": "sport", "nom": "Équipements sportifs", "groupe": "Les autres jours", "jour": "J7",
      "zoom_min": 12, "couleur": "#2f9e44", "sombre": "#69db7c"},
-    {"cle": "bpe_a", "nom": DOMAINES["A"], "groupe": "Base permanente des équipements", "jour": None,
+    {"cle": "bpe_a", "nom": "Services pour les particuliers", "groupe": "Base permanente des équipements", "jour": None,
      "zoom_min": 14, "couleur": "#495057", "sombre": "#ced4da"},
-    {"cle": "bpe_b", "nom": DOMAINES["B"], "groupe": "Base permanente des équipements", "jour": None,
+    {"cle": "bpe_b", "nom": "Commerces", "groupe": "Base permanente des équipements", "jour": None,
      "zoom_min": 13, "couleur": "#c2255c", "sombre": "#faa2c1"},
-    {"cle": "bpe_c", "nom": DOMAINES["C"], "groupe": "Base permanente des équipements", "jour": None,
+    {"cle": "bpe_c", "nom": "Enseignement", "groupe": "Base permanente des équipements", "jour": None,
      "zoom_min": 13, "couleur": "#e67700", "sombre": "#ffd43b"},
-    {"cle": "bpe_d", "nom": DOMAINES["D"], "groupe": "Base permanente des équipements", "jour": None,
+    {"cle": "bpe_d", "nom": "Santé et action sociale", "groupe": "Base permanente des équipements", "jour": None,
      "zoom_min": 14, "couleur": "#0b7285", "sombre": "#66d9e8"},
-    {"cle": "bpe_e", "nom": DOMAINES["E"], "groupe": "Base permanente des équipements", "jour": None,
+    {"cle": "bpe_e", "nom": "Transports et déplacements", "groupe": "Base permanente des équipements", "jour": None,
      "zoom_min": 13, "couleur": "#364fc7", "sombre": "#91a7ff"},
-    {"cle": "bpe_f", "nom": DOMAINES["F"], "groupe": "Base permanente des équipements", "jour": None,
+    {"cle": "bpe_f", "nom": "Sports, loisirs et culture", "groupe": "Base permanente des équipements", "jour": None,
      "zoom_min": 13, "couleur": "#5c940d", "sombre": "#a9e34b"},
-    {"cle": "bpe_g", "nom": DOMAINES["G"], "groupe": "Base permanente des équipements", "jour": None,
+    {"cle": "bpe_g", "nom": "Tourisme", "groupe": "Base permanente des équipements", "jour": None,
      "zoom_min": 13, "couleur": "#862e9c", "sombre": "#e599f7"},
 ]
 for couche in couches:
-    couche["fichier"] = f"donnees/j14/{couche['cle']}.fgb"
     couche["nombre"] = nombres.get(couche["cle"], 0)
 
-ojs_define(couches=couches, libelles=libelles)
+ojs_define(couches=couches)
 ```
 
 ## Les données de la carte
 
-Les objets affichés dans la vue actuelle de la carte, toutes couches confondues.
+Les objets affichés dans la vue actuelle de la carte, toutes couches confondues. Le nom et le type
+de chaque objet s'obtiennent en cliquant sur la carte, ou dans le
+<a href="donnees/j14/points.parquet" download>fichier de toutes les couches (Parquet)</a>, par la
+couche et l'identifiant interne (`id`). Le CSV ci-dessous ne contient que les objets de la vue.
 
 ::: {.column-page}
 
@@ -956,8 +1062,8 @@ viewof recherche = Inputs.search(visibles, {
 ```{ojs}
 //| echo: false
 Inputs.table(recherche, {
-  columns: ["couche", "nom", "type", "lon", "lat"],
-  header: {couche: "Couche", nom: "Nom", type: "Type", lon: "Longitude", lat: "Latitude"},
+  columns: ["couche", "id", "lon", "lat"],
+  header: {couche: "Couche", id: "Identifiant interne", lon: "Longitude", lat: "Latitude"},
   format: {
     lon: (x) => x.toLocaleString("fr-FR", {minimumFractionDigits: 5}),
     lat: (x) => x.toLocaleString("fr-FR", {minimumFractionDigits: 5})
@@ -969,7 +1075,7 @@ Inputs.table(recherche, {
 ```{ojs}
 //| echo: false
 DOM.download(
-  () => new Blob([d3.csvFormat(visibles, ["couche", "nom", "type", "lon", "lat"])], {type: "text/csv"}),
+  () => new Blob([d3.csvFormat(visibles, ["couche", "id", "lon", "lat"])], {type: "text/csv"}),
   "carte_de_borges.csv",
   "Télécharger (CSV)"
 )
@@ -984,6 +1090,10 @@ DOM.download(
 - Les doublons sont volontaires : une maternité est aussi dans le domaine santé de la BPE, et les
   lieux de musique ou les musées se retrouvent dans plusieurs couches. Le compteur d'objets d'une
   couche ne se somme donc pas avec celui des autres.
+- Les couches de points sont lues dans des fichiers Parquet par DuckDB-WASM, dans le navigateur : le
+  premier affichage télécharge la bibliothèque (quelques Mo), puis les seuls blocs de fichier qui
+  touchent la vue. Les coordonnées y sont arrondies au mètre, et chaque couche est plafonnée à
+  30 000 objets par vue.
 - Les couches de l'IGN viennent d'un service interrogé en direct. Le service limite le nombre
   d'objets par requête, et ces couches ne s'affichent qu'à fort zoom.
 
@@ -993,5 +1103,8 @@ DOM.download(
   dans *L'Auteur et autres textes* (*El hacedor*, 1960). Lewis Carroll avait déjà imaginé, dans
   *Sylvie et Bruno* (1893), une carte « à l'échelle d'un mille pour un mille ».
 - Insee, [Base permanente des équipements](https://www.insee.fr/fr/statistiques/8217525), avec sa
-  documentation et ses nomenclatures.
-- [FlatGeobuf](https://flatgeobuf.org), la documentation du format de fichier utilisé pour les couches.
+  documentation et ses nomenclatures (qui donnent le libellé des codes de type, affichés tels quels sur
+  la carte).
+- [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview), la documentation de DuckDB dans le
+  navigateur, et [GeoParquet](https://geoparquet.org), la spécification du format Parquet pour les
+  données géographiques.
