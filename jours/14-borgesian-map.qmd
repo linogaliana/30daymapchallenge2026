@@ -1,42 +1,261 @@
 ---
-title: "J14 · Borgesian map. La carte à l'échelle du carreau"
-description: "De la commune au carreau de 200 m, le niveau de vie de neuf villes à six résolutions : plus la carte s'affine, plus elle est faite de carreaux estimés, que le secret statistique interdit de montrer tels quels."
-image: vignettes/14-borgesian-map.webp
+title: "J14 · Borgesian map. La carte qui recouvre tout"
+description: "Une carte qui s'ouvre sur une adresse, où l'on ajoute couche après couche les équipements des autres jours, jusqu'à recouvrir le territoire, comme la carte de Borges."
+charte: {couleur: "#7048e8", sombre: "#b197fc"}
 resources:
-  - donnees/j14/*.csv
-  - donnees/j14/*.json
+  - donnees/j14/*.fgb
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
 ---
 
 ```{ojs}
 //| echo: false
-virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
-pourcent = (x, n = 0) => `${virgule(100 * x, n)}\u00a0%`
-millions = (x) => `${virgule(x / 1e6)} millions`
-html`<p class="lead">
-  Dans une nouvelle de Borges, les cartographes d'un empire dressent une carte si précise qu'elle
-  a la taille de l'empire et coïncide avec lui point par point. Les générations suivantes la
-  jugent inutile et l'abandonnent. La statistique publique a aussi sa carte la plus fine :
-  <strong>${millions(totaux.carreaux)} de carreaux de 200 m</strong> de côté, qui donnent le
-  niveau de vie de ${millions(totaux.individus)} d'habitants. Mais
-  <strong>${pourcent(totaux.part_carreaux_estimes)} de ces carreaux sont estimés</strong> : presque
-  tous comptent moins de 11 ménages, et le secret statistique interdit de les montrer tels qu'ils
-  sont.
-</p>`
+echapper = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]))
+
+// Couches de l'IGN lues en direct sur le WFS de la Géoplateforme, à la suite
+// des couches fournies par la partie Python (mêmes champs).
+ign = [
+  {
+    cle: "ign_rpg", nom: "Parcelles agricoles (RPG)", groupe: "IGN, en direct", jour: "J3",
+    wfs: "RPG.LATEST:parcelles_graphiques", zoom_min: 13, polygone: true, remplissage: 0.18,
+    couleur: "#7a8f1e", sombre: "#b5cc4a",
+    decrire: (p) => ({
+      titre: p.culture_d1 ?? p.code_cultu ?? "Parcelle agricole",
+      type: p.code_cultu ?? "",
+      lignes: [
+        p.code_cultu ? `Code culture : ${echapper(p.code_cultu)}` : null,
+        p.code_group ? `Groupe de cultures : ${echapper(p.code_group)}` : null,
+        p.surf_parc != null ? `Surface : ${Number(p.surf_parc).toLocaleString("fr-FR")} ha` : null
+      ]
+    })
+  },
+  {
+    cle: "ign_batiments", nom: "Bâtiments (BD TOPO)", groupe: "IGN, en direct", jour: null,
+    wfs: "BDTOPO_V3:batiment", zoom_min: 15, polygone: true, remplissage: 0.22,
+    couleur: "#8c5a3c", sombre: "#d9a07a",
+    decrire: (p) => ({
+      titre: "Bâtiment",
+      type: p.usage_1 ?? "",
+      lignes: [
+        p.usage_1 ? `Usage : ${echapper(p.usage_1)}` : null,
+        p.hauteur != null ? `Hauteur : ${Number(p.hauteur).toLocaleString("fr-FR")} m` : null
+      ]
+    })
+  },
+  {
+    cle: "ign_cadastre", nom: "Parcelles cadastrales", groupe: "IGN, en direct", jour: null,
+    wfs: "CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle", zoom_min: 16, polygone: true, remplissage: 0.02,
+    couleur: "#5b5bd6", sombre: "#a3a3ff",
+    decrire: (p) => ({
+      titre: `Parcelle ${[p.section, p.numero].filter((x) => x != null).join(" ")}`.trim(),
+      type: "Parcelle cadastrale",
+      lignes: [
+        p.contenance != null ? `Contenance : ${Number(p.contenance).toLocaleString("fr-FR")} m²` : null
+      ]
+    })
+  }
+]
+
+// Toutes les couches, dans l'ordre du curseur : fichiers, puis IGN.
+toutes = [...couches, ...ign]
+nbCouchesTotal = couches.length + 3
+nbObjetsFichiers = d3.sum(couches, (c) => c.nombre)
+
+html`<p class="lead">Dans « De la rigueur de la science » (1946), Borges imagine un empire
+dont les cartographes dressent une carte à la taille de l'empire, qui coïncide avec lui point
+par point. Les générations suivantes la jugent inutile et l'abandonnent aux intempéries. Ici, on empile les ${nbCouchesTotal} couches de ce
+site, soit ${entier(nbObjetsFichiers)} objets rien que pour les fichiers, jusqu'à ce que la
+carte ne montre plus rien.</p>`
 ```
 
-Pour ce quatorzième jour, consacré à la carte de Borges, on refait le chemin de ses cartographes :
-la même ville, de la commune au carreau de 200 m, à la recherche de la carte qui coïnciderait avec
-le territoire. Choisissez une ville, puis faites glisser le curseur, ou cliquez sur « Lire »
-(making of 👇).
+Pour ce quatorzième jour, la carte « borgésienne » est une carte qui s'efface sous son propre
+détail : à l'échelle 1/1, elle recouvre ce qu'elle représente. On part d'une adresse, au zoom 17,
+où tout est lisible. Choisissez une adresse, ajoutez des couches avec le curseur ou une à une,
+puis dézoomez (making of 👇).
 
 --------
 
 ```{ojs}
 //| echo: false
+// Mise en forme des contrôles de la page (adresse, liste des couches), dans les deux thèmes.
+html`<style>
+.j14-adresse { position: relative; max-width: 36rem; margin-bottom: 1rem; }
+.j14-adresse input {
+  width: 100%; padding: 0.45rem 0.7rem; font: inherit;
+  border: 1px solid var(--bs-border-color); border-radius: 4px;
+  background: var(--bs-body-bg); color: var(--bs-body-color);
+}
+.j14-suggestions {
+  position: absolute; z-index: 20; left: 0; right: 0; margin: 2px 0 0; padding: 0;
+  list-style: none; background: var(--bs-body-bg); color: var(--bs-body-color);
+  border: 1px solid var(--bs-border-color); border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.j14-suggestions[hidden] { display: none; }
+.j14-suggestions button {
+  display: block; width: 100%; text-align: left; padding: 0.4rem 0.7rem;
+  border: 0; background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.j14-suggestions button:hover, .j14-suggestions button:focus { background: rgba(128, 128, 128, 0.2); }
+.j14-couches { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.5rem 1.5rem; margin: 0.8rem 0 1rem; }
+.j14-titre { font-weight: 600; margin-bottom: 0.2rem; }
+.j14-couche { display: flex; align-items: center; gap: 0.45rem; margin: 0.1rem 0; cursor: pointer; }
+.j14-pastille { display: inline-block; flex: none; width: 0.8rem; height: 0.8rem; border-radius: 50%; background: var(--c); }
+body.quarto-dark .j14-pastille { background: var(--cs); }
+.j14-zmin { display: none; color: var(--bs-secondary-color, gray); }
+.j14-couche.trop-loin { opacity: 0.55; }
+.j14-couche.trop-loin .j14-zmin { display: inline; }
+.j14-carte { height: clamp(380px, 75vh, 600px); border-radius: 4px; }
+</style>`
+```
+
+```{ojs}
+//| echo: false
+adresseDefaut = ({nom: "88 avenue Verdier, 92120 Montrouge", lon: 2.3170, lat: 48.8148})
+
+// Saisie d'une adresse, avec les suggestions de l'autocomplétion de la Géoplateforme.
+viewof adresse = {
+  const noeud = html`<div class="j14-adresse">
+    <input type="search" name="champ" autocomplete="off" placeholder="Saisir une adresse…"
+           aria-label="Adresse" value="${adresseDefaut.nom}">
+    <ul class="j14-suggestions" hidden></ul>
+  </div>`
+  const champ = noeud.querySelector("input")
+  const liste = noeud.querySelector("ul")
+  let minuteur = null
+  let requete = 0
+  let propositions = []
+
+  const cacher = () => { liste.hidden = true }
+  const choisir = (r) => {
+    noeud.value = {nom: r.fulltext, lon: r.x, lat: r.y}
+    champ.value = r.fulltext
+    cacher()
+    noeud.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  const afficher = () => {
+    liste.replaceChildren(...propositions.map((r) => {
+      const item = html`<li><button type="button">${r.fulltext}</button></li>`
+      item.querySelector("button").onclick = () => choisir(r)
+      return item
+    }))
+    liste.hidden = propositions.length === 0
+  }
+  const chercher = async () => {
+    const texte = champ.value.trim()
+    const numero = ++requete
+    if (texte.length < 3) { propositions = []; return afficher() }
+    try {
+      const url = `https://data.geopf.fr/geocodage/completion?text=${encodeURIComponent(texte)}&type=StreetAddress&maximumResponses=6`
+      const reponse = await fetch(url)
+      const donnees = await reponse.json()
+      if (numero !== requete) return // la dernière requête gagne
+      propositions = donnees.results ?? []
+      afficher()
+    } catch (erreur) {
+      if (numero === requete) { propositions = []; afficher() }
+    }
+  }
+  champ.oninput = (event) => {
+    event.stopPropagation()
+    clearTimeout(minuteur)
+    minuteur = setTimeout(chercher, 250)
+  }
+  champ.onkeydown = (event) => {
+    if (event.key === "Enter" && propositions.length) { event.preventDefault(); choisir(propositions[0]) }
+    if (event.key === "Escape") cacher()
+  }
+  champ.onfocus = () => { if (propositions.length) liste.hidden = false }
+  // Empêche le champ de perdre le focus (et la liste de se fermer) avant le clic.
+  liste.onpointerdown = (event) => event.preventDefault()
+  noeud.addEventListener("focusout", (event) => { if (!noeud.contains(event.relatedTarget)) cacher() })
+  invalidation.then(() => clearTimeout(minuteur))
+  noeud.value = adresseDefaut
+  return noeud
+}
+```
+
+```{ojs}
+//| echo: false
+// Un seul état : l'ensemble des clés des couches actives. Le curseur et les cases
+// à cocher le lisent et l'écrivent ; chacun se met à jour quand il change.
+etat = {
+  const cible = new EventTarget()
+  cible.cles = toutes.map((c) => c.cle)
+  cible.actives = new Set(cible.cles.slice(0, 1))
+  cible.definir = (cles) => {
+    cible.actives = new Set(cles)
+    cible.dispatchEvent(new Event("change"))
+  }
+  return cible
+}
+```
+
+```{ojs}
+//| echo: false
+// Curseur « De la rigueur de la science », avec lecture automatique.
+viewof nombreCouches = {
+  const maximum = etat.cles.length
+  const form = html`<form class="lecteur">
+    <button type="button" name="lire">▶ Ajouter</button>
+    <input type="range" name="curseur" min="0" max="${maximum}" step="1" value="${etat.actives.size}">
+    <output name="sortie"></output>
+  </form>`
+  let minuteur = null
+  const arreter = () => {
+    clearInterval(minuteur)
+    minuteur = null
+    form.lire.textContent = "▶ Ajouter"
+  }
+  const afficher = () => {
+    const k = etat.actives.size
+    form.value = k
+    form.curseur.valueAsNumber = k
+    form.sortie.value = `${k} couche${k > 1 ? "s" : ""}`
+  }
+  const quandChange = () => {
+    afficher()
+    form.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  etat.addEventListener("change", quandChange)
+  invalidation.then(() => { arreter(); etat.removeEventListener("change", quandChange) })
+
+  form.lire.onclick = () => {
+    if (minuteur) return arreter()
+    if (etat.actives.size >= maximum) etat.definir([])
+    form.lire.textContent = "⏸ Pause"
+    minuteur = setInterval(() => {
+      const k = etat.actives.size
+      if (k < maximum) etat.definir(etat.cles.slice(0, k + 1))
+      if (k + 1 >= maximum) arreter()
+    }, 1500)
+  }
+  form.curseur.oninput = (event) => {
+    event.stopPropagation()
+    arreter()
+    etat.definir(etat.cles.slice(0, form.curseur.valueAsNumber))
+  }
+  form.onsubmit = (event) => event.preventDefault()
+  afficher()
+  return form
+}
+```
+
+```{ojs}
+//| echo: false
+maplibregl = {
+  const lien = document.createElement("link")
+  lien.rel = "stylesheet"
+  lien.href = "https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+  document.head.appendChild(lien)
+  return require("maplibre-gl@4.7.1")
+}
+
+fgb = require("https://cdn.jsdelivr.net/npm/flatgeobuf@3.36.0/dist/flatgeobuf-geojson.min.js")
+
 // Thème du site (clair/sombre), suivi quand l'utilisateur le change.
 sombre = Generators.observe((notifier) => {
   const lire = () => notifier(document.body.classList.contains("quarto-dark"))
@@ -45,187 +264,380 @@ sombre = Generators.observe((notifier) => {
   observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
   return () => observateur.disconnect()
 })
-fond = sombre ? "#222" : "#fff"
-gris = sombre ? "#555" : "#c8c8c8"
-stylePlot = `--plot-background: ${fond}; background: transparent`
-// Dix couleurs, une par décile ; sur fond sombre, on retire le bas de viridis, trop proche du fond.
-couleurs = d3.quantize((t) => d3.interpolateViridis((sombre ? 0.25 : 0) + (sombre ? 0.75 : 1) * t), 10)
 
-// Les carreaux de la ville choisie, et le nom, le niveau de vie et les limites de ses communes.
-cellules = d3.csv(`donnees/j14/${zone.slug}.csv`, (d) => ({
-  x: +d.x, y: +d.y, commune: d.commune, estime: d.estime === "1", ind: +d.ind,
-  nv_8000: +d.nv_8000, nv_4000: +d.nv_4000, nv_2000: +d.nv_2000, nv_1000: +d.nv_1000, nv_200: +d.nv_200
-}))
-detail = d3.json(`donnees/j14/${zone.slug}.json`)
+// Le Plan IGN n'a pas de style sombre : on inverse la luminosité du style gris.
+styleClair = fetch(
+  "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/gris.json"
+).then((r) => r.json())
 
-// De la plus grossière à la plus fine : chaque étape donne à un carreau de 200 m la valeur
-// du territoire qui le contient.
-etapes = [
-  {nom: "Commune", unite: "Commune", valeur: (c) => detail.communes[c.commune]?.nv},
-  ...[8000, 4000, 2000, 1000, 200].map((taille) => ({
-    nom: taille >= 1000 ? `${taille / 1000} km` : `${taille} m`,
-    unite: `Carreau de ${taille >= 1000 ? `${taille / 1000} km` : `${taille} m`}`,
-    taille,
-    valeur: (c) => c[`nv_${taille}`]
-  })),
-  {nom: "200 m observés", unite: "Carreau de 200 m", taille: 200, masque: true, valeur: (c) => (c.estime ? null : c.nv_200)}
-]
-```
+styleSombre = {
+  const inverser = (v) => {
+    if (typeof v === "string") {
+      const couleur = d3.color(v)
+      if (!couleur) return v
+      const hsl = d3.hsl(couleur)
+      hsl.l = 0.1 + 0.75 * (1 - hsl.l)
+      return hsl.formatRgb()
+    }
+    if (Array.isArray(v)) return v.map(inverser)
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, inverser(x)]))
+    }
+    return v
+  }
+  const style = structuredClone(styleClair)
+  for (const couche of style.layers) if (couche.paint) couche.paint = inverser(couche.paint)
+  return style
+}
 
-```{ojs}
-//| echo: false
-viewof zone = Inputs.select(new Map(zones.map((z) => [z.nom, z])), {label: "Ville", value: zones[0]})
-```
-
-```{ojs}
-//| echo: false
-// Curseur avec lecture automatique, comme pour les maternités (J1).
-viewof indice = {
-  const dernier = etapes.length - 1
-  const form = html`<form class="lecteur">
-    <button type="button" name="lire">▶ Lire</button>
-    <input type="range" name="curseur" min="0" max="${dernier}" step="1" value="0">
-    <output name="etape"></output>
-  </form>`
-  let minuteur = null
-  const choisir = (i) => {
-    form.value = i
-    form.curseur.valueAsNumber = i
-    form.etape.value = etapes[i].nom
-    form.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+// Centre de l'emprise d'un objet (le point lui-même pour un point).
+function centreObjet(geometrie) {
+  if (geometrie.type === "Point") return geometrie.coordinates
+  let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity
+  const parcourir = (a) => {
+    if (typeof a[0] === "number") {
+      xMin = Math.min(xMin, a[0]); xMax = Math.max(xMax, a[0])
+      yMin = Math.min(yMin, a[1]); yMax = Math.max(yMax, a[1])
+    } else a.forEach(parcourir)
   }
-  const arreter = () => {
-    clearInterval(minuteur)
-    minuteur = null
-    form.lire.textContent = "▶ Lire"
-  }
-  form.lire.onclick = () => {
-    if (minuteur) return arreter()
-    if (form.value === dernier) choisir(0)
-    form.lire.textContent = "⏸ Pause"
-    minuteur = setInterval(() => (form.value < dernier ? choisir(form.value + 1) : arreter()), 1500)
-  }
-  form.curseur.oninput = (event) => {
-    event.stopPropagation()
-    arreter()
-    choisir(form.curseur.valueAsNumber)
-  }
-  form.onsubmit = (event) => event.preventDefault()
-  invalidation.then(arreter)
-  form.value = 0
-  form.etape.value = etapes[0].nom
-  return form
+  parcourir(geometrie.coordinates)
+  return [(xMin + xMax) / 2, (yMin + yMax) / 2]
 }
 ```
 
 ```{ojs}
 //| echo: false
-{
-  const etape = etapes[indice]
-  const {x0, y0, cote} = zone
-  // Un pixel par carreau de 200 m, quelle que soit l'étape.
-  const raster = (donnees, fill) => Plot.raster(donnees, {
-    x: (c) => c.x + 100, y: (c) => c.y + 100, fill,
-    x1: x0, x2: x0 + cote, y1: y0, y2: y0 + cote, width: cote / 200, height: cote / 200,
-    imageRendering: "pixelated"
+conteneur = html`<div class="j14-carte"></div>`
+```
+
+```{ojs}
+//| echo: false
+// La carte n'est créée qu'une fois ; les cellules suivantes la mettent à jour.
+carte = {
+  const PLAFOND_FICHIER = 30000
+  const PLAFOND_WFS = 5000
+  const vide = {type: "FeatureCollection", features: []}
+
+  const map = new maplibregl.Map({
+    container: conteneur,
+    style: document.body.classList.contains("quarto-dark") ? styleSombre : styleClair,
+    center: [adresseDefaut.lon, adresseDefaut.lat],
+    zoom: 17,
+    minZoom: 3,
+    attributionControl: {customAttribution: "Insee, ministères, SNCF, IGN, BAN"}
   })
-  const limites = detail.bordures.flatMap((ligne, k) => ligne.map(([x, y]) => ({x, y, k})))
-  return Plot.plot({
-    width: 720,
-    height: 720,
-    margin: 0,
-    style: stylePlot,
-    x: {domain: [x0, x0 + cote], axis: null},
-    y: {domain: [y0, y0 + cote], axis: null},
-    color: {
-      type: "threshold", domain: seuils, range: couleurs, legend: true, width: 360,
-      label: "Niveau de vie annuel moyen (milliers d'euros)", tickFormat: (d) => entier(d / 1000),
-      style: {background: "transparent", color: "inherit"}
-    },
-    marks: [
-      etape.masque ? raster(cellules.filter((c) => c.estime), gris) : null,
-      raster(cellules, etape.valeur),
-      Plot.line(limites, {x: "x", y: "y", z: "k", stroke: fond, strokeWidth: 0.6, strokeOpacity: 0.8}),
-      Plot.tip(cellules, Plot.pointer({
-        x: (c) => c.x + 100, y: (c) => c.y + 100, maxRadius: 8,
-        title: (c) => {
-          const valeur = etape.valeur(c)
-          return `${detail.communes[c.commune]?.nom ?? "Hors commune"}\n${etape.unite} : ` +
-            (valeur == null ? "carreau estimé, non montré" : `${entier(valeur)} € par an et par personne`) +
-            (etape.taille === 200 && c.estime ? "\nCarreau estimé (secret statistique)" : "")
+  invalidation.then(() => map.remove())
+  map.addControl(new maplibregl.NavigationControl({showCompass: false}))
+
+  // État propre à la carte.
+  map.sombre = document.body.classList.contains("quarto-dark")
+  map.activesCourantes = new Set()
+  map.donnees = Object.fromEntries(toutes.map((c) => [c.cle, vide]))
+  map.lignes = Object.fromEntries(toutes.map((c) => [c.cle, []]))
+  map.statuts = {}
+  map.generations = {}
+  map.vue = {visibles: [], statuts: {}, zoom: 17}
+  map.marqueur = new maplibregl.Marker({color: "#c0392b"})
+    .setLngLat([adresseDefaut.lon, adresseDefaut.lat]).addTo(map)
+
+  // IGN dessous, puis la BPE, puis les autres jours au-dessus.
+  const rang = {"IGN, en direct": 0, "Base permanente des équipements": 1}
+  const pile = d3.sort(toutes, (c) => rang[c.groupe] ?? 2)
+
+  const ajouterCouches = () => {
+    const contour = map.sombre ? "#1a1a1a" : "white"
+    for (const c of pile) {
+      const couleur = map.sombre ? c.sombre : c.couleur
+      map.addSource(c.cle, {type: "geojson", data: map.donnees[c.cle]})
+      if (c.polygone) {
+        map.addLayer({
+          id: c.cle, type: "fill", source: c.cle,
+          paint: {"fill-color": couleur, "fill-opacity": c.remplissage}
+        })
+        map.addLayer({
+          id: `${c.cle}-ligne`, type: "line", source: c.cle,
+          paint: {
+            "line-color": couleur, "line-opacity": 0.9,
+            "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.4, 18, 1.2]
+          }
+        })
+      } else {
+        map.addLayer({
+          id: c.cle, type: "circle", source: c.cle,
+          paint: {
+            "circle-color": couleur,
+            "circle-opacity": 0.9,
+            "circle-stroke-color": contour,
+            "circle-stroke-width": 0.5,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 1.2, 12, 2.5, 17, 4]
+          }
+        })
+      }
+    }
+  }
+  map.on("style.load", ajouterCouches)
+  await new Promise((resolve) => map.on("load", resolve))
+  map.resize()
+
+  // Publication, légèrement différée, des objets de la vue (pour la légende et le tableau).
+  let minuteurPublication = null
+  const publier = () => {
+    clearTimeout(minuteurPublication)
+    minuteurPublication = setTimeout(() => {
+      map.vue = {
+        visibles: toutes.flatMap((c) => map.lignes[c.cle]),
+        statuts: {...map.statuts},
+        zoom: map.getZoom()
+      }
+      map.fire("vuemaj")
+    }, 80)
+  }
+
+  const appliquer = (c, objets, lignes, statut) => {
+    map.donnees[c.cle] = {type: "FeatureCollection", features: objets}
+    map.lignes[c.cle] = lignes
+    if (statut) map.statuts[c.cle] = statut
+    else delete map.statuts[c.cle]
+    const source = map.getSource(c.cle)
+    if (source) source.setData(map.donnees[c.cle])
+    publier()
+  }
+  const vider = (c, statut) => {
+    map.generations[c.cle] = (map.generations[c.cle] ?? 0) + 1
+    // Rien à refaire si la couche était déjà vide et sans statut.
+    if (map.lignes[c.cle].length || map.statuts[c.cle] || statut) appliquer(c, [], [], statut)
+  }
+
+  const arrondir = (x) => Math.round(x * 1e5) / 1e5
+  const lire = async (c, emprise, perime) => {
+    const objets = []
+    const lignes = []
+    let statut = {etat: "ok"}
+    if (c.wfs) {
+      const bbox = `${emprise.sud},${emprise.ouest},${emprise.nord},${emprise.est},urn:ogc:def:crs:EPSG::4326`
+      const url = `https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=${c.wfs}&OUTPUTFORMAT=application/json&COUNT=${PLAFOND_WFS}&BBOX=${bbox}`
+      const reponse = await fetch(url)
+      if (!reponse.ok) throw new Error(`WFS ${reponse.status}`)
+      const donnees = await reponse.json()
+      if (perime()) return null
+      for (const f of donnees.features ?? []) {
+        const d = c.decrire(f.properties ?? {})
+        const [lon, lat] = centreObjet(f.geometry)
+        objets.push({type: "Feature", geometry: f.geometry, properties: f.properties ?? {}})
+        lignes.push({couche: c.nom, nom: d.titre, type: d.type, lon: arrondir(lon), lat: arrondir(lat)})
+      }
+      const retournes = objets.length
+      if ((donnees.numberMatched > donnees.numberReturned) || retournes >= PLAFOND_WFS) {
+        statut = {etat: "plafond", message: `${entier(PLAFOND_WFS)} premiers objets`}
+      }
+    } else {
+      const url = new URL(c.fichier, document.baseURI).href
+      const rect = {minX: emprise.ouest, minY: emprise.sud, maxX: emprise.est, maxY: emprise.nord}
+      for await (const f of fgb.deserialize(url, rect)) {
+        if (perime()) return null
+        if (objets.length >= PLAFOND_FICHIER) {
+          statut = {etat: "plafond", message: `${entier(PLAFOND_FICHIER)} premiers objets`}
+          break
         }
-      }))
-    ]
-  })
-}
-```
+        const p = f.properties ?? {}
+        const [lon, lat] = f.geometry.coordinates
+        objets.push({type: "Feature", geometry: f.geometry, properties: p})
+        lignes.push({
+          couche: c.nom, nom: p.n ?? "", type: p.t == null ? "" : (libelles[p.t] ?? p.t),
+          lon: arrondir(lon), lat: arrondir(lat)
+        })
+      }
+    }
+    return {objets, lignes, statut}
+  }
 
-```{ojs}
-//| echo: false
-{
-  const estimes = cellules.filter((c) => c.estime)
-  const habitants = d3.sum(cellules, (c) => c.ind)
-  return html`<p><small>Un cadre de ${entier(zone.cote / 1000)} km de côté autour de
-    ${zone.nom}, en Lambert azimutal (EPSG:3035) : ${entier(cellules.length)} carreaux habités,
-    dont ${pourcent(estimes.length / cellules.length)} estimés, où vivent
-    ${pourcent(d3.sum(estimes, (c) => c.ind) / habitants)} des habitants du cadre. Les couleurs
-    sont les déciles des habitants de France métropolitaine selon le niveau de vie moyen de leur
-    carreau de 200 m. Survolez un carreau pour le détail. Source : Insee, Filosofi 2019, données
-    carroyées ; IGN, ADMIN EXPRESS COG CARTO 2025, via cartiflette.</small></p>`
-}
-```
-
-### Plus on zoome, moins on voit
-
-À chaque pas, la carte gagne en détail : la commune efface les écarts entre ses quartiers, le
-carreau de 1 km les fait apparaître. Mais au dernier pas, le détail est en partie un trompe-l'œil.
-Un carreau de 200 m qui compte moins de 11 ménages ne peut pas être diffusé tel quel : son niveau
-de vie est estimé à partir des carreaux voisins, comme celui de quelques carreaux plus peuplés. Dans un même carreau de 1 km, tous les carreaux
-estimés ont exactement le même niveau de vie moyen. Retirez-les (dernière étape du curseur) : il
-reste les quartiers denses ; les faubourgs, les villages et les écarts disparaissent.
-
-```{ojs}
-//| echo: false
-html`<p>Les carreaux estimés sont les plus nombreux, mais pas les plus peuplés : en France
-métropolitaine, ils regroupent ${pourcent(totaux.part_individus_estimes)} des habitants. Et les
-carreaux habités, estimés ou non, ne couvrent que ${pourcent(totaux.part_territoire)} du
-territoire : à 200 m, la carte est surtout faite de vide.</p>`
-```
-
-```{ojs}
-//| echo: false
-{
-  const lignes = resume.flatMap((r) => [
-    {nom: r.nom, mesure: "des carreaux", part: r.part_carreaux_estimes},
-    {nom: r.nom, mesure: "des habitants", part: r.part_individus_estimes}
-  ])
-  const couleurs = sombre ? ["#7ea3d1", "#f0a35e"] : ["#3a6aa8", "#e07b39"]
-  return Plot.plot({
-    width: 720,
-    height: 40 + 26 * resume.length,
-    marginLeft: 130,
-    style: stylePlot,
-    x: {label: "Part estimée (%) →", domain: [0, 100], grid: true},
-    y: {label: null, domain: resume.map((r) => r.nom)},
-    color: {domain: ["des carreaux", "des habitants"], range: couleurs, legend: true,
-            style: {background: "transparent", color: "inherit"}},
-    marks: [
-      Plot.ruleY(resume, {y: "nom", x1: (r) => 100 * r.part_individus_estimes,
-                          x2: (r) => 100 * r.part_carreaux_estimes, stroke: gris, strokeWidth: 2}),
-      Plot.dot(lignes, {
-        y: "nom", x: (d) => 100 * d.part, fill: "mesure", r: 5,
-        title: (d) => `${d.nom}\n${pourcent(d.part)} ${d.mesure} sont dans des carreaux estimés`
+  // Charge, pour chaque couche active assez zoomée, les objets de l'emprise visible.
+  map.charger = () => {
+    const z = map.getZoom()
+    const b = map.getBounds()
+    const emprise = {
+      ouest: Math.max(-180, b.getWest()), est: Math.min(180, b.getEast()),
+      sud: Math.max(-90, b.getSouth()), nord: Math.min(90, b.getNorth())
+    }
+    for (const c of toutes) {
+      if (!map.activesCourantes.has(c.cle)) { vider(c); continue }
+      if (z < (c.zoom_min ?? 0)) { vider(c, {etat: "zoom"}); continue }
+      const numero = (map.generations[c.cle] = (map.generations[c.cle] ?? 0) + 1)
+      const perime = () => map.generations[c.cle] !== numero
+      map.statuts[c.cle] = {etat: "chargement"}
+      lire(c, emprise, perime).then((resultat) => {
+        if (resultat && !perime()) appliquer(c, resultat.objets, resultat.lignes, resultat.statut)
+      }).catch((erreur) => {
+        if (perime()) return
+        console.error(c.cle, erreur)
+        appliquer(c, [], [], {etat: "erreur", message: "indisponible"})
       })
-    ]
-  })
+    }
+    publier()
+  }
+  let minuteurVue = null
+  map.planifier = () => {
+    clearTimeout(minuteurVue)
+    minuteurVue = setTimeout(map.charger, 150)
+  }
+  map.on("moveend", map.planifier)
+
+  // Bulle : survol sur ordinateur, clic sur mobile.
+  const bulle = new maplibregl.Popup({closeButton: false, closeOnClick: false, maxWidth: "280px"})
+  const par_cle = new Map(toutes.map((c) => [c.cle, c]))
+  const decrire = (c, p) => {
+    if (c.decrire) {
+      const d = c.decrire(p)
+      return `<strong>${echapper(d.titre)}</strong><br>${d.lignes.filter(Boolean).join("<br>")}
+        <br><small>${echapper(c.nom)}</small>`
+    }
+    const type = p.t == null ? "" : (libelles[p.t] ?? p.t)
+    return `<strong>${echapper(p.n ?? "(sans nom)")}</strong>${type ? `<br>${echapper(type)}` : ""}
+      <br><small>${echapper(c.nom)}${c.jour ? ` · ${c.jour}` : ""}</small>`
+  }
+  const designer = (e) => {
+    const ids = toutes.map((c) => c.cle).filter((id) => map.getLayer(id))
+    if (!ids.length) return
+    const {x, y} = e.point
+    const objets = map.queryRenderedFeatures([[x - 4, y - 4], [x + 4, y + 4]], {layers: ids})
+    if (!objets.length) {
+      map.getCanvas().style.cursor = ""
+      bulle.remove()
+      return
+    }
+    const objet = objets[0]
+    const c = par_cle.get(objet.layer.id)
+    map.getCanvas().style.cursor = "pointer"
+    bulle.setLngLat(e.lngLat).setHTML(decrire(c, objet.properties)).addTo(map)
+  }
+  map.on("movestart", () => bulle.remove())
+  map.on("mousemove", designer)
+  map.on("click", designer)
+  map.getCanvas().addEventListener("mouseleave", () => bulle.remove())
+
+  map.charger()
+  return map
 }
 ```
 
 ```{ojs}
 //| echo: false
-html`<p><small>Part des carreaux de 200 m estimés, et part des habitants qui y vivent, dans le cadre
-de chaque ville et en France métropolitaine.</small></p>`
+//| output: false
+// Thème clair/sombre : on change le fond, les couches sont rajoutées sur `style.load`.
+{
+  if (carte.sombre !== sombre) {
+    carte.sombre = sombre
+    carte.setStyle(sombre ? styleSombre : styleClair, {diff: false})
+  }
+}
 ```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Couches cochées : on recharge ce qui est dans la vue.
+{
+  carte.activesCourantes = new Set(actives)
+  carte.charger()
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Adresse choisie : la carte se recentre (zoom 17) et le marqueur suit.
+{
+  carte.marqueur.setLngLat([adresse.lon, adresse.lat])
+  carte.flyTo({center: [adresse.lon, adresse.lat], zoom: 17, essential: true})
+}
+```
+
+```{ojs}
+//| echo: false
+// Objets affichés, mis à jour après chaque chargement.
+vue = Generators.observe((notifier) => {
+  const lire = () => notifier({...carte.vue})
+  lire()
+  carte.on("vuemaj", lire)
+  return () => carte.off("vuemaj", lire)
+})
+visibles = vue.visibles
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Grise les couches dont le zoom minimum n'est pas atteint.
+{
+  const z = vue.zoom
+  for (const etiquette of viewof actives.querySelectorAll("label[data-zmin]")) {
+    etiquette.classList.toggle("trop-loin", z < Number(etiquette.dataset.zmin))
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// Les couches à cocher, par groupe. La valeur est le tableau des clés actives.
+viewof actives = {
+  const noeud = html`<div class="j14-couches"></div>`
+  const cases = new Map()
+  for (const [groupe, liste] of d3.group(toutes, (c) => c.groupe)) {
+    const bloc = html`<div class="j14-groupe"><div class="j14-titre">${groupe}</div></div>`
+    for (const c of liste) {
+      const etiquette = html`<label class="j14-couche" data-zmin="${c.zoom_min ?? 0}">
+        <input type="checkbox">
+        <span class="j14-pastille" style="--c:${c.couleur};--cs:${c.sombre}"></span>
+        <span>${c.nom}${c.jour ? ` (${c.jour})` : ""}</span>
+        <small class="j14-zmin">à partir du zoom ${c.zoom_min}</small>
+      </label>`
+      const caseACocher = etiquette.querySelector("input")
+      caseACocher.onchange = () => etat.definir(etat.cles.filter((cle) => cases.get(cle).checked))
+      cases.set(c.cle, caseACocher)
+      bloc.appendChild(etiquette)
+    }
+    noeud.appendChild(bloc)
+  }
+  const afficher = () => {
+    for (const [cle, caseACocher] of cases) caseACocher.checked = etat.actives.has(cle)
+    noeud.value = etat.cles.filter((cle) => etat.actives.has(cle))
+  }
+  const quandChange = () => {
+    afficher()
+    noeud.dispatchEvent(new CustomEvent("input", {bubbles: true}))
+  }
+  etat.addEventListener("change", quandChange)
+  invalidation.then(() => etat.removeEventListener("change", quandChange))
+  afficher()
+  return noeud
+}
+```
+
+```{ojs}
+//| echo: false
+// Légende sous la carte.
+{
+  const k = actives.length
+  const noms = (etat_) => toutes
+    .filter((c) => actives.includes(c.cle) && vue.statuts[c.cle]?.etat === etat_)
+  const plafonds = noms("plafond").map((c) => `${c.nom} (${vue.statuts[c.cle].message})`)
+  const attentes = noms("zoom").map((c) => `${c.nom} (zoom ${c.zoom_min})`)
+  const erreurs = noms("erreur").map((c) => c.nom)
+  const lignes = [
+    plafonds.length ? `Plafond atteint : ${plafonds.join(", ")}.` : "",
+    attentes.length ? `Zoomer pour voir : ${attentes.join(", ")}.` : "",
+    erreurs.length ? `Indisponible : ${erreurs.join(", ")}.` : ""
+  ].filter(Boolean).join(" ")
+  return html`<p class="j14-legende"><small>
+    <strong>${entier(visibles.length)} objet${visibles.length > 1 ? "s" : ""} dans la vue,
+    ${k} couche${k > 1 ? "s" : ""}.</strong> ${lignes}<br>
+    Source : Insee, BPE 2025 ; ministères des Sports, de la Culture, de l'Éducation nationale ;
+    SNCF ; IGN, Géoplateforme (PLAN IGN, BD TOPO, Parcellaire express, RPG) ;
+    géocodage : Base adresse nationale.
+  </small></p>`
+}
+```
+
 
 --------
 
@@ -233,29 +645,37 @@ On va maintenant décrire comment obtenir les données de cette carte.
 
 ## Les données
 
+Sept fichiers sont téléchargés au rendu. Quatre services de l'IGN ne sont pas téléchargés : la carte
+les interroge directement, pour la vue affichée.
+
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Revenus, pauvreté et niveau de vie en 2019, données carroyées](https://www.insee.fr/fr/statistiques/7655475) (Filosofi) | Insee | pour chaque carreau habité de 200 m : nombre d'habitants, somme de leurs niveaux de vie, indicateur d'estimation | CSV, dans une archive 7z dans un zip |
-| [Communes et arrondissements municipaux 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour et le nom de chaque commune, et des arrondissements de Paris, Lyon et Marseille | GeoParquet |
+| [Base permanente des équipements](https://www.insee.fr/fr/statistiques/8217525) (BPE) 2025 | Insee | la position, le nom et le type de 2,8 millions d'équipements et services, par domaine | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Nomenclature de la BPE](https://www.insee.fr/fr/metadonnees/source/fichier/BPE25_anonymisee_varmod.csv) | Insee | les domaines et les types d'équipements, avec leur libellé | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Base des lieux et équipements culturels](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic) (Basilic) | Ministère de la Culture, Deps | le nom, le type et la position de chaque lieu culturel | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france) | Ministère de la Culture | le nom officiel et la position de chaque musée | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Gares de voyageurs](https://ressources.data.sncf.com/explore/dataset/gares-de-voyageurs/) | SNCF Gares & Connexions | le nom et la position de chaque gare | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | Ministère de l'Éducation nationale | la position de chaque école | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Data ES, recensement des équipements sportifs](https://equipements.sports.gouv.fr/explore/dataset/data-es/) | INJEP, ministère des Sports | le nom, le type et la position de chaque équipement | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Service de géocodage](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) | IGN, Géoplateforme | la position de l'adresse choisie, pour centrer la carte | {{< iconify vscode-icons file-type-json >}} JSON (API) |
+| [Parcellaire express](https://geoservices.ign.fr/parcellaire-express-pci) | IGN | les contours des parcelles cadastrales | {{< iconify vscode-icons file-type-json >}} JSON (API) |
+| [BD TOPO](https://geoservices.ign.fr/bdtopo) | IGN | les contours des bâtiments | {{< iconify vscode-icons file-type-json >}} JSON (API) |
+| [Registre parcellaire graphique](https://geoservices.ign.fr/rpg) (RPG) | IGN, à partir des déclarations PAC (ASP) | les contours des parcelles agricoles et leur culture | {{< iconify vscode-icons file-type-json >}} JSON (API) |
 
 Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
-L'archive de l'Insee est compressée au format 7z, que lit le paquet `py7zr`.
 
 ```{python}
 #| output: false
-import json
 import pathlib
 import tempfile
-import zipfile
 
 import duckdb
-import py7zr
 import requests
 
 con = duckdb.connect()
 con.sql("""
 INSTALL spatial; LOAD spatial;
-SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude), ou (x, y)
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
 SET enable_progress_bar = false
 """)
 ```
@@ -265,333 +685,283 @@ SET enable_progress_bar = false
 {{< include _liens/14-borgesian-map.py >}}
 ```
 
-### Les carreaux de 200 m (Insee)
+### La nomenclature de la BPE (Insee)
 
-Le [dispositif Filosofi](https://www.insee.fr/fr/metadonnees/source/serie/s1172) rapproche les
-déclarations de revenus et les prestations sociales de chaque ménage fiscal. L'Insee en tire des
-[données carroyées](https://www.insee.fr/fr/statistiques/7655475) : la France est découpée en
-carreaux de 200 m de côté, dans la projection européenne de Lambert azimutale (EPSG:3035), et
-chaque carreau habité reçoit le nombre de ses habitants (`ind`), de ses ménages (`men`) et la
-somme de leurs niveaux de vie (`ind_snv`). Le niveau de vie est le revenu disponible du ménage
-divisé par le nombre d'unités de consommation.
-
-Le secret statistique interdit de diffuser des informations sur moins de 11 ménages. Pour ces
-carreaux, l'Insee estime les valeurs à partir d'un ensemble plus large de carreaux voisins, et le
-signale par l'indicateur `i_est_200`. Quelques carreaux plus peuplés sont estimés eux aussi : sans
-cela, on pourrait retrouver les valeurs d'un petit carreau par différence avec le total d'un
-ensemble (c'est le secret dit « secondaire »).
-
-L'identifiant du carreau (`idcar_200m`, par exemple `CRS3035RES200mN2029800E4252400`) donne les
-coordonnées de son coin sud-ouest, en mètres : `N` pour le nord (y), `E` pour l'est (x). On ne
-garde que la métropole : la Martinique et La Réunion ont leurs propres fichiers, dans d'autres
-projections.
+La BPE est classée en sept domaines, de A (services pour les particuliers) à G (tourisme), et chaque
+équipement a un type, noté par un code : `D107` pour les maternités, `F305` pour les conservatoires.
+La nomenclature donne le libellé de chacun. Les types sont écrits en capitales dans le fichier : on
+les remet en minuscules, avec une capitale initiale.
 
 ```{python}
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            with requests.get(url, timeout=900, stream=True) as reponse, open(chemin, "wb") as f:
-                reponse.raise_for_status()
-                for bloc in reponse.iter_content(chunk_size=1 << 20):
-                    f.write(bloc)
-        except OSError:
-            if essai == essais - 1:
-                raise
-            continue
-        if zipfile.is_zipfile(chemin):
-            return
-    raise RuntimeError(f"téléchargement incomplet : {url}")
-
-
-with tempfile.TemporaryDirectory() as dossier:
-    telecharger(SOURCES["filosofi"], f"{dossier}/filosofi.zip")
-    with zipfile.ZipFile(f"{dossier}/filosofi.zip") as archive:
-        archive.extractall(dossier)
-    with py7zr.SevenZipFile(f"{dossier}/Filosofi2019_carreaux_200m_csv.7z") as archive:
-        archive.extract(path=dossier, targets=["carreaux_200m_met.csv"])
-    con.sql(rf"""
-    CREATE TABLE carreaux AS
-    SELECT regexp_extract(idcar_200m, 'E(\d+)$', 1)::INTEGER AS x,
-           regexp_extract(idcar_200m, 'N(\d+)E', 1)::INTEGER AS y,
-           i_est_200 = 1 AS estime, ind, men, ind_snv
-    FROM read_csv('{dossier}/carreaux_200m_met.csv')
-    """)
+#| filename: "Lecture de la nomenclature (Insee)"
+con.sql(f"""
+CREATE TABLE nomenclature AS
+SELECT COD_VAR AS variable, COD_MOD AS code,
+       CASE WHEN COD_VAR = 'TYPEQU' THEN upper(left(LIB_MOD, 1)) || lower(substr(LIB_MOD, 2))
+            ELSE LIB_MOD END AS libelle
+FROM read_csv('{SOURCES["nomenclature_bpe"]}', delim = ';', header = true, all_varchar = true)
+WHERE COD_VAR IN ('DOM', 'TYPEQU')
+""")
 con.sql("""
-SELECT estime, men < 11 AS moins_de_11_menages, count(*) AS carreaux, sum(ind) AS habitants
-FROM carreaux GROUP BY ALL ORDER BY ALL
+SELECT variable, count(*) AS modalites FROM nomenclature GROUP BY ALL ORDER BY ALL
 """).df().style.hide(axis="index")
 ```
 
-### Les communes (cartiflette)
+### Les équipements de la BPE (Insee)
 
-On prend les communes de 2025 au niveau des arrondissements municipaux
-(`COMMUNE_ARRONDISSEMENT`), pour que Paris, Lyon et Marseille soient découpées en arrondissements,
-puis on les projette en Lambert azimutal, comme les carreaux. Cette projection conserve les
-surfaces.
+La [base permanente des équipements](https://www.insee.fr/fr/statistiques/8217525) recense chaque
+année 2,8 millions d'équipements et de services : commerces, écoles, médecins, gymnases… Son
+fichier détaillé donne, pour chacun, son domaine, son type, son nom et sa position. Il est diffusé
+en {{< iconify vscode-icons file-type-parquet >}} `Parquet` : on ne garde que les colonnes utiles, et
+les équipements sans position sont écartés.
 
 ```{python}
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2025/"
-    "administrative_level=COMMUNE_ARRONDISSEMENT/crs=4326/layout=FRANCE_ENTIERE/"
-    "vectorfile_format=parquet/simplification=0/raw.parquet"
-)
-
+#| filename: "Lecture de la BPE (Insee)"
 con.sql(f"""
-CREATE TABLE communes AS
-SELECT INSEE_COG AS code, INSEE_COM AS code_commune, NOM AS nom,
-       ST_Transform(geometry, 'EPSG:4326', 'EPSG:3035') AS geom
-FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
-WHERE INSEE_DEP NOT IN ('971', '972', '973', '974', '976')
+CREATE TABLE bpe AS
+SELECT DOM, TYPEQU, NOMRS, LONGITUDE AS lon, LATITUDE AS lat
+FROM read_parquet('{SOURCES["bpe"]}')
+WHERE LONGITUDE IS NOT NULL AND LATITUDE IS NOT NULL
 """)
-doublons = con.sql("SELECT count(*) - count(DISTINCT code) FROM communes").fetchone()[0]
-assert doublons == 0, f"{doublons} codes de commune en double"
-surface = con.sql("SELECT sum(ST_Area(geom)) / 1e6 FROM communes").fetchone()[0]
-f"{len(con.table('communes'))} communes et arrondissements, {surface:,.0f} km²"
+con.sql("""
+SELECT DOM AS domaine, count(*) AS equipements FROM bpe GROUP BY ALL ORDER BY ALL
+""").df().style.hide(axis="index")
+```
+
+### Les lieux culturels (Deps, Basilic)
+
+La [base des lieux et équipements culturels](https://www.data.gouv.fr/datasets/base-des-lieux-et-equipements-culturels-basilic)
+(Basilic) du Deps recense quelque 86 000 lieux culturels géolocalisés. On les prend tous, avec leur
+nom et leur type.
+
+```{python}
+#| filename: "Lecture de Basilic (Deps)"
+con.sql(f"""
+CREATE TABLE basilic AS
+SELECT Nom AS nom, "Type équipement ou lieu" AS type_lieu,
+       TRY_CAST(Longitude AS DOUBLE) AS lon, TRY_CAST(Latitude AS DOUBLE) AS lat
+FROM read_csv('{SOURCES["basilic"]}', delim = ';', all_varchar = true)
+WHERE TRY_CAST(Longitude AS DOUBLE) IS NOT NULL AND TRY_CAST(Latitude AS DOUBLE) IS NOT NULL
+""")
+con.sql("""
+SELECT type_lieu, count(*) AS lieux FROM basilic GROUP BY ALL ORDER BY 2 DESC LIMIT 10
+""").df().style.hide(axis="index")
+```
+
+### Les musées de France (ministère de la Culture)
+
+La [liste des musées de France](https://www.data.gouv.fr/datasets/liste-des-musees-de-france)
+donne le nom officiel, la commune et la position de chaque musée. Son adresse n'a pas d'extension de
+fichier : DuckDB ne reconnaîtrait pas le format à la lecture, on la télécharge donc d'abord.
+
+```{python}
+#| filename: "Lecture de la liste des musées (ministère de la Culture)"
+with tempfile.TemporaryDirectory() as dossier:
+    reponse = requests.get(SOURCES["musees"], timeout=600)
+    reponse.raise_for_status()
+    pathlib.Path(f"{dossier}/musees.csv").write_bytes(reponse.content)
+    con.sql(f"""
+    CREATE TABLE musees AS
+    SELECT "Nom officiel du musée" AS nom, Commune AS commune,
+           Longitude::DOUBLE AS lon, Latitude::DOUBLE AS lat
+    FROM read_csv('{dossier}/musees.csv', delim = ';', header = true, all_varchar = true)
+    WHERE Longitude IS NOT NULL AND Latitude IS NOT NULL
+    """)
+con.sql("SELECT count(*) AS musees_localises FROM musees").df().style.hide(axis="index")
+```
+
+### Les gares de voyageurs (SNCF)
+
+Le portail open data de la SNCF exporte les [gares de voyageurs](https://ressources.data.sncf.com/explore/dataset/gares-de-voyageurs/)
+en {{< iconify vscode-icons file-type-parquet >}} `Parquet`, avec leur position déjà lisible par
+DuckDB. L'export est produit à la demande : on le télécharge avant de le lire.
+
+```{python}
+#| filename: "Lecture des gares de voyageurs (SNCF)"
+with tempfile.TemporaryDirectory() as dossier:
+    reponse = requests.get(SOURCES["gares-de-voyageurs"], timeout=300)
+    reponse.raise_for_status()
+    pathlib.Path(f"{dossier}/gares.parquet").write_bytes(reponse.content)
+    con.sql(f"""
+    CREATE TABLE gares AS
+    SELECT nom, ST_X(position_geographique::GEOMETRY) AS lon,
+           ST_Y(position_geographique::GEOMETRY) AS lat
+    FROM read_parquet('{dossier}/gares.parquet')
+    WHERE position_geographique IS NOT NULL
+    """)
+con.sql("SELECT count(*) AS gares FROM gares").df().style.hide(axis="index")
+```
+
+### Les écoles (annuaire de l'éducation)
+
+L'[annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/)
+donne, pour chaque école ouverte, ses coordonnées (`latitude`, `longitude`). Son export ne contient
+que les écoles : on garde celles qui sont localisées.
+
+```{python}
+#| filename: "Lecture de l'annuaire (écoles)"
+con.sql(f"""
+CREATE TABLE ecoles AS
+SELECT longitude::DOUBLE AS lon, latitude::DOUBLE AS lat
+FROM read_parquet('{SOURCES["annuaire"]}')
+WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+""")
+con.sql("SELECT count(*) AS ecoles_localisees FROM ecoles").df().style.hide(axis="index")
+```
+
+### Les équipements sportifs (INJEP, Data ES)
+
+Le [recensement des équipements sportifs](https://equipements.sports.gouv.fr/explore/dataset/data-es/)
+(Data ES) décrit plus de 330 000 équipements, espaces et sites de pratique. On garde leur nom, leur
+type et leur position, et on écarte les équipements sans coordonnées et ceux dont l'installation est
+déclarée hors service.
+
+```{python}
+#| filename: "Lecture des équipements sportifs (INJEP)"
+con.sql(f"""
+CREATE TABLE sport AS
+SELECT equip_nom AS nom, equip_type_name AS type,
+       ST_X(equip_coordonnees::GEOMETRY) AS lon, ST_Y(equip_coordonnees::GEOMETRY) AS lat
+FROM read_parquet('{SOURCES["data_es"]}')
+WHERE equip_coordonnees IS NOT NULL AND inst_hs_bool IS DISTINCT FROM 'Oui'
+""")
+con.sql("SELECT count(*) AS equipements FROM sport").df().style.hide(axis="index")
 ```
 
 ## Les traitements
 
-### Le niveau de vie à chaque résolution
+### Une table commune des objets
 
-Le niveau de vie moyen d'un territoire est la somme des niveaux de vie de ses habitants, divisée
-par leur nombre. Pour un carreau de 1 km, de 2 km, de 4 km ou de 8 km, il suffit d'additionner les
-carreaux de 200 m qu'il contient : la division entière des coordonnées par la taille du carreau
-(`x // 1000`) donne le carreau qui contient chaque carreau de 200 m. Les carreaux de l'Insee sont
-alignés sur ces multiples : un carreau de 200 m est toujours entier dans un carreau de 1 km.
+Toutes les couches sont rangées dans une même table, `objets` : pour chaque objet, sa couche, son
+nom (`n`, vide si la source n'en donne pas), son type (`t`) et son point, en longitude et latitude,
+arrondi à 5 décimales (environ un mètre). Les lignes sans coordonnées ont déjà été écartées.
 
-Chaque carreau de 200 m garde ainsi, dans une colonne par taille, le niveau de vie du carreau plus
-grand qui le contient. Sur la carte, chaque étape colore les mêmes carreaux de 200 m, avec la
-valeur de l'étape.
+Pour la BPE, le nom est volontairement laissé vide : on ne garde que le code du type, pour alléger
+le fichier. Le libellé sera retrouvé dans le navigateur, avec la nomenclature.
 
 ```{python}
-TAILLES = [8000, 4000, 2000, 1000, 200]
-
-colonnes = ",\n".join(
-    f"round(sum(ind_snv) OVER (PARTITION BY x // {t}, y // {t})"
-    f" / sum(ind) OVER (PARTITION BY x // {t}, y // {t}))::INTEGER AS nv_{t}"
-    for t in TAILLES
-)
-con.sql(f"CREATE TABLE niveaux AS SELECT x, y, estime, ind, ind_snv, {colonnes} FROM carreaux")
-con.sql("FROM niveaux LIMIT 5").df().style.hide(axis="index")
-```
-
-### Les carreaux estimés
-
-Dans un même carreau de 1 km, les carreaux de 200 m estimés ont tous le même niveau de vie moyen
-(à l'euro près, après arrondi) : l'estimation leur donne la moyenne de leur groupe. Le zoom
-n'apporte donc rien de plus, pour eux, que le carreau de 1 km. On le vérifie :
-
-```{python}
-ecarts = con.sql("""
-SELECT count(*) FROM (
-    SELECT x // 1000, y // 1000 FROM niveaux WHERE estime
-    GROUP BY ALL HAVING max(nv_200) - min(nv_200) > 1
-)
-""").fetchone()[0]
-assert ecarts == 0, f"{ecarts} carreaux de 1 km où les carreaux estimés diffèrent"
-
-totaux = con.sql(f"""
-SELECT count(*) AS carreaux, sum(ind) AS individus,
-       count(*) FILTER (estime) / count(*) AS part_carreaux_estimes,
-       sum(ind) FILTER (estime) / sum(ind) AS part_individus_estimes,
-       count(*) * 0.04 / {surface} AS part_territoire
-FROM niveaux
-""").df().to_dict("records")[0]
-totaux
-```
-
-### Le niveau de vie des communes
-
-Chaque carreau est rattaché à la commune (ou à l'arrondissement) qui contient son centre. Le
-niveau de vie de la commune est calculé de la même façon, à partir de ses carreaux : c'est une
-approximation, car un carreau à cheval sur deux communes est compté en entier dans l'une. Les
-contours sont ceux de 2025, les revenus ceux de 2019 : les communes fusionnées entre-temps sont
-traitées comme une seule.
-
-```{python}
+#| filename: "Table des objets"
+con.sql("CREATE TABLE objets (couche VARCHAR, n VARCHAR, t VARCHAR, geom GEOMETRY)")
 con.sql("""
-CREATE TABLE rattachement AS
-SELECT n.x, n.y, m.code
-FROM niveaux n JOIN communes m ON ST_Contains(m.geom, ST_Point(n.x + 100, n.y + 100))
+INSERT INTO objets
+SELECT 'maternites', NOMRS, 'Maternité', ST_Point(round(lon, 5), round(lat, 5))
+FROM bpe WHERE TYPEQU = 'D107'
+UNION ALL
+SELECT 'bpe_' || lower(DOM), NULL, TYPEQU, ST_Point(round(lon, 5), round(lat, 5))
+FROM bpe
+UNION ALL
+SELECT 'musees', nom, 'Musée de France', ST_Point(round(lon, 5), round(lat, 5))
+FROM musees
+UNION ALL
+SELECT 'gares', nom, 'Gare', ST_Point(round(lon, 5), round(lat, 5))
+FROM gares
+UNION ALL
+SELECT 'culture', nom, type_lieu, ST_Point(round(lon, 5), round(lat, 5))
+FROM basilic
+UNION ALL
+SELECT 'ecoles', NULL, 'École', ST_Point(round(lon, 5), round(lat, 5))
+FROM ecoles
+UNION ALL
+SELECT 'sport', nom, type, ST_Point(round(lon, 5), round(lat, 5))
+FROM sport
 """)
 con.sql("""
-CREATE TABLE niveaux_communes AS
-SELECT r.code, m.nom, round(sum(n.ind_snv) / sum(n.ind))::INTEGER AS nv
-FROM rattachement r JOIN niveaux n USING (x, y) JOIN communes m USING (code)
-GROUP BY ALL
-""")
-con.sql("""
-SELECT count(*) AS carreaux, count(r.code) AS rattaches,
-       count(*) - count(r.code) AS hors_commune
-FROM niveaux n LEFT JOIN rattachement r USING (x, y)
+SELECT couche, count(*) AS objets FROM objets GROUP BY ALL ORDER BY ALL
 """).df().style.hide(axis="index")
 ```
 
-Les carreaux sans commune ont leur centre en mer ou de l'autre côté d'une frontière ; la carte les
-montre, sans niveau de vie communal.
+Une même maternité figure donc deux fois : dans la couche « Maternités » et dans le domaine santé de
+la BPE. C'est voulu : chaque couche se lit pour elle-même.
 
-### L'échelle de couleurs
+### Un fichier par couche
 
-Les couleurs sont les déciles des habitants de métropole, rangés selon le niveau de vie moyen de
-leur carreau de 200 m : chaque couleur réunit un dixième de la population. Les mêmes seuils servent
-pour toutes les villes et toutes les étapes.
-
-```{python}
-seuils = [
-    s for (s,) in con.sql("""
-    WITH cumul AS (
-        SELECT nv_200, sum(ind) OVER (ORDER BY nv_200) / sum(ind) OVER () AS part FROM niveaux
-    )
-    SELECT min(nv_200) FROM cumul, range(1, 10) AS d(decile)
-    WHERE part >= decile / 10 GROUP BY decile ORDER BY decile
-    """).fetchall()
-]
-seuils
-```
-
-### Les neuf villes
-
-Pour chaque ville, on trace un cadre de 40 km de côté, centré sur la commune (ses arrondissements
-réunis pour Paris, Lyon et Marseille) et aligné sur la grille de 200 m. Aux huit plus grandes
-villes de province s'ajoute Aurillac, préfecture d'un département rural : les carreaux estimés y
-sont la règle.
-
-Les carreaux de 8 km, ou les communes, débordent parfois du cadre : leur niveau de vie est calculé
-sur tous leurs carreaux, puis la carte les coupe au bord.
+Chaque couche est écrite dans un fichier FlatGeobuf, dans `donnees/j14/`. FlatGeobuf est un format
+binaire ouvert pour les données géographiques : un index spatial, un arbre R rangé selon une courbe
+de Hilbert, est placé en tête du fichier. Le navigateur peut ainsi ne télécharger, par requêtes HTTP
+partielles, que les objets de la vue, sans lire tout le fichier.
 
 ```{python}
-COTE = 40_000
-VILLES = [
-    ("paris", "Paris", "75056"),
-    ("lyon", "Lyon", "69123"),
-    ("marseille", "Marseille", "13055"),
-    ("toulouse", "Toulouse", "31555"),
-    ("lille", "Lille", "59350"),
-    ("bordeaux", "Bordeaux", "33063"),
-    ("nantes", "Nantes", "44109"),
-    ("strasbourg", "Strasbourg", "67482"),
-    ("aurillac", "Aurillac", "15014"),
-]
-
-zones = []
-for slug, nom, code in VILLES:
-    cx, cy = con.sql(f"""
-    SELECT ST_X(c), ST_Y(c)
-    FROM (SELECT ST_Centroid(ST_Union_Agg(geom)) AS c FROM communes WHERE code_commune = '{code}')
-    """).fetchone()
-    x0 = round((cx - COTE / 2) / 200) * 200
-    y0 = round((cy - COTE / 2) / 200) * 200
-    zones.append({"slug": slug, "nom": nom, "x0": x0, "y0": y0, "cote": COTE})
-zones
-```
-
-### Ce qui part dans les fichiers
-
-Pour chaque ville, on écrit dans `donnees/j14/` deux fichiers, que la page charge quand on
-choisit la ville :
-
-- un CSV de ses carreaux de 200 m, avec leurs coordonnées, leur commune, leur nombre d'habitants,
-  l'indicateur d'estimation et le niveau de vie à chaque résolution ;
-- un JSON avec le nom et le niveau de vie de ses communes, et leurs limites, coupées au cadre et
-  simplifiées à 25 m (un pixel de la carte fait environ 55 m).
-
-```{python}
+#| filename: "Écriture des fichiers FlatGeobuf"
 #| output: false
 SORTIE = pathlib.Path("donnees/j14")
 SORTIE.mkdir(parents=True, exist_ok=True)
 
-
-def lignes(geometrie):
-    """Les lignes d'une géométrie GeoJSON, en coordonnées arrondies au mètre."""
-    if geometrie["type"] == "LineString":
-        return [[[round(x), round(y)] for x, y in geometrie["coordinates"]]]
-    if geometrie["type"] == "MultiLineString":
-        return [[[round(x), round(y)] for x, y in ligne] for ligne in geometrie["coordinates"]]
-    if geometrie["type"] == "GeometryCollection":
-        return [l for g in geometrie["geometries"] for l in lignes(g)]
-    return []  # points isolés
-
-
-for zone in zones:
-    x0, y0 = zone["x0"], zone["y0"]
-    filtre = f"x >= {x0} AND x < {x0 + COTE} AND y >= {y0} AND y < {y0 + COTE}"
-    cadre = f"ST_MakeEnvelope({x0}, {y0}, {x0 + COTE}, {y0 + COTE})"
+nombres = dict(con.sql("SELECT couche, count(*) FROM objets GROUP BY couche ORDER BY couche").fetchall())
+for cle in nombres:
+    fichier = (SORTIE / f"{cle}.fgb").as_posix()
     con.sql(f"""
-    COPY (
-        SELECT x, y, coalesce(r.code, '') AS commune, estime::INTEGER AS estime, round(ind, 1) AS ind,
-               {", ".join(f"nv_{t}" for t in TAILLES)}
-        FROM niveaux n LEFT JOIN rattachement r USING (x, y)
-        WHERE {filtre} ORDER BY y, x
-    ) TO '{SORTIE / zone["slug"]}.csv' (HEADER)
+    COPY (SELECT n, t, geom FROM objets WHERE couche = '{cle}')
+    TO '{fichier}' (FORMAT GDAL, DRIVER 'FlatGeobuf', SRS 'EPSG:4326')
     """)
-    communes_zone = {
-        code: {"nom": nom, "nv": nv}
-        for code, nom, nv in con.sql(f"""
-        SELECT DISTINCT c.code, c.nom, c.nv
-        FROM rattachement r JOIN niveaux_communes c USING (code) WHERE {filtre}
-        """).fetchall()
-    }
-    (bordures,) = con.sql(f"""
-    SELECT ST_AsGeoJSON(ST_Intersection(ST_Simplify(ST_LineMerge(ST_Union_Agg(ST_Boundary(geom))), 25), {cadre}))
-    FROM communes WHERE ST_Intersects(geom, {cadre})
-    """).fetchone()
-    with open(SORTIE / f"{zone['slug']}.json", "w") as f:
-        json.dump({"communes": communes_zone, "bordures": lignes(json.loads(bordures))}, f)
-```
-
-Enfin, un résumé par ville pour le graphique des carreaux estimés, avec la métropole entière en
-dernière ligne.
-
-```{python}
-resume = []
-for zone in zones:
-    x0, y0 = zone["x0"], zone["y0"]
-    resume.append(con.sql(f"""
-    SELECT '{zone["nom"]}' AS nom,
-           count(*) FILTER (estime) / count(*) AS part_carreaux_estimes,
-           sum(ind) FILTER (estime) / sum(ind) AS part_individus_estimes
-    FROM niveaux WHERE x >= {x0} AND x < {x0 + COTE} AND y >= {y0} AND y < {y0 + COTE}
-    """).df().to_dict("records")[0])
-resume.append({"nom": "France métropolitaine", **{k: totaux[k] for k in ["part_carreaux_estimes", "part_individus_estimes"]}})
 ```
 
 ### Ce qui passe à la carte
 
+La carte reçoit la liste des couches, dans l'ordre où on les ajoute, et le libellé de chaque type de
+la BPE. Les domaines de la BPE portent le nom de leur domaine dans la nomenclature.
+
 ```{python}
-ojs_define(zones=zones, totaux=totaux, seuils=seuils, resume=resume)
+DOMAINES = dict(con.sql("SELECT code, libelle FROM nomenclature WHERE variable = 'DOM'").fetchall())
+libelles = dict(con.sql("SELECT code, libelle FROM nomenclature WHERE variable = 'TYPEQU'").fetchall())
+
+couches = [
+    {"cle": "maternites", "nom": "Maternités", "groupe": "Les autres jours", "jour": "J1",
+     "zoom_min": 5, "couleur": "#d6336c", "sombre": "#f06595"},
+    {"cle": "musees", "nom": "Musées de France", "groupe": "Les autres jours", "jour": "J13",
+     "zoom_min": 6, "couleur": "#e8590c", "sombre": "#ff922b"},
+    {"cle": "gares", "nom": "Gares de voyageurs", "groupe": "Les autres jours", "jour": "J24",
+     "zoom_min": 7, "couleur": "#1c7ed6", "sombre": "#4dabf7"},
+    {"cle": "culture", "nom": "Lieux culturels", "groupe": "Les autres jours", "jour": "J11",
+     "zoom_min": 10, "couleur": "#ae3ec9", "sombre": "#da77f2"},
+    {"cle": "ecoles", "nom": "Écoles", "groupe": "Les autres jours", "jour": "J20",
+     "zoom_min": 11, "couleur": "#f59f00", "sombre": "#fcc419"},
+    {"cle": "sport", "nom": "Équipements sportifs", "groupe": "Les autres jours", "jour": "J7",
+     "zoom_min": 12, "couleur": "#2f9e44", "sombre": "#69db7c"},
+    {"cle": "bpe_a", "nom": DOMAINES["A"], "groupe": "Base permanente des équipements", "jour": None,
+     "zoom_min": 14, "couleur": "#495057", "sombre": "#ced4da"},
+    {"cle": "bpe_b", "nom": DOMAINES["B"], "groupe": "Base permanente des équipements", "jour": None,
+     "zoom_min": 13, "couleur": "#c2255c", "sombre": "#faa2c1"},
+    {"cle": "bpe_c", "nom": DOMAINES["C"], "groupe": "Base permanente des équipements", "jour": None,
+     "zoom_min": 13, "couleur": "#e67700", "sombre": "#ffd43b"},
+    {"cle": "bpe_d", "nom": DOMAINES["D"], "groupe": "Base permanente des équipements", "jour": None,
+     "zoom_min": 14, "couleur": "#0b7285", "sombre": "#66d9e8"},
+    {"cle": "bpe_e", "nom": DOMAINES["E"], "groupe": "Base permanente des équipements", "jour": None,
+     "zoom_min": 13, "couleur": "#364fc7", "sombre": "#91a7ff"},
+    {"cle": "bpe_f", "nom": DOMAINES["F"], "groupe": "Base permanente des équipements", "jour": None,
+     "zoom_min": 13, "couleur": "#5c940d", "sombre": "#a9e34b"},
+    {"cle": "bpe_g", "nom": DOMAINES["G"], "groupe": "Base permanente des équipements", "jour": None,
+     "zoom_min": 13, "couleur": "#862e9c", "sombre": "#e599f7"},
+]
+for couche in couches:
+    couche["fichier"] = f"donnees/j14/{couche['cle']}.fgb"
+    couche["nombre"] = nombres.get(couche["cle"], 0)
+
+ojs_define(couches=couches, libelles=libelles)
 ```
 
 ## Les données de la carte
 
-Les carreaux de la ville choisie plus haut. Les coordonnées sont celles du coin sud-ouest, en
-Lambert azimutal (EPSG:3035).
+Les objets affichés dans la vue actuelle de la carte, toutes couches confondues.
 
 ::: {.column-page}
 
 ```{ojs}
 //| echo: false
-tableCellules = cellules.map((c) => ({...c, nom: detail.communes[c.commune]?.nom ?? ""}))
-viewof recherche = Inputs.search(tableCellules, {
-  placeholder: "Rechercher une commune…",
-  format: (n) => `${entier(n)} carreaux`
+viewof recherche = Inputs.search(visibles, {
+  placeholder: "Rechercher un objet de la vue…",
+  format: (n) => `${entier(n)} objets`
 })
 ```
 
 ```{ojs}
 //| echo: false
 Inputs.table(recherche, {
-  columns: ["x", "y", "nom", "ind", "estime", "nv_200", "nv_1000", "nv_8000"],
-  header: {
-    x: "x (m)", y: "y (m)", nom: "Commune", ind: "Habitants", estime: "Estimé",
-    nv_200: "Niveau de vie, 200 m (€)", nv_1000: "1 km (€)", nv_8000: "8 km (€)"
-  },
+  columns: ["couche", "nom", "type", "lon", "lat"],
+  header: {couche: "Couche", nom: "Nom", type: "Type", lon: "Longitude", lat: "Latitude"},
   format: {
-    x: (x) => String(x), y: (y) => String(y), ind: (n) => virgule(n),
-    estime: (b) => (b ? "oui" : "non"), nv_200: entier, nv_1000: entier, nv_8000: entier
+    lon: (x) => x.toLocaleString("fr-FR", {minimumFractionDigits: 5}),
+    lat: (x) => x.toLocaleString("fr-FR", {minimumFractionDigits: 5})
   },
-  sort: "ind",
-  reverse: true,
   rows: 15
 })
 ```
@@ -599,10 +969,8 @@ Inputs.table(recherche, {
 ```{ojs}
 //| echo: false
 DOM.download(
-  () => new Blob([d3.csvFormat(tableCellules.map((c) => ({...c, estime: c.estime ? 1 : 0})),
-    ["x", "y", "commune", "nom", "ind", "estime", "nv_8000", "nv_4000", "nv_2000", "nv_1000", "nv_200"])],
-    {type: "text/csv"}),
-  `carreaux_filosofi_2019_${zone.slug}.csv`,
+  () => new Blob([d3.csvFormat(visibles, ["couche", "nom", "type", "lon", "lat"])], {type: "text/csv"}),
+  "carte_de_borges.csv",
   "Télécharger (CSV)"
 )
 ```
@@ -611,25 +979,19 @@ DOM.download(
 
 ## Précautions
 
-- Les revenus sont ceux de 2019, avant la crise sanitaire. Le champ est celui des ménages
-  fiscaux : les personnes en communauté (maisons de retraite, foyers, prisons) et les sans-abri
-  n'y sont pas.
-- L'Insee ne publie pas le niveau de vie moyen d'un carreau, mais la somme des niveaux de vie
-  de ses habitants : la moyenne se calcule en divisant par leur nombre. Ce n'est pas le niveau de
-  vie médian, plus courant dans les publications.
-- Les valeurs des carreaux estimés ne sont pas des observations : elles servent à agréger les
-  carreaux en zones plus grandes, pas à décrire un carreau isolé. La carte de 200 m est donc à lire
-  avec la dernière étape du curseur, qui ne garde que les carreaux observés.
-- Le rattachement des carreaux aux communes se fait par leur centre, sur les contours de 2025 :
-  le niveau de vie communal est approché, et peut différer de celui que publie l'Insee pour la
-  commune.
+- Les positions ne sont pas toutes de même qualité. La BPE est géolocalisée à partir de l'adresse,
+  avec une précision variable selon les équipements ; les autres sources ont leurs propres méthodes.
+- Les doublons sont volontaires : une maternité est aussi dans le domaine santé de la BPE, et les
+  lieux de musique ou les musées se retrouvent dans plusieurs couches. Le compteur d'objets d'une
+  couche ne se somme donc pas avec celui des autres.
+- Les couches de l'IGN viennent d'un service interrogé en direct. Le service limite le nombre
+  d'objets par requête, et ces couches ne s'affichent qu'à fort zoom.
 
 ## Pour aller plus loin
 
-- Insee, [Revenus, pauvreté et niveau de vie en 2019 - Données carroyées](https://www.insee.fr/fr/statistiques/7655475?sommaire=7655515),
-  et la documentation des fichiers (méthode d'estimation, liste des variables).
-- Insee, [Filosofi](https://www.insee.fr/fr/metadonnees/source/serie/s1172), le dispositif sur
-  les revenus localisés sociaux et fiscaux.
 - Jorge Luis Borges, « De la rigueur de la science », un texte d'un paragraphe paru en 1946, repris
   dans *L'Auteur et autres textes* (*El hacedor*, 1960). Lewis Carroll avait déjà imaginé, dans
   *Sylvie et Bruno* (1893), une carte « à l'échelle d'un mille pour un mille ».
+- Insee, [Base permanente des équipements](https://www.insee.fr/fr/statistiques/8217525), avec sa
+  documentation et ses nomenclatures.
+- [FlatGeobuf](https://flatgeobuf.org), la documentation du format de fichier utilisé pour les couches.
