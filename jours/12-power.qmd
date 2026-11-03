@@ -702,6 +702,7 @@ COPY (
 ```{python}
 #| filename: "Ce qui passe à la carte"
 #| output: false
+#| echo: false
 ojs_define(
     departements=departements,
     libelles={

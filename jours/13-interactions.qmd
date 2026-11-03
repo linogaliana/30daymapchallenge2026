@@ -889,7 +889,7 @@ len(geojson["features"]), f"{(SORTIE / 'musees.geojson').stat().st_size / 1e3:.0
 ```{python}
 #| output: false
 #| filename: "Ce qui passe à la page (ojs_define)"
-#| output: false
+#| echo: false
 ojs_define(
     geojson=geojson,
     ensemble=ensemble.to_dict("records"),
