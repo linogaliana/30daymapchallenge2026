@@ -7,7 +7,17 @@ resources:
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#c2451e"
+  sombre: "#7aa7ff"
 ---
+
+Pour la dix-septième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Light & dark"**]{.underline color="#0A5927"}), on oppose la France [du jour]{.underline color="#c2451e"} et celle [de la nuit]{.underline color="#2b6cb0"} : la carte bascule avec le site, en thème clair pour la France du jour, en thème sombre pour celle de la nuit. Le bouton en haut de la carte permet de passer de l'un à l'autre sans changer de thème. Chaque point est une commune (ou un arrondissement à Paris, Lyon et Marseille) : sa surface suit le nombre de personnes présentes, sa couleur l'écart entre le jour et la nuit. Les navettes viennent du recensement de 2023 de l'[Insee]{.underline color="#0A5927"}, le [[fichier détail des mobilités professionnelles]{.underline}](https://www.insee.fr/fr/statistiques/9004795) et scolaires (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -15,8 +25,8 @@ entier = (x) => Math.round(x).toLocaleString("fr-FR")
 millions = (x) => (x / 1e6).toLocaleString("fr-FR", {maximumFractionDigits: 1})
 pourcent = (x) => `${Math.round(100 * x)} %`
 html`<p class="lead">
-  La nuit, chacun dort dans sa commune. Le jour, <strong>${millions(resume.partants)} millions
-  de personnes</strong> (${pourcent(resume.partants / resume.habitants)} de la population) la
+  La nuit, chacun dort dans sa commune. Le jour, <span class="souligne">${millions(resume.partants)} millions
+  de personnes</span> (${pourcent(resume.partants / resume.habitants)} de la population) la
   quittent pour aller travailler ou étudier ailleurs. ${entier(resume.communes_videes)} communes
   sur ${entier(resume.communes)} se vident ; ${entier(resume.communes - resume.communes_videes)} se remplissent ou restent
   stables. Le
@@ -24,12 +34,6 @@ html`<p class="lead">
   ${entier(huitieme.jour)} personnes y passent la journée.
 </p>`
 ```
-
-Pour le thème *light & dark*, la carte bascule avec le site : en thème clair, elle montre la
-France du jour, et en thème sombre, celle de la nuit. Le bouton en haut de la carte permet de passer
-de l'un à l'autre sans changer de thème. Chaque point est une commune (ou un arrondissement à
-Paris, Lyon et Marseille), sa surface suit le nombre de personnes présentes, sa couleur l'écart
-entre le jour et la nuit (making of 👇).
 
 ```{ojs}
 //| echo: false
@@ -176,7 +180,7 @@ perdent le quart de leur population. Seules gagnent les communes où l'emploi es
 Île-de-France, Paris-Centre et l'Ouest (8<sup>e</sup>, 9<sup>e</sup>, La Défense), ailleurs le
 centre des métropoles.
 
-## Les plus grands écarts
+## Les plus grands écarts {.unnumbered}
 
 ```{ojs}
 //| echo: false
@@ -218,20 +222,25 @@ html`<p><small>
 </small></p>`
 ```
 
+:::
+
+# Making of
+
 ## Les données
 
-Trois sources, lues avec [DuckDB](https://duckdb.org/) : les deux fichiers détail du
-recensement de l'Insee sur les déplacements domicile-travail et domicile-études, et
-[cartiflette](https://github.com/InseeFrLab/cartiflette) pour les communes, leur population et
-le fond de carte.
+La carte croise trois sources publiques : les deux fichiers détail du recensement 2023 de l'Insee sur les [[déplacements domicile-travail]{.underline}](https://www.insee.fr/fr/statistiques/9004795) et [[domicile-études]{.underline}](https://www.insee.fr/fr/statistiques/9004793), et le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) pour les communes, leur population et le fond de carte.
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Mobilités professionnelles 2023](https://www.insee.fr/fr/statistiques/9004795) (MOBPRO) | Insee, recensement | Commune de résidence et commune de travail de chaque actif ayant un emploi | Parquet |
-| [Mobilités scolaires 2023](https://www.insee.fr/fr/statistiques/9004793) (MOBSCO) | Insee, recensement | Commune de résidence et commune d'études de chaque élève ou étudiant de 2 ans ou plus | Parquet |
-| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | Contours des communes et des arrondissements, population municipale, départements | GeoParquet |
+| [Mobilités professionnelles 2023](https://www.insee.fr/fr/statistiques/9004795) (MOBPRO) | Insee, recensement | Commune de résidence et commune de travail de chaque actif ayant un emploi | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Mobilités scolaires 2023](https://www.insee.fr/fr/statistiques/9004793) (MOBSCO) | Insee, recensement | Commune de résidence et commune d'études de chaque élève ou étudiant de 2 ans ou plus | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | Contours des communes et des arrondissements, population municipale, départements | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
+#| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import pathlib
 import tempfile
@@ -266,6 +275,7 @@ fichiers à distance. On les télécharge (67 et 24 Mo) en vérifiant qu'ils son
 garde, pour chaque personne, d'où elle part, où elle va et son poids.
 
 ```{python}
+#| filename: "Lecture des navettes (Insee)"
 # Le serveur coupe parfois le téléchargement sans erreur, et n'envoie pas la
 # taille : un fichier Parquet complet finit par « PAR1 ».
 def telecharger(url, chemin, essais=5):
@@ -317,6 +327,7 @@ Marseille à la place de leur commune). La colonne `POPULATION` y est la populat
 légale, celle du recensement de 2023 : ce sont les habitants de la carte de nuit.
 
 ```{python}
+#| filename: "Lecture des communes (cartiflette)"
 CARTIFLETTE_URL = (
     "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
     "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
@@ -343,6 +354,7 @@ autre commune y travailler ou y étudier. Les autres, retraités, enfants non sc
 chômeurs, ceux qui travaillent ou étudient sur place, restent dans leur commune.
 
 ```{python}
+#| filename: "La population de jour"
 con.sql("""
 CREATE TABLE bilan AS
 WITH partants AS (
@@ -373,6 +385,7 @@ Le total du jour est un peu plus faible que celui de la nuit : ceux qui travaill
 ne sont pas recensés en France.
 
 ```{python}
+#| filename: "Les chiffres de l'accroche"
 resume = con.sql("""
 SELECT count(*) AS communes,
        count(*) FILTER (WHERE jour < habitants) AS communes_videes,
@@ -393,6 +406,7 @@ s'alourdir. Le rapport entre la population de jour et celle de nuit donne la cou
 
 ```{python}
 #| output: false
+#| filename: "Écriture des communes (CSV)"
 SORTIE = pathlib.Path("donnees/j17")
 SORTIE.mkdir(parents=True, exist_ok=True)
 con.sql(f"""
@@ -413,6 +427,7 @@ Le fond de carte, ce sont les départements, simplifiés ensemble à 1 km enviro
 (`ST_CoverageSimplify`) pour rester jointifs.
 
 ```{python}
+#| filename: "Fond de carte des départements"
 departements = con.sql(f"""
 WITH couverture AS (
     SELECT list(INSEE_DEP ORDER BY INSEE_DEP) AS codes,
@@ -434,10 +449,9 @@ departements = {
 
 ### Ce qui passe à la carte
 
-Les tables sont transmises au JavaScript de la page avec `ojs_define`, la carte est faite avec
-[Observable Plot](https://observablehq.com/plot/).
-
 ```{python}
+#| output: false
+#| filename: "Ce qui passe à la page (ojs_define)"
 ojs_define(
     departements=departements,
     resume={k: float(resume[k]) for k in resume.index},
@@ -447,7 +461,13 @@ ojs_define(
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient une table des communes, avec leur population la nuit et le jour. La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -487,7 +507,10 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
+
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - La population de jour ne compte que les déplacements pour le travail et les études. Elle
   ignore les achats, les soins, les loisirs, le tourisme : une station de ski ou une ville
@@ -503,6 +526,11 @@ DOM.download(
 - Une anomalie du recensement 2023 attribue à Maxey-sur-Vaise (Meuse) des emplois du quartier de
   Vaise, à Lyon ([Insee](https://www.insee.fr/fr/statistiques/8998300)).
 
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - [J2 · Lines](02-lines.qmd) : les mêmes navettes domicile-travail, vues comme des flux entre
@@ -511,3 +539,5 @@ DOM.download(
   [Mobilités scolaires en 2023](https://www.insee.fr/fr/statistiques/8998322) (flux agrégés
   par commune).
 - Insee Première n° 1835, janvier 2021, [« La voiture reste majoritaire pour les déplacements domicile-travail, même pour de courtes distances »](https://www.insee.fr/fr/statistiques/5013868).
+
+:::
