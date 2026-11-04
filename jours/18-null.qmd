@@ -7,8 +7,17 @@ resources:
 execute:
   echo: true
 code-overflow: wrap
-eval: false
+number-sections: true
+charte:
+  couleur: "#a12d4c"
+  sombre: "#f19a50"
 ---
+
+Pour la dix-huitième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"NULL"**]{.underline color="#0A5927"}), on cartographie l'absence de valeur. `NULL`, en SQL, ce n'est ni zéro, ni une chaîne vide : une case qu'on ne sait pas remplir. Une carte doit pourtant lui donner une couleur, et ce choix n'est jamais neutre. La carte des [prix]{.underline color="#a12d4c"} de l'immobilier, tirée des [[demandes de valeurs foncières]{.underline}](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres) (DVF) de la [DGFiP]{.underline color="#0A5927"}, montre ses trous, et le menu au-dessus de la carte change la façon de les dessiner (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -17,20 +26,13 @@ euros = (x) => `${entier(x)} €`
 pourcent = (x, n = 0) => `${(100 * x).toLocaleString("fr-FR", {maximumFractionDigits: n})} %`
 html`<p class="lead">
   Combien coûte un mètre carré de maison ou d'appartement dans votre commune ? Pour
-  <strong>${entier(resume.null)} communes sur ${entier(resume.communes)}</strong>, les ventes
+  <span class="souligne">${entier(resume.null)} communes sur ${entier(resume.communes)}</span>, les ventes
   enregistrées depuis cinq ans répondent <code>NULL</code>. Pas zéro : une absence. Dans
   ${entier(resume.hors_champ)} d'entre elles, en Alsace, en Moselle et à Mayotte, aucune vente
   n'est publiée ; dans ${entier(resume.retablies)}, la commune n'existait pas encore sous son
   code actuel ; dans les ${entier(resume.aucune_vente)} autres, aucune vente de logement n'est retenue.
 </p>`
 ```
-
-`NULL`, en SQL, c'est l'absence de valeur : ni zéro, ni chaîne vide, une case qu'on ne sait pas
-remplir. Une carte doit pourtant lui donner une couleur, et ce choix n'est jamais neutre. Pour ce
-dix-huitième jour, la carte des prix de l'immobilier, tirée des
-[demandes de valeurs foncières](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres)
-(DVF) de la DGFiP, montre ses trous, et le menu au-dessus de la carte change la façon de les
-dessiner (making of 👇).
 
 ```{ojs}
 //| echo: false
@@ -326,7 +328,7 @@ demandes de valeurs foncières, statistiques DVF d'Etalab ; Insee, code officiel
 2026 ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette ; fond Plan IGN.</small></p>`
 ```
 
-## Quatre façons de dessiner un NULL
+## Quatre façons de dessiner un NULL {.unnumbered}
 
 ```{ojs}
 //| echo: false
@@ -364,7 +366,7 @@ maison, pas celui d'une commune. Le relever fabrique des \`NULL\` (${entier(nbSo
 choisi) ; le baisser publie des chiffres fragiles.`
 ```
 
-## Les NULL, cause par cause
+## Les NULL, cause par cause {.unnumbered}
 
 ```{ojs}
 //| echo: false
@@ -411,24 +413,31 @@ Sainte-Florence (Vendée) ont quitté Essarts-en-Bocage en 2024, Sannerville (Ca
 Saline à la fin de 2019. Leurs maisons se sont vendues, mais sous le code de la commune dont
 elles faisaient partie.
 
+:::
+
+# Making of
+
 ## Les données
 
-Trois sources, lues avec [DuckDB](https://duckdb.org/) : les statistiques DVF publiées par Etalab,
-le code officiel géographique de l'Insee, et
-[cartiflette](https://github.com/InseeFrLab/cartiflette) pour les contours des communes.
+La carte croise trois sources publiques : les [[statistiques DVF]{.underline}](https://www.data.gouv.fr/datasets/statistiques-dvf) publiées par Etalab à partir des demandes de valeurs foncières de la DGFiP, le [[code officiel géographique]{.underline}](https://www.insee.fr/fr/information/8740222) de l'Insee, et le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) pour les contours des communes.
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Statistiques DVF](https://www.data.gouv.fr/datasets/statistiques-dvf), tirées des [demandes de valeurs foncières](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres) | DGFiP, statistiques d'Etalab | pour chaque commune, le nombre de ventes de maisons et d'appartements en cinq ans et leur prix médian au m² | CSV |
-| [Code officiel géographique 2026](https://www.insee.fr/fr/information/8740222), mouvements des communes | Insee | les communes rétablies depuis la fin de 2019 | CSV |
-| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | contours des communes et des arrondissements, population municipale | GeoParquet |
+| [Statistiques DVF](https://www.data.gouv.fr/datasets/statistiques-dvf), tirées des [demandes de valeurs foncières](https://www.data.gouv.fr/datasets/demandes-de-valeurs-foncieres) | DGFiP, statistiques d'Etalab | pour chaque commune, le nombre de ventes de maisons et d'appartements en cinq ans et leur prix médian au m² | {{< iconify vscode-icons file-type-excel >}} CSV |
+| [Code officiel géographique 2026](https://www.insee.fr/fr/information/8740222), mouvements des communes | Insee | les communes rétablies depuis la fin de 2019 | {{< iconify vscode-icons file-type-excel >}} CSV |
+| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | contours des communes et des arrondissements, population municipale | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import pathlib
+import re
 
 import duckdb
+import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -459,6 +468,7 @@ guillemets, et la détection automatique de DuckDB ne voit pas les guillemets ; 
 `01001` ou `2A004`, doivent rester du texte.
 
 ```{python}
+#| filename: "Lecture des statistiques DVF (Etalab)"
 con.sql(f"""
 CREATE TABLE dvf AS
 SELECT code_geo AS code,
@@ -484,10 +494,7 @@ les fichiers DVF géolocalisés qu'il diffuse sur
 année : on lit la liste des dossiers.
 
 ```{python}
-import re
-
-import requests
-
+#| filename: "La période couverte"
 page = requests.get(SOURCES["geo_dvf"], timeout=120)
 page.raise_for_status()
 annees = sorted(set(re.findall(r'href="[^"]*/(\d{4})/"', page.text)))
@@ -504,6 +511,7 @@ la commune nouvelle. On garde les rétablissements depuis la fin de 2019, l'âge
 ventes du fichier.
 
 ```{python}
+#| filename: "Les communes rétablies (COG)"
 con.sql(f"""
 CREATE TABLE retablies AS
 SELECT DISTINCT COM_AP AS code, LIBELLE_AP AS nom, DATE_EFF AS date
@@ -520,6 +528,7 @@ et Marseille à la place de leur commune, comme dans les statistiques DVF. La co
 est la population municipale légale.
 
 ```{python}
+#| filename: "Lecture des communes (cartiflette)"
 CARTIFLETTE_URL = (
     "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
     "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
@@ -545,6 +554,7 @@ sans vente retenue si elle n'a pas de prix ; sinon, elle a une valeur. Le seuil 
 médiane est masquée n'est pas appliqué ici : il se règle sur la carte.
 
 ```{python}
+#| filename: "Une cause pour chaque NULL"
 con.sql("""
 CREATE TABLE bilan AS
 SELECT c.code, c.nom, c.dep, c.departement, c.habitants, d.ventes, d.prix,
@@ -568,6 +578,7 @@ La colonne `avec_prix` vérifie que la cause est bien la seule raison des `NULL`
 hors champ, rétablie ou sans vente n'a de prix, et toutes les autres en ont un.
 
 ```{python}
+#| filename: "Les chiffres de l'accroche"
 resume = con.sql("""
 SELECT count(*) AS communes,
        count(*) FILTER (WHERE cause <> 'valeur') AS null,
@@ -582,6 +593,7 @@ resume
 Les communes sans vente les plus peuplées :
 
 ```{python}
+#| filename: "Les communes sans vente les plus peuplées"
 con.sql("""
 SELECT code, nom, departement, habitants FROM bilan
 WHERE cause = 'aucune vente' ORDER BY habitants DESC LIMIT 10
@@ -597,6 +609,7 @@ Comme pour [J12](12-power.qmd), les 35 000 communes sont simplifiées ensemble, 
 `donnees/j18/`.
 
 ```{python}
+#| filename: "Contours simplifiés (GeoJSON)"
 con.sql("""
 CREATE TABLE simplifiees AS
 WITH couverture AS (
@@ -648,6 +661,7 @@ y devient une case vide.
 
 ```{python}
 #| output: false
+#| filename: "Écriture des communes (CSV)"
 con.sql(f"""
 COPY (
     SELECT code, nom, departement, habitants, ventes, prix, cause
@@ -659,6 +673,8 @@ COPY (
 ### Ce qui passe à la carte
 
 ```{python}
+#| output: false
+#| filename: "Ce qui passe à la page (ojs_define)"
 ojs_define(
     resume={k: int(resume[k]) for k in resume.index},
     periode=periode,
@@ -667,7 +683,13 @@ ojs_define(
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient une table des communes, avec leur nombre de ventes, leur prix médian au m² et, quand il manque, la cause du `NULL`. La carte est faite en `Javascript` avec [MapLibre](https://maplibre.org/) sur le fond Plan IGN ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -708,7 +730,10 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
+
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - Les statistiques ne retiennent que les ventes d'un seul bien, sans les ventes groupées, et
   écartent les prix au m² de plus de 100 000 € : le nombre de ventes est inférieur au nombre de
@@ -723,11 +748,20 @@ DOM.download(
   actes saisis par les services de la publicité foncière, et chaque mise à jour peut ajouter des
   ventes anciennes.
 
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - Etalab, [explore.data.gouv.fr/immobilier](https://explore.data.gouv.fr/immobilier), la carte
   officielle des ventes DVF, jusqu'à la parcelle.
 - DGFiP, [notice descriptive du fichier DVF](https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20221017-153319/notice-descriptive-du-fichier-dvf-20221017.pdf),
   et sa [foire aux questions](https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20221017-153257/faq-20221017.pdf).
+- Cerema, [DV3F](https://datafoncier.cerema.fr/donnees/autres-donnees-foncieres/dv3f), la version enrichie de DVF, réservée aux acteurs publics.
+- [J12 · Power](12-power.qmd) : la même simplification des contours communaux avec `ST_CoverageSimplify`.
 - [J8 · Utopia](08-utopia.qmd) : les carreaux où personne n'habite, une autre façon de cartographier
   le vide.
+
+:::
