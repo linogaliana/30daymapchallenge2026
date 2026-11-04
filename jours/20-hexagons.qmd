@@ -7,7 +7,17 @@ resources:
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#c25a9a"
+  sombre: "#f2a7d3"
 ---
+
+Pour la vingtième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Hexagons"**]{.underline color="#2a9d8f"}), on pave la France métropolitaine d'hexagones. Ce pavage est un classique de la cartographie statistique : des cases toutes de même taille, qui ne dépendent pas des limites communales, et dont chacune touche six voisines par un côté. On s'en sert ici pour comparer ce qui se compare : les [écoles publiques]{.underline color="#2a9d8f"} et les [écoles privées]{.underline} d'un même petit territoire. L'[[indice de position sociale]{.underline}](https://www.education.gouv.fr/l-indice-de-position-sociale-ips-357755) (IPS) de la [DEPP]{.underline color="#2a9d8f"} résume la profession des parents des élèves ; plus il est élevé, plus les élèves sont d'origine favorisée. Choisissez les écoles à regarder (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -17,22 +27,13 @@ pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
 signe = (x, n = 1) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${virgule(Math.abs(x), n)}`
 html`<p class="lead">
   Découpons la France métropolitaine en hexagones de ${virgule(chiffres.surface_km2, 0)} km². Dans
-  <strong>${entier(chiffres.mixtes)} d'entre eux</strong>, une école publique et une école privée sous
+  <span class="souligne">${entier(chiffres.mixtes)} d'entre eux</span>, une école publique et une école privée sous
   contrat accueillent les enfants du même coin. Dans ${pourcent(chiffres.part_prive_plus)} de ces
   hexagones, les élèves du privé viennent d'un milieu plus favorisé que ceux du public, d'après
-  l'indice de position sociale de la DEPP : <strong>${signe(chiffres.ecart_median)} points</strong>
+  l'indice de position sociale de la DEPP : <span class="souligne">${signe(chiffres.ecart_median)} points</span>
   d'écart en médiane, et plus de 20 points dans ${pourcent(chiffres.part_ecart_20)} des cas.
 </p>`
 ```
-
-Le vingtième thème du défi, ce sont les hexagones. Ce pavage est un classique de la
-cartographie statistique : des cases toutes de même taille, qui ne dépendent pas des limites
-communales, et dont chacune touche six voisines par un côté. On s'en sert ici pour comparer ce
-qui se compare : les écoles d'un même petit territoire. L'indice de position sociale (IPS) résume
-la profession des parents des élèves ; plus il est élevé, plus les élèves sont d'origine
-favorisée. Choisissez les écoles à regarder (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -144,7 +145,11 @@ L'hexagone neutralise en grande partie la première : on n'y compare que des éc
 quelques kilomètres.</p>`
 ```
 
-## Dans le même hexagone, deux écoles
+:::
+
+## Dans le même hexagone, deux écoles {.unnumbered}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -200,7 +205,11 @@ change pas (${pourcent(chiffres.part_prive_plus_3_7)} des ${entier(chiffres.mixt
 ${signe(chiffres.ecart_median_7)} points en médiane).</p>`
 ```
 
-## L'Ouest à part
+:::
+
+## L'Ouest à part {.unnumbered}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -272,7 +281,11 @@ n'est pas représentée). Source : DEPP.</small></p>`
 }
 ```
 
-## Du point à l'hexagone
+:::
+
+## Du point à l'hexagone {.unnumbered}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -318,21 +331,27 @@ colorée selon l'IPS moyen de leurs écoles ; en trait épais, les limites des d
 littoral. Source : DEPP ; IGN, via cartiflette.</small></p>`
 ```
 
+:::
+
 Les hexagones ne viennent pas des données : on les pose sur le territoire, puis on y range les
 écoles qui tombent dedans. Dans une grande ville, un hexagone de 42 km² rassemble des dizaines
 d'écoles, de quartiers parfois très différents ; il lisse les contrastes d'une rue à l'autre,
 mais garde ceux d'une ville à l'autre, ou d'un côté à l'autre d'une agglomération.
 
+# Making of
+
 ## Les données
+
+La carte croise quatre sources publiques :
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Indices de position sociale des écoles (à partir de 2022)](https://data.education.gouv.fr/explore/dataset/fr-en-ips-ecoles-ap2022/) | DEPP | l'IPS de chaque école à la rentrée 2024, son secteur et sa commune | Parquet |
-| [Effectifs d'élèves par école](https://data.education.gouv.fr/explore/dataset/fr-en-ecoles-effectifs-nb_classes/) | DEPP | le nombre d'élèves d'élémentaire de chaque école à la rentrée 2024 | Parquet |
-| [Annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | Ministère de l'Éducation nationale | la position de chaque école | Parquet |
-| [Communes, arrondissements municipaux et départements 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les noms et le centre des communes, le contour des départements | GeoParquet |
+| [Indices de position sociale des écoles (à partir de 2022)](https://data.education.gouv.fr/explore/dataset/fr-en-ips-ecoles-ap2022/) | DEPP | l'IPS de chaque école à la rentrée 2024, son secteur et sa commune | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Effectifs d'élèves par école](https://data.education.gouv.fr/explore/dataset/fr-en-ecoles-effectifs-nb_classes/) | DEPP | le nombre d'élèves d'élémentaire de chaque école à la rentrée 2024 | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | Ministère de l'Éducation nationale | la position de chaque école | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Communes, arrondissements municipaux et départements 2025](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | les noms et le centre des communes, le contour des départements | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 Les trois jeux de données de l'Éducation nationale sont publiés sur
 [data.education.gouv.fr](https://data.education.gouv.fr/), dont l'API exporte n'importe quel jeu
 en Parquet, filtré au besoin sur ses lignes (`where`) et ses colonnes (`select`) : DuckDB le lit
@@ -340,6 +359,7 @@ directement.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import math
 import pathlib
@@ -372,6 +392,7 @@ CM2 en cinq ans : les autres (`NS`, non significatif) et les écoles maternelles
 fichier rappelle aussi l'IPS national du public et du privé sous contrat.
 
 ```{python}
+#| filename: "Lecture des IPS des écoles (DEPP)"
 con.sql(f"""
 CREATE TABLE ips AS
 SELECT uai, nom_de_l_etablissement AS nom, code_insee_de_la_commune AS commune,
@@ -394,6 +415,7 @@ L'IPS d'une école ne dit pas combien d'élèves il décrit. Pour faire la moyen
 pondère chaque école par ses élèves d'élémentaire à la même rentrée.
 
 ```{python}
+#| filename: "Lecture des effectifs (DEPP)"
 con.sql(f"""
 CREATE TABLE effectifs AS
 SELECT numero_ecole AS uai, nombre_eleves_elementaire_hors_ulis AS eleves
@@ -408,6 +430,7 @@ L'annuaire de l'éducation donne, pour chaque établissement ouvert, ses coordon
 `longitude`), le plus souvent au numéro de la rue, le nom à jour de sa commune et sa région.
 
 ```{python}
+#| filename: "Lecture de l'annuaire de l'éducation"
 con.sql(f"""
 CREATE TABLE annuaire AS
 SELECT identifiant_de_l_etablissement AS uai,
@@ -426,6 +449,7 @@ Le centre des communes (avec les arrondissements de Paris, Lyon et Marseille, co
 fichier des IPS) sert à placer les quelques écoles absentes de l'annuaire ; les départements, passés dans la projection de la grille, dessinent le fond de carte.
 
 ```{python}
+#| filename: "Lecture des communes et des départements (cartiflette)"
 def cartiflette(niveau, simplification=0):
     return (
         "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
@@ -469,6 +493,7 @@ petits, peu contiendraient à la fois une école publique et une école privée 
 mélangeraient des quartiers et des villes que tout oppose.
 
 ```{python}
+#| filename: "La grille d'hexagones"
 COTE = 4000  # en mètres
 
 con.sql(f"""
@@ -499,6 +524,7 @@ Pour vérifier la macro, on tire 100 000 points au hasard et on contrôle que le
 l'hexagone trouvé est bien, parmi lui et ses six voisins, le plus proche du point.
 
 ```{python}
+#| filename: "Vérification de la grille"
 VOISINS = "[[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]]"
 
 con.sql(f"""
@@ -524,6 +550,7 @@ coordonnées géographiques à la projection de la grille ; celles qui n'y sont 
 fusionnées depuis la rentrée 2024) vont au centre de leur commune.
 
 ```{python}
+#| filename: "Placer les écoles dans la grille"
 con.sql("""
 CREATE TABLE ecoles AS
 WITH points AS (
@@ -552,6 +579,7 @@ Une vérification : pondéré par les élèves d'élémentaire, l'IPS moyen de c
 l'IPS national des élèves de CM2 que donne la DEPP.
 
 ```{python}
+#| filename: "Vérification de l'IPS moyen"
 con.sql("""
 SELECT secteur, count(*) AS ecoles, sum(eleves)::INTEGER AS eleves,
        round(sum(ips * eleves) / sum(eleves), 1) AS ips_pondere,
@@ -570,6 +598,7 @@ hexagone et pour les six qui l'entourent : on ajoute à ses coordonnées axiales
 voisins.
 
 ```{python}
+#| filename: "Les écoles par hexagone et par fleur"
 con.sql("""
 CREATE TABLE par_hexagone AS
 SELECT h, secteur, count(*) AS ecoles, sum(eleves) AS eleves, sum(ips * eleves) AS ips_eleves
@@ -604,6 +633,7 @@ cette commune. L'écart est l'IPS du
 privé moins celui du public, quand l'hexagone (ou la fleur) a les deux.
 
 ```{python}
+#| filename: "La table des hexagones"
 con.sql(f"""
 CREATE TABLE hexagones AS
 WITH seul AS ({indicateurs("par_hexagone", "")}),
@@ -638,6 +668,7 @@ où l'écart dépasse 3 points dans un sens ou dans l'autre (la marge d'erreur q
 l'écart médian, pour l'hexagone seul et pour sa fleur.
 
 ```{python}
+#| filename: "Les chiffres de l'accroche"
 def bilan(s):
     return con.sql(f"""
     SELECT '{s or "hexagone"}' AS echelle, count(ecart{s}) AS mixtes,
@@ -657,6 +688,7 @@ bilans.style.hide(axis="index").format({c: "{:.1%}" for c in bilans.columns if c
 Les mêmes chiffres par région, avec la part des élèves d'élémentaire scolarisés dans le privé.
 
 ```{python}
+#| filename: "Les chiffres par région"
 regions = con.sql("""
 WITH prive AS (
     SELECT region, sum(eleves) FILTER (WHERE secteur = 'prive') / sum(eleves) AS part_eleves_prive
@@ -683,6 +715,7 @@ la moyenne de leurs écoles.
 
 ```{python}
 #| output: false
+#| filename: "Ce qui passe à la page (ojs_define)"
 SORTIE = pathlib.Path("donnees/j20")
 SORTIE.mkdir(parents=True, exist_ok=True)
 con.sql(f"COPY (SELECT * FROM hexagones ORDER BY q, r) TO '{SORTIE / 'hexagones.csv'}' (HEADER)")
@@ -739,7 +772,13 @@ ojs_define(COTE=COTE, chiffres=chiffres, departements=departements, villes_colon
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient une table des hexagones, avec pour chacun ses écoles publiques et privées, leur IPS moyen et l'écart entre les deux. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -781,13 +820,16 @@ DOM.download(
 
 :::
 
+:::
+
 Les colonnes du CSV : `q` et `r` (coordonnées axiales), `x` et `y` (centre de l'hexagone, en
 mètres, `EPSG:3035`), la commune principale et sa région, puis pour l'hexagone seul le nombre d'écoles
 publiques et privées (`ecoles_public`, `ecoles_prive`) et leurs élèves d'élémentaire, l'IPS moyen
 de toutes ses écoles (`ips`), du public (`ips_public`) et du privé (`ips_prive`), l'écart entre
 les deux (`ecart`) ; les mêmes, suffixées par `_7`, pour l'hexagone et ses six voisins.
 
-## Précautions
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - L'IPS ne mesure pas le revenu : c'est un résumé des conditions de vie associées, en moyenne, à
   la profession des parents. La DEPP conseille de ne pas interpréter les écarts de 3 points ou
@@ -805,6 +847,11 @@ les deux (`ecart`) ; les mêmes, suffixées par `_7`, pour l'hexagone et ses six
 - Les écoles absentes de l'annuaire, parce qu'elles ont fermé ou fusionné depuis, sont placées au
   centre de leur commune : dans une commune étendue, elles peuvent changer d'hexagone.
 
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - [J6 · Vintage](06-vintage.qmd) : les évaluations de sixième de la DEPP par département, et leur
@@ -817,3 +864,5 @@ les deux (`ecart`) ; les mêmes, suffixées par `_7`, pour l'hexagone et ses six
   faut savoir sur les coordonnées axiales, les voisins et les arrondis.
 - Uber, [H3](https://h3geo.org/), la grille d'hexagones mondiale : ses hexagones n'ont pas tous la
   même surface, contrairement à ceux d'une grille posée dans une projection équivalente.
+
+:::
