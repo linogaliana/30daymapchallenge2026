@@ -667,7 +667,8 @@ carte = {
     if (!ids.length) return null
     const {x, y} = e.point
     const objets = map.queryRenderedFeatures([[x - 4, y - 4], [x + 4, y + 4]], {layers: ids})
-    return objets.length ? objets[0] : null
+    // Les carreaux couvrent toute la zone habitée : ils ne passent que s'il n'y a rien d'autre.
+    return objets.find((o) => o.layer.id !== "carreaux") ?? objets[0] ?? null
   }
   let survolEnCours = true // la bulle de survol ne remplace pas une bulle ouverte par un clic
   const designer = (e) => {
