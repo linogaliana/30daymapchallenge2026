@@ -1,9 +1,9 @@
 name: Publication du site
 
 # Rend le site avec Quarto (installé par uv, paquet quarto-cli) et le publie sur
-# GitHub Pages. _freeze/ n'est pas versionné : les calculs sont gardés d'une
-# exécution à l'autre dans le cache d'Actions, et une page n'est recalculée que
-# si son .qmd a changé (freeze: auto). Sans cache, tout est retéléchargé.
+# GitHub Pages. _freeze/ et jours/donnees/ ne sont pas versionnés : les calculs
+# sont gardés d'une exécution à l'autre dans le cache d'Actions, et une page
+# n'est recalculée que si son .qmd a changé (freeze: auto). Sans cache, tout est retéléchargé.
 #
 # Le jour N paraît le N novembre : le profil parution, écrit par
 # scripts/parution.py selon la date du rendu, ne rend que les jours arrivés. Le
@@ -44,15 +44,20 @@ jobs:
 
       # Une entrée par exécution (les rendus quotidiens partagent le commit du
       # dernier push, mais ajoutent le calcul du nouveau jour) ; à défaut, la plus
-      # récente de la branche, puis celle de main.
-      - name: Cache des calculs (_freeze)
+      # récente de la branche, puis celle de main. jours/donnees/ est gardé avec
+      # _freeze : une page gelée n'est pas réexécutée et n'y réécrit pas les
+      # fichiers qu'elle charge au navigateur (resources). Le préfixe change
+      # quand le contenu du cache change, pour ne pas restaurer d'ancienne entrée.
+      - name: Cache des calculs (_freeze, jours/donnees)
         uses: actions/cache@v4
         with:
-          path: _freeze
-          key: freeze-${{ github.ref_name }}-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            _freeze
+            jours/donnees
+          key: calculs-${{ github.ref_name }}-${{ github.sha }}-${{ github.run_id }}
           restore-keys: |
-            freeze-${{ github.ref_name }}-
-            freeze-main-
+            calculs-${{ github.ref_name }}-
+            calculs-main-
 
       # Profil parution (_quarto-parution.yml, généré) : seuls les jours arrivés
       # sont rendus, dans le calendrier de l'accueil et dans la barre de navigation.
