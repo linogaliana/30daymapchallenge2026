@@ -24,7 +24,7 @@ entier = (x) => Math.round(x).toLocaleString("fr-FR")
 pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
 html`<p class="lead">
   En ${chiffres.annee}, <span class="souligne">${entier(chiffres.deces)} personnes</span> sont mortes en
-  France. Moins d'une sur deux, <span class="souligne">${pourcent(chiffres.part_meme)}, est morte dans le département où
+  France. <span class="souligne">${pourcent(chiffres.part_meme)}, de celles-ci sont décédées dans le département où
   elle était née</span>. ${pourcent(chiffres.part_autre_dep)} étaient nées dans un autre département,
   ${pourcent(chiffres.part_etranger)} à l'étranger.
 </p>`
