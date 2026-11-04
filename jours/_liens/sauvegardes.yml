@@ -95,10 +95,8 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/v_mvt_commune_2026.csv
 - source: https://www.insee.fr/fr/statistiques/fichier/8740222/v_pays_et_territoire_depuis_1943.csv
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/v_pays_et_territoire_depuis_1943.csv
-- source: https://plateforme.adresse.data.gouv.fr/api/communes-summary.csv
-  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/communes-summary.csv
-- source: https://plateforme-bal.adresse.data.gouv.fr/api-depot/current-revisions
-  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/revisions
+- source: https://storage.gra.cloud.ovh.net/v1/AUTH_32c5d10cb0fe4519b957064a111717e3/bso_dump/bso-publications-latest_split_2024_enriched.csv.gz
+  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/bso-publications-latest_split_2024_enriched.csv.gz
 - source: https://www.insee.fr/fr/statistiques/fichier/9004793/RP2023_mobsco.parquet
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/RP2023_mobsco.parquet
 - source: https://www.data.gouv.fr/fr/datasets/r/851d342f-9c96-41c1-924a-11a7a7aae8a6
