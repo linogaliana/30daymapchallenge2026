@@ -1,39 +1,36 @@
 ---
-title: "J16 · Collaborative map. Les adresses, commune par commune"
-description: "La Base Adresse Nationale s'écrit à 35 000 mains : quelles communes tiennent elles-mêmes leurs adresses, avec quel outil, et qui les aide."
-image: vignettes/16-collaborative-map.webp
-resources:
-  - donnees/j16/*.csv
+title: "J16 · Collaborative map. Qui publie avec qui ?"
+description: "Le réseau des articles scientifiques co-signés en 2024 par des établissements d'agglomérations différentes, d'après le Baromètre de la science ouverte."
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#b5367a"
+  sombre: "#f08cc0"
 ---
+
+Pour la seizième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Collaborative map"**]{.underline}), on dessine une carte que personne ne trace seul : celle de la recherche. La science se fait à plusieurs, et un article est souvent [co-signé]{.underline} par des chercheurs de plusieurs établissements, parfois de plusieurs agglomérations. Le [Baromètre français de la science ouverte](https://barometredelascienceouverte.esr.gouv.fr/) recense les publications à affiliation française : en reliant les agglomérations dont les établissements signent ensemble un même article, on obtient le réseau des collaborations entre pôles universitaires (making of 👇).
+
+--------
 
 ```{ojs}
 //| echo: false
 virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
 pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
-millions = (x) => `${virgule(x / 1e6)} millions`
-dateLongue = (d) => new Date(d).toLocaleDateString("fr-FR", {day: "numeric", month: "long", year: "numeric"})
 html`<p class="lead">
-  Au ${dateLongue(chiffres.date_donnees)}, <strong>${entier(chiffres.communes_bal)} communes sur
-  ${entier(chiffres.communes)}</strong> (${pourcent(chiffres.communes_bal / chiffres.communes)})
-  ont leur Base Adresse Locale : elles publient elles-mêmes leurs adresses, seules ou avec de
-  l'aide. Elles abritent
-  ${pourcent(chiffres.population_bal / chiffres.population)} des habitants, et ont certifié
-  ${millions(chiffres.certifiees)} des ${millions(chiffres.adresses)} d'adresses de la Base
-  Adresse Nationale. ${entier(chiffres.communes_mutualisees)} d'entre elles passent par un service
-  mutualisé : une intercommunalité, un département, une région ou un syndicat.
+  En 2024, le Baromètre de la science ouverte recense <strong>${entier(chiffres.publications)}
+  publications</strong> françaises. Pour ${entier(chiffres.avec_etablissement)} d'entre elles, il
+  identifie au moins un établissement d'enseignement supérieur dans l'une des
+  ${entier(chiffres.villes)} agglomérations de la carte, et
+  <strong>${entier(chiffres.copubliees)}</strong> (${pourcent(chiffres.copubliees / chiffres.avec_etablissement)})
+  sont co-signées par des établissements d'au moins deux agglomérations.
+  ${entier(chiffres.internes)} autres le sont par plusieurs établissements d'une même agglomération.
+  Le lien le plus fort unit <strong>${chiffres.ville_a} et ${chiffres.ville_b}</strong> :
+  ${entier(chiffres.publications_max)} articles en commun.
 </p>`
 ```
-
-Pour ce seizième jour, consacré aux cartes collaboratives, on regarde une carte que personne ne
-dessine seul : celle des adresses. La Base Adresse Nationale (BAN) rassemble les numéros et les
-noms de rues de toute la France, et ce sont les communes, une à une, qui les écrivent. La carte
-montre qui tient la plume dans chaque commune (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -47,43 +44,17 @@ sombre = Generators.observe((notifier) => {
 })
 fond = sombre ? "#222" : "#fff"
 stylePlot = `--plot-background: ${fond}; background: transparent`
-grisSansBal = sombre ? "#4a4a4a" : "#d4d2cc"
+couleurPage = sombre ? "#f08cc0" : "#b5367a"
+tout = "Toutes les agglomérations"
 
-// Les 35 000 communes (bulles d'information, tableau) sont dans un fichier à part.
-communes = d3.csv("donnees/j16/communes.csv", (d) => ({
-  ...d, population: +d.population, adresses: +d.adresses, certifiees: +d.certifiees,
-  lon: +d.lon, lat: +d.lat
-}))
-
-// Chaque vue colore les groupes de communes selon l'une de leurs trois classes.
-vues = [
-  {
-    nom: "Qui écrit les adresses",
-    cle: "producteur",
-    classes: libelles.producteur,
-    couleurs: sombre ? ["#6fa8e8", "#f0a35e", "#c99be0", grisSansBal]
-                     : ["#2a6fbf", "#e07b39", "#8e44ad", grisSansBal]
-  },
-  {
-    nom: "Part des adresses certifiées",
-    cle: "certification",
-    classes: libelles.certification,
-    couleurs: sombre ? [grisSansBal, "#2f5a3a", "#4f9a5e", "#8fd49a"]
-                     : [grisSansBal, "#b9dcb0", "#6aae6a", "#2d7a3e"]
-  },
-  {
-    nom: "Dernière mise à jour",
-    cle: "fraicheur",
-    classes: libelles.fraicheur,
-    couleurs: sombre ? ["#9fd0f0", "#5a9fd0", "#36679a", "#283f5c", grisSansBal]
-                     : ["#08306b", "#3a7bbf", "#8dbbe0", "#d2e3f3", grisSansBal]
-  }
-]
+villesParTaille = d3.sort(villes, (d) => -d.publications)
+publicationsMax = d3.max(liens, (d) => d.publications)
 ```
 
 ```{ojs}
 //| echo: false
-viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]})
+viewof choix = Inputs.select([tout, ...villesParTaille.map((d) => d.ville)], {label: "Agglomération"})
+viewof seuil = Inputs.range([50, 1000], {label: "Co-publications au moins", step: 50, value: 300})
 ```
 
 ::: {.column-page}
@@ -91,25 +62,46 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]}
 ```{ojs}
 //| echo: false
 {
-  const couleur = (f) => vue.couleurs[f.properties[vue.cle]]
+  // Une ville choisie : tous ses liens (d'au moins 20 publications), sans le seuil.
+  const liensVisibles = d3.sort(
+    liens.filter((d) => choix === tout ? d.publications >= seuil : d.ville_a === choix || d.ville_b === choix),
+    (d) => d.publications
+  )
+  const epaisseur = (d) => 0.4 + 7 * Math.sqrt(d.publications / publicationsMax)
   return Plot.plot({
     width: 820,
     height: 760,
     style: stylePlot,
-    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: groupes, inset: 6},
-    color: {type: "ordinal", domain: vue.classes, range: vue.couleurs, legend: true,
-            style: {background: "transparent", color: "inherit"}},
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 6},
+    r: {range: [2, 24]},
+    color: {
+      type: "sequential", scheme: "viridis", domain: d3.extent(villes, (d) => d.part_ouvert),
+      legend: true, label: "Part en accès ouvert", tickFormat: (x) => pourcent(x),
+      style: {background: "transparent", color: "inherit"}
+    },
     marks: [
-      Plot.geo(groupes, {fill: couleur}),
-      Plot.geo(departements, {stroke: fond, strokeWidth: 0.6}),
-      Plot.tip(communes, Plot.pointer({
-        x: "lon", y: "lat", maxRadius: 10,
-        title: (c) => `${c.nom} (${c.code})\n${entier(c.population)} habitants\n` +
-          (c.bal === "1"
-            ? `Adresses publiées par : ${c.producteur}\n` +
-              `${entier(c.certifiees)} adresses certifiées sur ${entier(c.adresses)}\n` +
-              `Dernière mise à jour : ${dateLongue(c.date_revision)}`
-            : `Pas de Base Adresse Locale\n${entier(c.adresses)} adresses assemblées par la BAN`)
+      Plot.geo(departements, {fill: sombre ? "#ffffff14" : "#00000010", stroke: fond, strokeWidth: 0.6}),
+      Plot.link(liensVisibles, {
+        x1: "lon_a", y1: "lat_a", x2: "lon_b", y2: "lat_b",
+        stroke: couleurPage, strokeWidth: epaisseur,
+        strokeOpacity: choix === tout ? 0.35 : 0.65, strokeLinecap: "round"
+      }),
+      Plot.dot(villesParTaille, {
+        x: "lon", y: "lat", r: "publications", fill: "part_ouvert", stroke: fond, strokeWidth: 0.8
+      }),
+      Plot.dot(villesParTaille.filter((d) => d.ville === choix), {
+        x: "lon", y: "lat", r: "publications", fill: "none", stroke: "currentColor", strokeWidth: 2
+      }),
+      Plot.text(villesParTaille.slice(0, 12), {
+        x: "lon", y: "lat", text: "ville", dx: 9, textAnchor: "start", fontSize: 11,
+        fill: "currentColor", stroke: fond, strokeWidth: 3, paintOrder: "stroke"
+      }),
+      Plot.tip(villes, Plot.pointer({
+        x: "lon", y: "lat", maxRadius: 20,
+        fill: fond,  // la version de Plot de Quarto met un fond blanc d'office
+        title: (d) => `${d.ville}\n${d.etablissements}\n${entier(d.publications)} publications\n` +
+          `dont ${entier(d.internes)} co-signées entre établissements de l'agglomération\n` +
+          `${pourcent(d.part_ouvert)} en accès ouvert`
       }))
     ]
   })
@@ -120,52 +112,61 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]}
 
 ```{ojs}
 //| echo: false
-html`<p><small>Une commune (un arrondissement à Paris, Lyon et Marseille) est colorée selon la
-Base Adresse Locale qu'elle publie, ou grisée si elle n'en a pas : ses adresses viennent alors
-d'autres sources (IGN, cadastre, La Poste), assemblées par la BAN. Les départements d'outre-mer
-sont rapprochés de la métropole. Survolez une commune pour le détail. Situation au
-${dateLongue(chiffres.date_donnees)}. Source : Base Adresse Nationale, adresse.data.gouv.fr ; IGN,
+html`<p><small>Chaque point est une agglomération (une unité urbaine de l'Insee), nommée par sa
+commune la plus peuplée. Un trait relie deux agglomérations dont des établissements ont co-signé
+au moins ${choix === tout ? entier(seuil) : "20"} articles en 2024 ; son épaisseur croît avec
+leur nombre (un article compte une fois par paire d'agglomérations). La taille d'un point donne le
+nombre de publications signées par les établissements de l'agglomération, sa couleur la part de
+ces publications en accès ouvert. Survolez un point pour le détail.${choix === tout ? "" : ` Pour ${choix}, tous les liens d'au moins 20 articles sont montrés, quel que soit le seuil.`}
+Source : Baromètre français de la science ouverte, MESR-SIES, publications 2024 ; ROR ; IGN,
 ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small></p>`
 ```
 
-La plupart des communes publient leurs adresses avec **Mes Adresses**, l'éditeur en ligne mis
-à disposition par l'État : le secrétariat de mairie, un élu ou l'intercommunalité y place les
-numéros sur un plan, puis publie. Ailleurs, la carte dessine des taches nettes, qui suivent des
-frontières administratives : ce sont les territoires où une collectivité ou un syndicat tient
-les adresses pour le compte de toutes ses communes, dans son propre système d'information
-géographique. Les Pays de la Loire, le Calvados, l'Orne, la Dordogne ou le Pays basque se
-détachent ainsi.
+```{ojs}
+//| echo: false
+paris = villes.find((d) => d.ville === "Paris")
+totalLiens = d3.sum(liens, (d) => d.publications)
+liensParis = d3.sum(liens.filter((d) => d.ville_a === "Paris" || d.ville_b === "Paris"), (d) => d.publications)
+// Le premier partenaire de chaque agglomération, parmi les paires d'au moins 20 articles.
+premiersPartenaires = villes.map((v) => {
+  const siens = liens.filter((d) => d.ville_a === v.ville || d.ville_b === v.ville)
+  if (!siens.length) return null
+  const meilleur = d3.greatest(siens, (d) => d.publications)
+  return {ville: v.ville, publications: v.publications, partenaire: meilleur.ville_a === v.ville ? meilleur.ville_b : meilleur.ville_a}
+}).filter((d) => d)
+versParis = premiersPartenaires.filter((d) => d.partenaire === "Paris")
+ailleurs = d3.sort(premiersPartenaires.filter((d) => d.partenaire !== "Paris" && d.ville !== "Paris"), (d) => -d.publications)
+html`<p>La carte a un centre.${paris ? ` Paris signe ${pourcent(paris.publications / chiffres.avec_etablissement)} des publications rattachées à une agglomération de la carte, et` : ""}
+${pourcent(liensParis / totalLiens)} des co-publications des paires d'au moins 20 articles passent par Paris : beaucoup de traits
+partent de la capitale ou y arrivent. Pour ${entier(versParis.length)} des ${entier(premiersPartenaires.length)}
+agglomérations qui ont au moins un lien de 20 articles, le premier partenaire est Paris.</p>
+<p>Les autres tissent des réseaux de proximité, qu'on peut isoler en choisissant une agglomération :
+${ailleurs.length ? ailleurs.slice(0, 12).map((d) => `${d.ville} (avec ${d.partenaire})`).join(", ") : "aucune"}${ailleurs.length > 12 ? ` et ${entier(ailleurs.length - 12)} autres` : ""}.
+La taille des points dépend de la couverture du fichier (voir les précautions).</p>`
+```
 
-### Ceux qui écrivent pour les autres
+### Les liens les plus forts
 
 ```{ojs}
 //| echo: false
+plusForts = d3.sort(liens, (d) => -d.publications).slice(0, 15).map((d) => ({...d, paire: `${d.ville_a} – ${d.ville_b}`}))
 Plot.plot({
   width: 760,
-  height: 26 * mutualises.length + 40,
+  height: 26 * plusForts.length + 40,
   style: stylePlot,
-  marginLeft: 330,
-  marginRight: 40,
-  x: {label: "Communes dont il publie les adresses →", grid: true, tickFormat: (d) => d.toLocaleString("fr-FR")},
-  y: {label: null, domain: mutualises.map((d) => d.producteur)},
+  marginLeft: 220,
+  marginRight: 50,
+  x: {label: "Articles co-signés en 2024 →", grid: true, tickFormat: (d) => d.toLocaleString("fr-FR")},
+  y: {label: null, domain: plusForts.map((d) => d.paire)},
   marks: [
-    Plot.barX(mutualises, {
-      x: "communes", y: "producteur", fill: sombre ? "#f0a35e" : "#e07b39",
-      tip: true,
-      title: (d) => `${d.producteur}\n${entier(d.communes)} communes\n${entier(d.population)} habitants`
+    Plot.barX(plusForts, {
+      x: "publications", y: "paire", fill: couleurPage, tip: true,
+      title: (d) => `${d.paire}\n${entier(d.publications)} articles`
     }),
-    Plot.text(mutualises, {x: "communes", y: "producteur", text: (d) => entier(d.communes), dx: 4, textAnchor: "start", fill: "currentColor"}),
+    Plot.text(plusForts, {x: "publications", y: "paire", text: (d) => entier(d.publications), dx: 4, textAnchor: "start", fill: "currentColor"}),
     Plot.ruleX([0])
   ]
 })
-```
-
-```{ojs}
-//| echo: false
-html`<p><small>Les ${mutualises.length} services qui publient les adresses du plus grand nombre de
-communes, hors Mes Adresses (${entier(chiffres.communes_mes_adresses)} communes). Un service
-est nommé par l'outil qui dépose les fichiers dans la BAN, ou par l'organisme qui publie sur
-data.gouv les fichiers que la BAN moissonne.</small></p>`
 ```
 
 --------
@@ -176,19 +177,20 @@ On va maintenant décrire comment obtenir les données de cette carte.
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [État de la BAN par commune](https://adresse.data.gouv.fr/deploiement-bal) | Base Adresse Nationale | pour chaque commune, si elle a une Base Adresse Locale, son nombre d'adresses et d'adresses certifiées, la date de sa dernière publication | CSV |
-| [Révisions courantes des Bases Adresses Locales](https://plateforme-bal.adresse.data.gouv.fr/api-depot/current-revisions) | Base Adresse Nationale, API de dépôt | l'outil qui a déposé la dernière version de chaque Base Adresse Locale, et l'organisme qui l'a publiée | JSON |
-| [Communes et arrondissements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour, le nom, le département et la population de chaque commune, outre-mer rapproché | GeoParquet |
+| [Baromètre de la science ouverte](https://www.data.gouv.fr/fr/datasets/barometre-de-la-science-ouverte/) | Ministère de l'Enseignement supérieur et de la Recherche, SIES | pour chaque publication de 2024 : ses pays, les identifiants ROR des établissements français qui l'ont signée, et si elle est en accès ouvert | {{< iconify vscode-icons file-type-csv >}} CSV compressé |
+| [Registre ROR](https://ror.org/) | Research Organization Registry | le nom, les types, la ville et les coordonnées de chaque établissement | {{< iconify vscode-icons file-type-json >}} API JSON |
+| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque département, pour le fond de carte | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN et Insee, via cartiflette | le code d'unité urbaine 2020 de chaque commune, sa population, son contour | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les autres jours, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/).
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
-import pathlib
-import tempfile
 
 import duckdb
+import pandas as pd
 import requests
 
 con = duckdb.connect()
@@ -204,233 +206,276 @@ SET enable_progress_bar = false
 {{< include _liens/16-collaborative-map.py >}}
 ```
 
-### Les Bases Adresses Locales (BAN)
+### Les publications (Baromètre de la science ouverte)
 
-Depuis la [loi 3DS](https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000045197395) de
-février 2022, chaque commune doit nommer ses voies, numéroter ses bâtiments et transmettre ces
-adresses à la Base Adresse Nationale. Elle le fait en publiant une **Base Adresse Locale**
-(BAL) : un fichier, dans un format commun, qui liste ses adresses avec leur position. Pour
-chaque adresse, la commune peut indiquer qu'elle la **certifie** : elle en garantit
-l'existence et la position.
+Le [Baromètre français de la science ouverte](https://barometredelascienceouverte.esr.gouv.fr/) publie, pour chaque année, un fichier des publications scientifiques ayant au moins une affiliation française. Une ligne par publication, parmi lesquelles :
 
-La BAN assemble ces fichiers. Dans les communes qui n'ont pas publié de BAL, elle reprend les
-adresses d'autres sources (IGN, cadastre de la DGFiP, La Poste…) : c'est l'« assemblage ».
+- `id` : l'identifiant de la publication ;
+- `bso_country` : les pays des affiliations, séparés par `|` ;
+- `rors` : les identifiants [ROR](https://ror.org/) des établissements français détectés dans les affiliations, sous la forme `https://ror.org/02en5vm52|https://ror.org/05f82e368`, parfois vide ;
+- `is_oa` : la publication est-elle en accès ouvert à la dernière date d'observation.
 
-Deux fichiers décrivent l'état de la base, et sont mis à jour en continu :
-
-- l'**état par commune**, celui qu'utilise la [carte du déploiement des BAL](https://adresse.data.gouv.fr/deploiement-bal)
-  d'adresse.data.gouv.fr : une ligne par commune, avec le type de composition (`bal` ou
-  `assemblage`), le nombre d'adresses (`nb_numeros`) et d'adresses certifiées, la date de la
-  dernière version publiée ;
-- les **révisions courantes** de l'API de dépôt : pour chaque commune qui a une BAL, la
-  dernière version déposée, avec le **client** qui l'a déposée (Mes Adresses, ou l'outil d'une
-  collectivité) et, pour les fichiers moissonnés sur data.gouv, l'organisme qui les publie.
+Le fichier de 2024 pèse 63 Mo compressé. DuckDB le lit directement depuis son adresse (la copie sur le SSP Cloud). Le CSV est mal formé : quelques titres contiennent des retours à la ligne non protégés. Ces options, qui écartent les lignes cassées (`ignore_errors`), sont celles qui permettent de le lire en entier, au prix de quelque 300 fragments de lignes perdus. On garde les publications dont la liste de pays contient `fr`, une fois par `id` (une quinzaine d'identifiants sont en double), et on met les ROR en liste.
 
 ```{python}
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
-                reponse.raise_for_status()
-                for bloc in reponse.iter_content(chunk_size=1 << 20):
-                    f.write(bloc)
-            return
-        except OSError:
-            if essai == essais - 1:
-                raise
-
-
-with tempfile.TemporaryDirectory() as dossier:
-    telecharger(SOURCES["etat"], f"{dossier}/etat.csv")
-    telecharger(SOURCES["revisions"], f"{dossier}/revisions.json")
-    con.sql(f"""
-    CREATE TABLE etat AS
-    SELECT code_commune AS code, type_composition = 'bal' AS bal,
-           nb_numeros AS adresses, nb_numeros_certifies AS certifiees,
-           date_revision::TIMESTAMP AS date_revision, composed_at::TIMESTAMP AS compose_le
-    FROM read_csv('{dossier}/etat.csv', all_varchar = true)
-    """)
-    con.sql(f"""
-    CREATE TABLE revisions AS
-    SELECT codeCommune AS code, publishedAt AS publie_le,
-           client.legacyId AS client_id, client.nom AS client, client.mandataire AS mandataire,
-           context.organisation AS organisation
-    FROM read_json('{dossier}/revisions.json')
-    """)
+#| output: false
+#| filename: "Lecture des publications"
+con.sql(f"""
+CREATE TABLE publications AS
+SELECT DISTINCT ON (id) id, is_oa = 'True' AS ouvert,
+       list_filter(
+           list_transform(string_split(coalesce(rors, ''), '|'), x -> replace(x, 'https://ror.org/', '')),
+           x -> x <> ''
+       ) AS rors
+FROM read_csv('{SOURCES["publications"]}', delim = ';', quote = '"', escape = '"', header = true,
+              all_varchar = true, ignore_errors = true, strict_mode = false, max_line_size = 50000000)
+WHERE list_contains(string_split(bso_country, '|'), 'fr')
+""")
 
 con.sql("""
-SELECT bal, count(*) AS communes, sum(adresses::INTEGER)::BIGINT AS adresses,
-       sum(certifiees::INTEGER)::BIGINT AS certifiees
-FROM etat GROUP BY ALL
+CREATE TABLE publications_ror AS
+SELECT id, ouvert, unnest(rors) AS ror FROM publications
+""")
+```
+
+```{python}
+#| filename: "Combien de publications, combien de ROR"
+con.sql("""
+SELECT (SELECT count(*) FROM publications) AS publications,
+       (SELECT count(DISTINCT id) FROM publications_ror) AS avec_ror,
+       (SELECT count(DISTINCT ror) FROM publications_ror) AS ror_distincts
 """).df().style.hide(axis="index")
 ```
 
-Les outils qui ont déposé les révisions courantes :
+### Les établissements (ROR)
+
+Le Research Organization Registry attribue un identifiant unique à chaque organisme de recherche. Son [API](https://ror.org/) renvoie, pour chaque identifiant, le nom de l'établissement, ses types et sa localisation (ville et coordonnées de [GeoNames](https://www.geonames.org/)). On l'interroge pour chacun des ROR distincts du fichier.
 
 ```{python}
-con.sql("""
-SELECT client, count(*) AS communes
-FROM revisions GROUP BY ALL ORDER BY communes DESC LIMIT 10
-""").df().style.hide(axis="index")
+#| filename: "Interrogation de l'API ROR"
+rors = [ligne[0] for ligne in con.sql("SELECT DISTINCT ror FROM publications_ror ORDER BY ror").fetchall()]
+
+lignes = []
+for ror in rors:
+    reponse = requests.get(f"https://api.ror.org/v2/organizations/{ror}", timeout=60)
+    reponse.raise_for_status()
+    d = reponse.json()
+    lieu = d["locations"][0]["geonames_details"]
+    lignes.append({
+        "ror": ror,
+        "nom": [n["value"] for n in d["names"] if "ror_display" in n["types"]][0],
+        "types": d["types"],
+        "types_texte": ", ".join(sorted(d["types"])),
+        "ville": lieu["name"],
+        "lat": lieu["lat"],
+        "lon": lieu["lng"],
+    })
+
+etablissements_ror = pd.DataFrame(lignes)
+con.sql("CREATE TABLE etablissements AS SELECT * FROM etablissements_ror")
+len(etablissements_ror)
 ```
 
-### Les communes (cartiflette)
+### Les départements et les communes (cartiflette)
 
-La BAN compte les adresses de Paris, Lyon et Marseille par arrondissement : on prend donc les
-contours au niveau `COMMUNE_ARRONDISSEMENT` de cartiflette, où chaque arrondissement municipal
-remplace sa commune (code `INSEE_COG`), dans la version où les départements d'outre-mer sont
-rapprochés de la métropole.
+Le fond de carte est celui des départements de métropole, par [cartiflette](https://inseefrlab.github.io/cartiflette/), comme pour le premier jour. Avec `engine="duckdb"`, `carti_download` renvoie une relation DuckDB qu'on peut interroger sans télécharger tout le fichier. On lit aussi les communes, qui portent le code de leur unité urbaine 2020 (`UU2020`), leur population et leur contour : elles serviront à rattacher chaque établissement à son agglomération.
 
 ```{python}
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
-    "administrative_level=COMMUNE_ARRONDISSEMENT/crs=4326/layout=FRANCE_ENTIERE_DROM_RAPPROCHES/"
-    "vectorfile_format=parquet/simplification=50/raw.parquet"
+#| filename: "Lecture des départements et des communes (cartiflette)"
+from cartiflette import carti_download
+
+departements_france = carti_download(
+    values="France",
+    filter_by="FRANCE_ENTIERE",
+    borders="DEPARTEMENT",
+    year=2026,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
+    where="INSEE_DEP NOT LIKE '97%'",
 )
 
-con.sql(f"""
-CREATE TABLE contours AS
-SELECT INSEE_COG AS code, NOM AS nom, INSEE_DEP AS code_departement,
-       LIBELLE_DEPARTEMENT AS departement, POPULATION AS population, geometry AS geom
-FROM read_parquet('{CARTIFLETTE_URL}', hive_partitioning = false)
-""")
-con.sql("SELECT count(*) AS communes, sum(population)::BIGINT AS population FROM contours").df()
+communes_france = carti_download(
+    values="France",
+    filter_by="FRANCE_ENTIERE",
+    borders="COMMUNE",
+    year=2026,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
+    where="INSEE_DEP NOT LIKE '97%'",
+)
 ```
 
 ## Les traitements
 
-### Raccorder les deux sources
+### Choisir les établissements
 
-Chaque commune des contours doit figurer dans l'état de la BAN. L'inverse n'est pas vrai : la
-BAN couvre aussi les collectivités d'outre-mer (Saint-Martin, la Polynésie française…), qui ne
-sont pas dans les contours d'ADMIN EXPRESS et sortent de la carte.
+Les ROR mêlent des organismes de natures très différentes. Leurs types, selon le registre, et le nombre de publications qui les citent :
 
 ```{python}
-#| output: false
-manquantes = con.sql("SELECT count(*) FROM contours WHERE code NOT IN (SELECT code FROM etat)").fetchone()[0]
-assert manquantes == 0, f"{manquantes} communes des contours absentes de la BAN"
-```
-
-### Qui écrit les adresses
-
-Le client qui dépose la BAL dit qui la tient :
-
-- **Mes Adresses**, l'éditeur en ligne de l'Agence nationale de la cohésion des territoires
-  (ANCT), utilisé par la commune elle-même ou par une structure qui l'accompagne ;
-- **le système d'une collectivité** : une intercommunalité, un département, une région, un
-  syndicat ou une grande ville qui gère les adresses dans son propre système d'information
-  géographique et les dépose par un client dédié (GEOPAL pour les Pays de la Loire, Mapéo pour
-  le Calvados…), ou les publie sur data.gouv, où la BAN les moissonne (`moissonneur-bal`) ;
-- **un autre dépôt** : l'ancien formulaire de publication de l'ANCT, où une commune déposait
-  un fichier, et l'ancien Guichet Adresse de l'IGN.
-
-Le producteur affiché est l'organisme qui publie sur data.gouv pour les fichiers moissonnés, le
-nom du client sinon. Une poignée de communes ont une BAL sans révision courante dans l'API de
-dépôt : elles sont rangées avec les autres dépôts.
-
-On classe aussi chaque commune par la part de ses adresses certifiées et par l'ancienneté de
-sa dernière publication, comptée à partir de la date des données (la plus récente
-composition de la BAN). Chaque classe est un entier, rang de son libellé.
-
-```{python}
-libelles = {
-    "producteur": ["Mes Adresses (ANCT)", "Le système d'une collectivité", "Un autre dépôt",
-                   "Pas de Base Adresse Locale"],
-    "certification": ["Aucune adresse", "Moins de la moitié", "La moitié ou plus", "Toutes"],
-    "fraicheur": ["Moins de 3 mois", "De 3 mois à 1 an", "De 1 à 2 ans", "Plus de 2 ans",
-                  "Pas de Base Adresse Locale"],
-}
-date_donnees = con.sql("SELECT max(compose_le)::DATE FROM etat").fetchone()[0]
-
-con.sql(f"""
-CREATE TABLE communes AS
-WITH jointes AS (
-    SELECT c.*, e.bal, e.adresses::INTEGER AS adresses, e.certifiees::INTEGER AS certifiees,
-           e.date_revision, r.client_id, r.client, r.organisation,
-           date_diff('day', e.date_revision, DATE '{date_donnees}') AS age
-    FROM contours c JOIN etat e USING (code) LEFT JOIN revisions r USING (code)
-)
-SELECT *,
-       CASE WHEN NOT bal THEN NULL
-            WHEN client_id = 'mes-adresses' THEN 'Mes Adresses'
-            WHEN client_id = 'moissonneur-bal' THEN organisation
-            ELSE coalesce(client, 'Non renseigné') END AS producteur,
-       CASE WHEN NOT bal THEN 3
-            WHEN client_id = 'mes-adresses' THEN 0
-            WHEN client_id IN ('formulaire-publication', 'guichet-adresse') OR client_id IS NULL
-                 AND client IS NULL THEN 2
-            ELSE 1 END AS classe_producteur,
-       CASE WHEN certifiees = 0 THEN 0
-            WHEN certifiees < adresses / 2 THEN 1
-            WHEN certifiees < adresses THEN 2
-            ELSE 3 END AS classe_certification,
-       CASE WHEN NOT bal THEN 4
-            WHEN age < 91 THEN 0
-            WHEN age < 365 THEN 1
-            WHEN age < 730 THEN 2
-            ELSE 3 END AS classe_fraicheur
-FROM jointes
-""")
+#| filename: "Les types d'établissements"
 con.sql("""
-SELECT classe_producteur, count(*) AS communes, sum(population)::BIGINT AS population,
-       sum(adresses)::BIGINT AS adresses, sum(certifiees)::BIGINT AS certifiees
-FROM communes GROUP BY ALL ORDER BY ALL
+SELECT e.types_texte AS types, count(DISTINCT e.ror) AS etablissements,
+       count(DISTINCT p.id) AS publications
+FROM etablissements e JOIN publications_ror p USING (ror)
+GROUP BY ALL ORDER BY publications DESC
 """).df().style.hide(axis="index")
 ```
 
-Les clients les plus récents n'ont pas d'identifiant historique (`client_id` vide) : ce sont
-tous des outils de collectivités, rangés comme tels. Seules les communes sans révision courante
-n'ont pas non plus de nom de client.
+On y trouve des universités et des écoles (type `education`), des laboratoires (`facility`), des organismes nationaux comme l'Inserm, l'INRAE ou le CEA (`government`) et des hôpitaux (`healthcare`). La règle retenue : **garder les établissements de type `education` qui ne sont pas aussi `facility`**.
 
-Les chiffres de l'ensemble :
+- Un laboratoire est déjà dans son université : le compter en plus ferait un doublon, et il est parfois localisé dans une autre commune que sa tutelle.
+- Un organisme national a des laboratoires partout en France mais n'est localisé, dans le registre, qu'à son siège, souvent parisien. Tenu pour un point de la carte, il attirerait tous les liens vers Paris et fausserait le réseau.
+
+### Des communes aux agglomérations
+
+Un établissement est localisé par sa commune, mais la commune est une maille trop fine pour un réseau : les liens les plus forts seraient ceux entre Paris et ses banlieues universitaires (Saclay, Versailles…) ou entre Lyon et Villeurbanne, surtout des doubles affiliations. On passe donc à l'**unité urbaine**, la maille de l'Insee pour l'agglomération : un ensemble de communes où le [bâti est continu](https://www.insee.fr/fr/metadonnees/definition/c1501) (moins de 200 mètres entre deux constructions) et qui compte au moins 2 000 habitants. Chaque agglomération est un pôle : ses banlieues universitaires (Saclay, Villeurbanne, Saint-Martin-d'Hères) rejoignent leur ville-centre. Le pôle porte le nom de sa commune la plus peuplée, placé sur un point de cette commune. Une commune hors unité urbaine (son code `UU2020` finit par `000`) est son propre pôle.
 
 ```{python}
-chiffres = con.sql(f"""
-SELECT DATE '{date_donnees}'::VARCHAR AS date_donnees,
-       count(*) AS communes, count(*) FILTER (bal) AS communes_bal,
-       count(*) FILTER (classe_producteur = 0) AS communes_mes_adresses,
-       count(*) FILTER (classe_producteur = 1) AS communes_mutualisees,
-       sum(population)::BIGINT AS population, sum(population) FILTER (bal)::BIGINT AS population_bal,
-       sum(adresses)::BIGINT AS adresses, sum(certifiees) FILTER (bal)::BIGINT AS certifiees
-FROM communes
-""").df().to_dict("records")[0]
+#| output: false
+#| filename: "Les communes et leur pôle"
+con.sql("""
+CREATE TABLE communes AS
+SELECT INSEE_COM AS code, NOM AS nom, POPULATION AS population,
+       CASE WHEN UU2020 LIKE '%000' THEN INSEE_COM ELSE UU2020 END AS code_pole,
+       geometry
+FROM communes_france
+""")
+
+# Le nom et la position d'un pôle : ceux de sa commune la plus peuplée, parmi toutes
+# les communes de l'unité urbaine (et pas seulement celles qui ont un établissement).
+con.sql("""
+CREATE TABLE poles AS
+SELECT code_pole, ville, round(ST_X(point), 4) AS lon, round(ST_Y(point), 4) AS lat
+FROM (
+    SELECT code_pole, arg_max(nom, population) AS ville,
+           ST_PointOnSurface(arg_max(geometry, population)) AS point
+    FROM communes GROUP BY code_pole
+)
+""")
+```
+
+On rattache chaque établissement gardé à sa commune par une jointure spatiale (la commune dont le contour contient ses coordonnées), puis à son pôle. Aucun ne doit rester sans commune.
+
+```{python}
+#| filename: "Rattachement des établissements aux pôles"
+con.sql("""
+CREATE TABLE gardes AS
+SELECT e.ror, e.nom, c.code_pole
+FROM etablissements e
+LEFT JOIN communes c ON ST_Contains(c.geometry, ST_Point(e.lon, e.lat))
+WHERE list_contains(e.types, 'education') AND NOT list_contains(e.types, 'facility')
+""")
+
+sans_commune = con.sql("SELECT count(*) FROM gardes WHERE code_pole IS NULL").fetchone()[0]
+assert sans_commune == 0, f"{sans_commune} établissements sans commune"
+print(f"Établissements sans commune trouvée : {sans_commune}")
+```
+
+### Agréger par agglomération
+
+Chaque agglomération réunit ses établissements gardés (Paris en compte une quinzaine). Une publication est rattachée à une agglomération dès qu'un de ses établissements la signe, et compte une fois, quel que soit le nombre d'établissements qui l'ont signée. On compte aussi, pour chaque agglomération, les publications **internes** : signées par au moins deux établissements gardés distincts de cette même agglomération, qu'aucun trait ne peut montrer.
+
+```{python}
+#| filename: "Les agglomérations"
+con.sql("""
+CREATE TABLE publications_pole AS
+SELECT p.id, any_value(p.ouvert) AS ouvert, g.code_pole, count(DISTINCT p.ror)::INTEGER AS etablissements
+FROM publications_ror p JOIN gardes g USING (ror)
+GROUP BY p.id, g.code_pole
+""")
+
+villes = con.sql("""
+WITH sites AS (
+    SELECT code_pole, string_agg(DISTINCT nom, ', ' ORDER BY nom) AS etablissements
+    FROM gardes GROUP BY code_pole
+),
+comptes AS (
+    SELECT code_pole, count(*)::INTEGER AS publications,
+           (count(*) FILTER (WHERE etablissements > 1))::INTEGER AS internes,
+           round(avg(ouvert::INTEGER), 4) AS part_ouvert
+    FROM publications_pole GROUP BY code_pole
+)
+SELECT code_pole, ville, etablissements, publications, internes, part_ouvert, lon, lat
+FROM sites JOIN comptes USING (code_pole) JOIN poles USING (code_pole)
+ORDER BY publications DESC
+""").df()
+con.sql("CREATE TABLE villes AS SELECT * FROM villes")
+villes.head(8).style.hide(axis="index").format({"part_ouvert": "{:.0%}"})
+```
+
+Les établissements sont tous en métropole d'après le registre. Le comptage ci-dessous le vérifie : combien d'agglomérations tombent hors du rectangle de la métropole (et sortiraient du fond de carte) ?
+
+```{python}
+#| filename: "Agglomérations hors de la métropole"
+con.sql("""
+SELECT count(*) AS agglomerations_hors_metropole FROM villes
+WHERE lon NOT BETWEEN -5.5 AND 10 OR lat NOT BETWEEN 41 AND 51.5
+""").df().style.hide(axis="index")
+```
+
+### Les paires d'agglomérations
+
+Pour chaque publication, on prend l'ensemble des agglomérations de ses établissements (sans doublon), puis chaque paire (deux codes de pôle distincts, rangés dans l'ordre) reçoit une publication. Une publication signée de trois agglomérations alimente donc trois paires. On ne garde pour la page que les paires d'au moins 20 publications.
+
+```{python}
+#| filename: "Les paires d'agglomérations"
+con.sql("""
+CREATE TABLE paires AS
+SELECT a.code_pole AS pole_a, b.code_pole AS pole_b, count(*)::INTEGER AS publications
+FROM publications_pole a JOIN publications_pole b ON a.id = b.id AND a.code_pole < b.code_pole
+GROUP BY ALL
+""")
+
+liens = con.sql("""
+SELECT va.ville AS ville_a, vb.ville AS ville_b, p.publications,
+       va.lon AS lon_a, va.lat AS lat_a, vb.lon AS lon_b, vb.lat AS lat_b
+FROM paires p
+JOIN villes va ON va.code_pole = p.pole_a
+JOIN villes vb ON vb.code_pole = p.pole_b
+WHERE p.publications >= 20
+ORDER BY p.publications DESC, va.ville, vb.ville
+""").df()
+liens.head(8).style.hide(axis="index")
+```
+
+### Les chiffres de l'accroche
+
+```{python}
+#| filename: "Les chiffres de l'accroche"
+chiffres = {
+    "publications": con.sql("SELECT count(*) FROM publications").fetchone()[0],
+    "avec_etablissement": con.sql("SELECT count(DISTINCT id) FROM publications_pole").fetchone()[0],
+    # signées dans au moins deux agglomérations
+    "copubliees": con.sql("""
+        SELECT count(*) FROM (SELECT id FROM publications_pole GROUP BY id HAVING count(*) > 1)
+    """).fetchone()[0],
+    # signées dans une seule agglomération, mais par plusieurs de ses établissements
+    "internes": con.sql("""
+        SELECT count(*) FROM (
+            SELECT id FROM publications_pole GROUP BY id HAVING count(*) = 1 AND max(etablissements) > 1
+        )
+    """).fetchone()[0],
+    "villes": len(villes),
+}
+plus_forte = liens.iloc[0]
+chiffres |= {
+    "ville_a": plus_forte["ville_a"],
+    "ville_b": plus_forte["ville_b"],
+    "publications_max": int(plus_forte["publications"]),
+}
 chiffres
 ```
 
-Les services qui publient les adresses du plus grand nombre de communes, hors Mes Adresses :
+### Le fond de carte
+
+Les départements passent en GeoJSON, avec `ST_AsGeoJSON`.
 
 ```{python}
-mutualises = con.sql("""
-SELECT producteur, count(*) AS communes, sum(population)::BIGINT AS population
-FROM communes WHERE classe_producteur = 1
-GROUP BY ALL ORDER BY communes DESC LIMIT 20
-""").df()
-mutualises.style.hide(axis="index")
-```
-
-### Les contours de la carte
-
-Dessiner 35 000 communes alourdirait la page, et la carte n'a besoin que de leurs classes. On
-fusionne donc les communes qui ont les trois mêmes classes (au plus 4 × 4 × 5 = 80 groupes) ;
-chaque vue colore ensuite ces groupes selon l'une des trois. Les communes sont d'abord
-simplifiées ensemble, à 1 km environ (`ST_CoverageSimplify`), pour que les groupes restent
-jointifs, puis fusionnées (`ST_CoverageUnion_Agg`).
-
-```{python}
-con.sql("""
-CREATE TABLE simplifiees AS
-WITH couverture AS (
-    SELECT list(code ORDER BY code) AS codes, ST_CoverageSimplify(list(geom ORDER BY code), 0.01) AS geom
-    FROM communes
-),
--- Le résultat est une collection, dans l'ordre des communes : chaque morceau garde le rang
--- de sa commune (path[1]).
-morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
-SELECT codes[path[1]] AS code, geom FROM morceaux
-""")
-
-
+#| filename: "Les départements en GeoJSON"
 def en_geojson(requete, proprietes):
     return {
         "type": "FeatureCollection",
@@ -445,80 +490,47 @@ def en_geojson(requete, proprietes):
     }
 
 
-groupes = en_geojson("""
-SELECT c.classe_producteur, c.classe_certification, c.classe_fraicheur,
-       ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
-FROM simplifiees s JOIN communes c USING (code)
-GROUP BY ALL
-""", ["producteur", "certification", "fraicheur"])
-
 departements = en_geojson("""
-SELECT c.code_departement, ST_AsGeoJSON(ST_ReducePrecision(ST_CoverageUnion_Agg(s.geom), 0.001))
-FROM simplifiees s JOIN communes c USING (code)
-GROUP BY ALL
+SELECT INSEE_DEP, ST_AsGeoJSON(ST_ReducePrecision(geometry, 0.001))
+FROM departements_france
 """, ["code"])
-len(groupes["features"]), len(departements["features"])
-```
-
-Pour la bulle d'information, chaque commune est réduite à un point intérieur
-(`ST_PointOnSurface`). Cette table de 35 000 lignes est écrite à part, en CSV, dans
-`donnees/j16/` : la page la charge après coup, sans s'alourdir.
-
-```{python}
-#| output: false
-SORTIE = pathlib.Path("donnees/j16")
-SORTIE.mkdir(parents=True, exist_ok=True)
-con.sql(f"""
-COPY (
-    SELECT code, nom, departement, population, bal::INTEGER AS bal,
-           coalesce(producteur, '') AS producteur, classe_producteur, adresses, certifiees,
-           strftime(date_revision, '%Y-%m-%d') AS date_revision,
-           round(ST_X(p), 3) AS lon, round(ST_Y(p), 3) AS lat
-    FROM (SELECT *, ST_PointOnSurface(geom) AS p FROM communes)
-    ORDER BY code
-) TO '{SORTIE / "communes.csv"}' (HEADER)
-""")
+len(departements["features"])
 ```
 
 ### Ce qui passe à la carte
 
 ```{python}
+#| output: false
+#| filename: "Ce qui passe à la page (ojs_define)"
 ojs_define(
-    groupes=groupes,
+    villes=villes.to_dict("records"),
+    liens=liens.to_dict("records"),
     departements=departements,
-    libelles=libelles,
     chiffres=chiffres,
-    mutualises=mutualises.to_dict("records"),
 )
 ```
 
 ## Les données de la carte
 
+Après ces étapes, on obtient une table des paires d'agglomérations (au moins 20 publications en commun) et une table des agglomérations. La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
 ::: {.column-page}
 
 ```{ojs}
 //| echo: false
-viewof recherche = Inputs.search(communes, {
-  placeholder: "Rechercher une commune…",
-  format: (n) => `${entier(n)} communes`
+viewof rechercheLiens = Inputs.search(liens, {
+  placeholder: "Rechercher une agglomération…",
+  format: (n) => `${entier(n)} paires d'agglomérations`
 })
 ```
 
 ```{ojs}
 //| echo: false
-Inputs.table(recherche, {
-  columns: ["code", "nom", "departement", "population", "producteur", "adresses", "certifiees", "date_revision"],
-  header: {
-    code: "Code", nom: "Commune", departement: "Département", population: "Population",
-    producteur: "Adresses publiées par", adresses: "Adresses", certifiees: "Dont certifiées",
-    date_revision: "Dernière publication"
-  },
-  format: {
-    population: entier, adresses: entier, certifiees: entier,
-    producteur: (p) => p || "Pas de BAL",
-    date_revision: (d) => (d ? new Date(d).toLocaleDateString("fr-FR") : "")
-  },
-  sort: "population",
+Inputs.table(rechercheLiens, {
+  columns: ["ville_a", "ville_b", "publications"],
+  header: {ville_a: "Agglomération A", ville_b: "Agglomération B", publications: "Co-publications"},
+  format: {publications: (x) => entier(x)},
+  sort: "publications",
   reverse: true,
   rows: 15
 })
@@ -527,9 +539,41 @@ Inputs.table(recherche, {
 ```{ojs}
 //| echo: false
 DOM.download(
-  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "population", "bal", "producteur", "adresses", "certifiees", "date_revision"])], {type: "text/csv"}),
-  "communes_bases_adresses_locales.csv",
-  "Télécharger (CSV)"
+  () => new Blob([d3.csvFormat(liens, ["ville_a", "ville_b", "publications"])], {type: "text/csv"}),
+  "copublications_2024_paires_agglomerations.csv",
+  "Télécharger les paires d'agglomérations (CSV)"
+)
+```
+
+```{ojs}
+//| echo: false
+viewof rechercheVilles = Inputs.search(villes, {
+  placeholder: "Rechercher une agglomération ou un établissement…",
+  format: (n) => `${entier(n)} agglomérations`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(rechercheVilles, {
+  columns: ["ville", "etablissements", "publications", "internes", "part_ouvert"],
+  header: {
+    ville: "Agglomération", etablissements: "Établissements", publications: "Publications",
+    internes: "Dont internes", part_ouvert: "Part en accès ouvert"
+  },
+  format: {publications: (x) => entier(x), part_ouvert: (x) => pourcent(x)},
+  sort: "publications",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+DOM.download(
+  () => new Blob([d3.csvFormat(villes, ["code_pole", "ville", "etablissements", "publications", "internes", "part_ouvert", "lon", "lat"])], {type: "text/csv"}),
+  "copublications_2024_agglomerations.csv",
+  "Télécharger les agglomérations (CSV)"
 )
 ```
 
@@ -537,27 +581,19 @@ DOM.download(
 
 ## Précautions
 
-- Les deux fichiers de la BAN changent tous les jours : la carte montre la situation à la date
-  du rendu de la page, pas une situation figée. Les mêmes calculs, refaits un autre jour, ne
-  donneront pas tout à fait les mêmes chiffres.
-- Le client qui dépose la BAL ne dit pas toujours qui fait le travail. Mes Adresses est aussi
-  utilisé par des intercommunalités ou des départements pour le compte de leurs communes, et la
-  carte les range alors avec les communes qui saisissent elles-mêmes.
-- Seule la dernière version de chaque BAL est connue : la carte ne dit pas depuis quand une
-  commune publie ses adresses, seulement quand elle l'a fait pour la dernière fois.
-- Une adresse non certifiée n'est pas forcément fausse : la certification est une garantie
-  que la commune ajoute, adresse par adresse, et toutes ne s'en servent pas.
-- La population est la population municipale des contours d'ADMIN EXPRESS 2026.
-- Les collectivités d'outre-mer (Saint-Pierre-et-Miquelon, Saint-Barthélemy, Saint-Martin,
-  Wallis-et-Futuna, la Polynésie française, la Nouvelle-Calédonie) sont dans la BAN mais pas
-  sur la carte.
+- Le fichier ne cite des ROR que pour quelque 190 établissements : ceux que le Baromètre a su identifier, avec ses déclinaisons locales. Les autres établissements, plus petits, n'apparaissent pas.
+- La couverture est inégale d'un établissement à l'autre : certaines grandes universités sont sous-comptées par rapport à leur taille réelle (Aix-Marseille, par exemple, apparaît avec relativement peu de publications). La taille d'un point mesure ce que le fichier sait de l'agglomération, pas son poids exact dans la recherche.
+- Le CNRS n'a pas de ROR dans le fichier. Les organismes nationaux (Inserm, INRAE, CEA…) et les laboratoires sont écartés par la règle de sélection, faute d'une localisation qui ait un sens : une collaboration entre deux laboratoires n'est visible que si leurs universités sont, elles aussi, citées.
+- Un point est une unité urbaine 2020, placée sur sa commune la plus peuplée : Saclay, Villeurbanne ou Saint-Martin-d'Hères sont fondues dans Paris, Lyon ou Grenoble, et les collaborations entre établissements d'une même agglomération ne forment pas de trait (elles sont comptées à part, dans les publications « internes »). Une agglomération hors unité urbaine se réduit à sa commune. Les unités urbaines sont celles de 2020, les communes celles de 2026.
+- Les doubles affiliations pèsent sur les liens : un même article peut citer à la fois une université et l'établissement qui la fédère (Normandie Université, située à Caen, avec Rouen et Le Havre ; Paris-Saclay et l'UVSQ, désormais dans le même pôle). Certains liens relèvent de l'organisation des établissements plus que de la collaboration entre équipes.
+- Une co-publication compte une fois par paire d'agglomérations, quel que soit le nombre d'auteurs ou d'établissements de chaque agglomération.
+- La jointure spatiale utilise des contours simplifiés : un établissement en bord de commune pourrait tomber dans une voisine (le contrôle plus haut vérifie seulement qu'aucun n'est hors de toute commune).
+- Si une agglomération tombait hors du rectangle de la métropole, elle sortirait du fond de carte : le comptage plus haut le vérifie.
+- Le CSV est mal formé, et quelque 300 fragments de lignes sont écartés à la lecture.
+- L'accès ouvert est celui de la dernière date d'observation du Baromètre, pas celui de la date de publication.
 
 ## Pour aller plus loin
 
-- [adresse.data.gouv.fr](https://adresse.data.gouv.fr/), le site de la Base Adresse
-  Nationale, avec sa [carte du déploiement des BAL](https://adresse.data.gouv.fr/deploiement-bal)
-  et l'éditeur [Mes Adresses](https://mes-adresses.data.gouv.fr/).
-- Le [format Base Adresse Locale](https://aitf-sig-topo.github.io/voies-adresses/), défini par
-  le groupe de travail de l'Association des ingénieurs territoriaux de France (AITF).
-- OpenStreetMap, l'autre grande carte collaborative des adresses, nourrie par des
-  contributeurs bénévoles plutôt que par les communes.
+- Le [Baromètre français de la science ouverte](https://barometredelascienceouverte.esr.gouv.fr/) et sa [méthodologie](https://barometredelascienceouverte.esr.gouv.fr/a-propos/methodologie), ainsi que les baromètres locaux de plusieurs universités et organismes.
+- [ROR](https://ror.org/), le registre des organismes de recherche.
+- [OpenAlex](https://openalex.org/), le catalogue ouvert des publications scientifiques, qui sert de base à ce type de réseaux de co-publications.
