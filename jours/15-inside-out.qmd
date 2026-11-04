@@ -240,10 +240,8 @@ Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify
 #| output: false
 #| filename: "Configuration de l'environnement"
 import json
-import tempfile
 
 import duckdb
-import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -277,53 +275,33 @@ information occupe toujours les mêmes positions.
 | 163 à 167 | code du lieu de décès |
 | 168 à 176 | numéro d'acte de décès |
 
-Le fichier de 2025 pèse 130 Mo. On le télécharge par le lien permanent de data.gouv.fr, qui
-renvoie vers la dernière version publiée.
-
-```{python}
-#| filename: "Téléchargement"
-ANNEE = 2025
-
-
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
-                reponse.raise_for_status()
-                for bloc in reponse.iter_content(chunk_size=1 << 20):
-                    f.write(bloc)
-            return
-        except OSError:
-            if essai == essais - 1:
-                raise
-```
-
-DuckDB lit chaque ligne en une seule colonne (avec un séparateur qui n'apparaît jamais), puis
-`substr` découpe les positions. Le nom et les prénoms ne sont pas lus. On garde les décès
-survenus en 2025 : le fichier contient aussi quelques décès plus anciens, transmis en retard.
+Le fichier de 2025 pèse 130 Mo. DuckDB le lit directement depuis son adresse, la copie sur le
+SSP Cloud (voir l'encadré sur les données), sans le télécharger au préalable : chaque ligne
+devient une seule colonne (avec un séparateur qui n'apparaît jamais), puis `substr` découpe les
+positions. Le nom et les prénoms ne sont pas lus. On garde les décès survenus en 2025 : le
+fichier contient aussi quelques décès plus anciens, transmis en retard.
 
 ```{python}
 #| output: false
 #| filename: "Lecture du fichier des décès et des oppositions"
-with tempfile.TemporaryDirectory() as dossier:
-    telecharger(SOURCES["deces"], f"{dossier}/deces.txt")
-    telecharger(SOURCES["oppositions"], f"{dossier}/oppositions.csv")
-    con.sql(f"""
-    CREATE TABLE deces AS
-    SELECT substr(ligne, 90, 5) AS lieu_naissance,
-           substr(ligne, 155, 8) AS date_deces,
-           substr(ligne, 163, 5) AS lieu_deces,
-           trim(substr(ligne, 168, 9)) AS acte
-    FROM read_csv('{dossier}/deces.txt', columns = {{'ligne': 'VARCHAR'}},
-                  delim = '\x01', quote = '', header = false)
-    WHERE substr(ligne, 155, 4) = '{ANNEE}'
-    """)
-    con.sql(f"""
-    CREATE TABLE oppositions AS
-    SELECT "Date de décès" AS date_deces, "Code du lieu de décès" AS lieu_deces,
-           "Numéro d'acte de décès" AS acte
-    FROM read_csv('{dossier}/oppositions.csv', delim = ';', header = true, all_varchar = true)
-    """)
+ANNEE = 2025
+
+con.sql(f"""
+CREATE TABLE deces AS
+SELECT substr(ligne, 90, 5) AS lieu_naissance,
+       substr(ligne, 155, 8) AS date_deces,
+       substr(ligne, 163, 5) AS lieu_deces,
+       trim(substr(ligne, 168, 9)) AS acte
+FROM read_csv('{SOURCES["deces"]}', columns = {{'ligne': 'VARCHAR'}},
+              delim = '\x01', quote = '', header = false)
+WHERE substr(ligne, 155, 4) = '{ANNEE}'
+""")
+con.sql(f"""
+CREATE TABLE oppositions AS
+SELECT "Date de décès" AS date_deces, "Code du lieu de décès" AS lieu_deces,
+       "Numéro d'acte de décès" AS acte
+FROM read_csv('{SOURCES["oppositions"]}', delim = ';', header = true, all_varchar = true)
+""")
 ```
 
 Les proches d'une personne décédée peuvent s'opposer à la publication de son décès. L'Insee
