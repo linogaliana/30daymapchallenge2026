@@ -19,7 +19,7 @@ echapper = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;
 // des couches fournies par la partie Python (mêmes champs).
 ign = [
   {
-    cle: "ign_rpg", nom: "Parcelles agricoles (RPG)", groupe: "IGN, en direct", jour: "J3",
+    cle: "ign_rpg", nom: "Parcelles agricoles (RPG)", groupe: "En direct", jour: "J3",
     wfs: "RPG.LATEST:parcelles_graphiques", zoom_min: 13, polygone: true, remplissage: 0.18,
     couleur: "#7a8f1e", sombre: "#b5cc4a",
     decrire: (p) => ({
@@ -33,7 +33,7 @@ ign = [
     })
   },
   {
-    cle: "ign_batiments", nom: "Bâtiments (BD TOPO)", groupe: "IGN, en direct", jour: null,
+    cle: "ign_batiments", nom: "Bâtiments (BD TOPO)", groupe: "En direct", jour: null,
     wfs: "BDTOPO_V3:batiment", zoom_min: 15, polygone: true, remplissage: 0.22,
     couleur: "#8c5a3c", sombre: "#d9a07a",
     decrire: (p) => ({
@@ -46,7 +46,22 @@ ign = [
     })
   },
   {
-    cle: "ign_cadastre", nom: "Parcelles cadastrales", groupe: "IGN, en direct", jour: null,
+    // Tuiles vectorielles du Référentiel national des bâtiments : MapLibre ne charge que celles de la vue.
+    cle: "rnb", nom: "Bâtiments (RNB)", groupe: "En direct", jour: null,
+    tuiles: "https://rnb-api.beta.gouv.fr/api/alpha/tiles/shapes/{x}/{y}/{z}.pbf",
+    zoom_min: 16, polygone: true, remplissage: 0.25,
+    couleur: "#d9480f", sombre: "#ffa94d",
+    decrire: (p) => ({
+      titre: "Bâtiment",
+      type: "",
+      lignes: [
+        p.rnb_id ? `Identifiant RNB : ${echapper(p.rnb_id)}` : null,
+        p.status ? `Statut : ${echapper(p.status)}` : null
+      ]
+    })
+  },
+  {
+    cle: "ign_cadastre", nom: "Parcelles cadastrales", groupe: "En direct", jour: null,
     wfs: "CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle", zoom_min: 16, polygone: true, remplissage: 0.02,
     couleur: "#5b5bd6", sombre: "#a3a3ff",
     decrire: (p) => ({
@@ -59,9 +74,22 @@ ign = [
   }
 ]
 
-// Toutes les couches, dans l'ordre du curseur : fichiers, puis IGN.
-toutes = [...couches, ...ign]
-nbCouchesTotal = couches.length + 3
+// Les carreaux du recensement sont dessinés par la carte (un carré de 1 km par carreau) :
+// leur remplissage et leur bulle sont décrits ici, les autres couches de fichiers n'en ont pas.
+carreaux = ({
+  remplissage: 0.35,
+  decrire: (p) => ({
+    titre: "Carreau de 1 km",
+    type: "",
+    lignes: [
+      `${Number(p.habitants).toLocaleString("fr-FR", {maximumFractionDigits: 1})} habitant${Number(p.habitants) >= 2 ? "s" : ""} (2023)`
+    ]
+  })
+})
+
+// Toutes les couches, dans l'ordre du curseur : fichiers, puis couches en direct.
+toutes = [...couches.map((c) => c.cle === "carreaux" ? {...c, ...carreaux} : c), ...ign]
+nbCouchesTotal = couches.length + ign.length
 nbObjetsFichiers = d3.sum(couches, (c) => c.nombre)
 
 html`<p class="lead">Dans « De la rigueur de la science » (1946), Borges imagine un empire
@@ -247,6 +275,13 @@ viewof nombreCouches = {
 
 ```{ojs}
 //| echo: false
+// proj4 passe les carreaux de la projection européenne (EPSG:3035, en mètres) à la longitude, latitude.
+proj4 = {
+  const p = await require("proj4@2.11.0")
+  p.defs("EPSG:3035", "+proj=laea +lat_0=52 +lon_0=10 +x_0=4321000 +y_0=3210000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+  return p
+}
+
 maplibregl = {
   const lien = document.createElement("link")
   lien.rel = "stylesheet"
@@ -347,7 +382,7 @@ carte = {
     center: [adresseDefaut.lon, adresseDefaut.lat],
     zoom: 17,
     minZoom: 3,
-    attributionControl: {customAttribution: "Insee, ministères, SNCF, IGN, BAN"}
+    attributionControl: {customAttribution: "Insee, ministères, SNCF, IGN, RNB, BAN"}
   })
   invalidation.then(() => map.remove())
   map.addControl(new maplibregl.NavigationControl({showCompass: false}))
@@ -364,27 +399,57 @@ carte = {
   map.marqueur = new maplibregl.Marker({color: "#c0392b"})
     .setLngLat([adresseDefaut.lon, adresseDefaut.lat]).addTo(map)
 
-  // IGN dessous, puis la BPE, puis les autres jours au-dessus.
-  const rang = {"IGN, en direct": 0, "Base permanente des équipements": 1}
-  const pile = d3.sort(toutes, (c) => rang[c.groupe] ?? 2)
+  // Les couches en direct dessous, puis les carreaux, puis la BPE, puis les autres jours au-dessus.
+  const rang = (c) => c.cle === "carreaux" ? 1 : ({"En direct": 0, "Base permanente des équipements": 2}[c.groupe] ?? 3)
+  const pile = d3.sort(toutes, rang)
+
+  // Projection des carreaux (mètres, EPSG:3035) vers la longitude, latitude de la carte.
+  const versLonLat = proj4("EPSG:3035", "EPSG:4326")
+
+  // Paliers du nombre d'habitants par carreau : moins de 10, 10 à 50, 50 à 200, 200 à 1 000, 1 000 et plus.
+  const palettesCarreaux = {
+    clair: ["#fee5d9", "#fcae91", "#fb6a4a", "#de2d26", "#a50f15"],
+    sombre: ["#7f3b3b", "#b5504d", "#e0615c", "#ff8787", "#ffd0cc"]
+  }
+  const couleurCarreaux = (sombreActif) => {
+    const p = palettesCarreaux[sombreActif ? "sombre" : "clair"]
+    return ["step", ["get", "habitants"], p[0], 10, p[1], 50, p[2], 200, p[3], 1000, p[4]]
+  }
+
+  // Les couches à tuiles vectorielles sont toujours dans la carte : seule leur visibilité suit les cases.
+  const regler = (c) => {
+    const visibilite = map.activesCourantes.has(c.cle) ? "visible" : "none"
+    for (const id of [c.cle, `${c.cle}-ligne`]) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibilite)
+    }
+  }
 
   const ajouterCouches = () => {
     const contour = map.sombre ? "#1a1a1a" : "white"
     for (const c of pile) {
       const couleur = map.sombre ? c.sombre : c.couleur
-      map.addSource(c.cle, {type: "geojson", data: map.donnees[c.cle]})
+      map.addSource(c.cle, c.tuiles
+        ? {type: "vector", tiles: [c.tuiles], minzoom: c.zoom_min, maxzoom: 18}
+        : {type: "geojson", data: map.donnees[c.cle]})
+      const sourceLayer = c.tuiles ? {"source-layer": "default"} : {}
       if (c.polygone) {
         map.addLayer({
-          id: c.cle, type: "fill", source: c.cle,
-          paint: {"fill-color": couleur, "fill-opacity": c.remplissage}
-        })
-        map.addLayer({
-          id: `${c.cle}-ligne`, type: "line", source: c.cle,
+          id: c.cle, type: "fill", source: c.cle, ...sourceLayer,
           paint: {
-            "line-color": couleur, "line-opacity": 0.9,
-            "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.4, 18, 1.2]
+            "fill-color": c.cle === "carreaux" ? couleurCarreaux(map.sombre) : couleur,
+            "fill-opacity": c.remplissage
           }
         })
+        map.addLayer({
+          id: `${c.cle}-ligne`, type: "line", source: c.cle, ...sourceLayer,
+          paint: {
+            "line-color": couleur, "line-opacity": c.cle === "carreaux" ? 0.5 : 0.9,
+            "line-width": c.cle === "carreaux"
+              ? 0.5
+              : ["interpolate", ["linear"], ["zoom"], 13, 0.4, 18, 1.2]
+          }
+        })
+        if (c.tuiles) regler(c)
       } else {
         map.addLayer({
           id: c.cle, type: "circle", source: c.cle,
@@ -423,7 +488,7 @@ carte = {
     if (statut) map.statuts[c.cle] = statut
     else delete map.statuts[c.cle]
     const source = map.getSource(c.cle)
-    if (source) source.setData(map.donnees[c.cle])
+    if (source && !c.tuiles) source.setData(map.donnees[c.cle]) // pas de données à pousser dans des tuiles
     publier()
   }
   const vider = (c, statut) => {
@@ -466,17 +531,38 @@ carte = {
     const bornes = [emprise.ouest, emprise.est, emprise.sud, emprise.nord].map((x) => Math.round(Number(x) * 1e5))
     if (!bornes.every(Number.isFinite)) throw new Error("emprise invalide")
     const [ouest, est, sud, nord] = bornes
-    const lignesSql = await requete(`
-      SELECT couche, id, lon, lat FROM read_parquet('${urlPoints}')
-      WHERE couche IN (${cles.map((cle) => `'${cle}'`).join(", ")})
-        AND lon BETWEEN ${ouest} AND ${est} AND lat BETWEEN ${sud} AND ${nord}
+    // Un carreau est rangé par son coin sud-ouest : celui d'un carreau qui touche la vue peut
+    // être juste à l'ouest ou au sud. Pour cette couche, l'emprise est élargie de 0,02° de ces côtés,
+    // dans une requête à part.
+    const marge = Math.round(0.02 * 1e5)
+    const selection = (liste, o, e, s, n) => requete(`
+      SELECT couche, id, lon, lat, x, y, habitants FROM read_parquet('${urlPoints}')
+      WHERE couche IN (${liste.map((cle) => `'${cle}'`).join(", ")})
+        AND lon BETWEEN ${o} AND ${e} AND lat BETWEEN ${s} AND ${n}
       QUALIFY row_number() OVER (PARTITION BY couche) <= ${PLAFOND_FICHIER + 1}`)
+    const autres = cles.filter((cle) => cle !== "carreaux")
+    const lignesSql = (await Promise.all([
+      cles.includes("carreaux") ? selection(["carreaux"], ouest - marge, est, sud - marge, nord) : [],
+      autres.length ? selection(autres, ouest, est, sud, nord) : []
+    ])).flat()
     const resultats = new Map(cs.map((c) => [c.cle, {objets: [], lignes: [], statut: {etat: "ok"}}]))
     for (const r of lignesSql) {
       const resultat = resultats.get(r.couche)
       if (!resultat) continue
       if (resultat.objets.length >= PLAFOND_FICHIER) {
         resultat.statut = {etat: "plafond", message: `${entier(PLAFOND_FICHIER)} premiers objets`}
+        continue
+      }
+      if (r.couche === "carreaux") {
+        // Un carré de 1 km : les quatre coins sont projetés de EPSG:3035 vers longitude, latitude.
+        const coins = [[r.x, r.y], [r.x + 1000, r.y], [r.x + 1000, r.y + 1000], [r.x, r.y + 1000]]
+          .map((p) => versLonLat.forward(p))
+        const [lonC, latC] = versLonLat.forward([r.x + 500, r.y + 500])
+        resultat.objets.push({
+          type: "Feature", geometry: {type: "Polygon", coordinates: [[...coins, coins[0]]]},
+          properties: {id: r.id, habitants: r.habitants}
+        })
+        resultat.lignes.push({couche: par_cle.get(r.couche).nom, id: r.id, lon: arrondir(lonC), lat: arrondir(latC)})
         continue
       }
       const lon = r.lon / 1e5
@@ -499,8 +585,11 @@ carte = {
     }
     const points = []
     for (const c of toutes) {
+      if (c.tuiles) regler(c)
       if (!map.activesCourantes.has(c.cle)) { vider(c); continue }
       if (z < (c.zoom_min ?? 0)) { vider(c, {etat: "zoom"}); continue }
+      // Couche à tuiles : MapLibre charge les tuiles, rien à lire ici (le comptage se fait à l'`idle`).
+      if (c.tuiles) { delete map.statuts[c.cle]; continue }
       const numero = (map.generations[c.cle] = (map.generations[c.cle] ?? 0) + 1)
       const perime = () => map.generations[c.cle] !== numero
       map.statuts[c.cle] = {etat: "chargement"}
@@ -535,6 +624,30 @@ carte = {
     minuteurVue = setTimeout(map.charger, 150)
   }
   map.on("moveend", map.planifier)
+
+  // Couches à tuiles : une fois la carte au repos, les objets des tuiles chargées dans la vue
+  // (dédoublonnés, car un objet à cheval sur deux tuiles y figure deux fois) alimentent
+  // la légende et le tableau.
+  map.compterTuiles = () => {
+    const z = map.getZoom()
+    const b = map.getBounds()
+    let change = false
+    for (const c of toutes) {
+      if (!c.tuiles || !map.activesCourantes.has(c.cle) || z < c.zoom_min || !map.getSource(c.cle)) continue
+      const vus = new Map()
+      for (const f of map.querySourceFeatures(c.cle, {sourceLayer: "default"})) {
+        const id = f.properties.rnb_id
+        if (!id || vus.has(id)) continue
+        const [lon, lat] = centreObjet(f.geometry)
+        if (!b.contains([lon, lat])) continue
+        vus.set(id, {couche: c.nom, id, lon: arrondir(lon), lat: arrondir(lat)})
+      }
+      map.lignes[c.cle] = [...vus.values()]
+      change = true
+    }
+    if (change) publier()
+  }
+  map.on("idle", map.compterTuiles)
 
   // Bulle : au survol, le nom de la couche ; au clic, le détail, lu dans points.parquet.
   // Elle ignore la souris (classe j14-bulle) : sinon, ouverte sous le pointeur, elle ferait
@@ -717,8 +830,9 @@ viewof actives = {
     <strong>${entier(visibles.length)} objet${visibles.length > 1 ? "s" : ""} dans la vue,
     ${k} couche${k > 1 ? "s" : ""}.</strong> ${lignes}<br>
     Source : Insee, BPE 2025 ; ministères des Sports, de la Culture, de l'Éducation nationale ;
-    SNCF ; IGN, Géoplateforme (PLAN IGN, BD TOPO, Parcellaire express, RPG) ;
-    géocodage : Base adresse nationale.
+    SNCF ; Insee, recensement de la population 2023 (carreaux) ;
+    IGN, Géoplateforme (PLAN IGN, BD TOPO, Parcellaire express, RPG) ;
+    Référentiel national des bâtiments (RNB) ; géocodage : Base adresse nationale.
   </small></p>`
 }
 ```
@@ -730,7 +844,7 @@ On va maintenant décrire comment obtenir les données de cette carte.
 
 ## Les données
 
-Six fichiers sont téléchargés au rendu. Quatre services de l'IGN ne sont pas téléchargés : la carte
+Sept fichiers sont téléchargés au rendu. Cinq services ne sont pas téléchargés : la carte
 les interroge directement, pour la vue affichée.
 
 | Source | Producteur | Ce qu'on en tire | Format |
@@ -741,9 +855,11 @@ les interroge directement, pour la vue affichée.
 | [Gares de voyageurs](https://ressources.data.sncf.com/explore/dataset/gares-de-voyageurs/) | SNCF Gares & Connexions | le nom et la position de chaque gare | {{< iconify vscode-icons file-type-parquet >}} Parquet |
 | [Annuaire de l'éducation](https://data.education.gouv.fr/explore/dataset/fr-en-annuaire-education/) | Ministère de l'Éducation nationale | la position de chaque école | {{< iconify vscode-icons file-type-parquet >}} Parquet |
 | [Data ES, recensement des équipements sportifs](https://equipements.sports.gouv.fr/explore/dataset/data-es/) | INJEP, ministère des Sports | le nom, le type et la position de chaque équipement | {{< iconify vscode-icons file-type-parquet >}} Parquet |
+| [Recensement de la population 2023, données carroyées](https://www.insee.fr/fr/statistiques/9058700) | Insee | le nombre d'habitants de chaque carreau de 1 km et la position de son coin sud-ouest | {{< iconify vscode-icons file-type-csv >}} CSV dans un zip |
 | [Service de géocodage](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage) | IGN, Géoplateforme | la position de l'adresse choisie, pour centrer la carte | {{< iconify vscode-icons file-type-json >}} JSON (API) |
 | [Parcellaire express](https://geoservices.ign.fr/parcellaire-express-pci) | IGN | les contours des parcelles cadastrales | {{< iconify vscode-icons file-type-json >}} JSON (API) |
 | [BD TOPO](https://geoservices.ign.fr/bdtopo) | IGN | les contours des bâtiments | {{< iconify vscode-icons file-type-json >}} JSON (API) |
+| [Référentiel national des bâtiments](https://rnb.beta.gouv.fr) (RNB) | État, programme beta.gouv | l'emprise et l'identifiant de chaque bâtiment | {{< iconify vscode-icons file-type-json >}} Tuiles vectorielles (API) |
 | [Registre parcellaire graphique](https://geoservices.ign.fr/rpg) (RPG) | IGN, à partir des déclarations PAC (ASP) | les contours des parcelles agricoles et leur culture | {{< iconify vscode-icons file-type-json >}} JSON (API) |
 
 Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
@@ -893,6 +1009,30 @@ WHERE equip_coordonnees IS NOT NULL AND inst_hs_bool IS DISTINCT FROM 'Oui'
 con.sql("SELECT count(*) AS equipements FROM sport").df().style.hide(axis="index")
 ```
 
+### Les carreaux du recensement (Insee)
+
+Comme pour le [jour 8](08-utopia.qmd), on lit les [carreaux de 1 km du recensement de la population de 2023](https://www.insee.fr/fr/statistiques/9058700),
+un {{< iconify vscode-icons file-type-csv >}} `CSV` dans une archive {{< iconify vscode-icons file-type-zip >}} zip,
+avec l'extension [`zipfs`](https://duckdb.org/community_extensions/extensions/zipfs) de DuckDB. L'identifiant
+de chaque carreau (`FR_CRS3035RES1000mN2029000E4252000`) donne les coordonnées de son coin sud-ouest,
+en mètres, dans la projection européenne `EPSG:3035` : on les garde en mètres. Le fichier compte aussi
+le nombre d'habitants (`pop`). Seuls les carreaux habités y figurent.
+
+```{python}
+#| filename: "Lecture des carreaux du recensement (Insee)"
+con.sql("INSTALL zipfs FROM community; LOAD zipfs")
+
+con.sql(f"""
+CREATE TABLE carreaux AS
+SELECT id_carreau_1km AS identifiant,
+       regexp_extract(id_carreau_1km, 'E(\\d+)$', 1)::INTEGER AS x,
+       regexp_extract(id_carreau_1km, 'N(\\d+)E', 1)::INTEGER AS y,
+       round(pop, 1) AS habitants
+FROM read_csv('zip://{SOURCES["recensement"]}/carreaux_1km_met.csv')
+""")
+con.sql("SELECT count(*) AS carreaux, sum(habitants)::INT AS habitants FROM carreaux").df().style.hide(axis="index")
+```
+
 ## Les traitements
 
 ### Une table commune des objets
@@ -907,6 +1047,10 @@ l'identifiant de l'établissement (UAI) pour les écoles, de l'identifiant Musé
 des codes UIC pour les gares. La BPE et Basilic n'en donnent pas dans les colonnes qu'on lit : ils
 restent vides.
 
+Les carreaux du recensement sont rangés par leur coin sud-ouest : leur position (`lon`, `lat`) est ce
+coin, converti de `EPSG:3035` en longitude et latitude (`ST_Transform`). Trois colonnes, vides pour
+les autres couches, gardent le coin en mètres (`x`, `y`) et le nombre d'habitants (`habitants`).
+
 Pour la BPE, le nom est volontairement laissé vide : on ne garde que le code du type (`D107`), tel
 quel, pour alléger le fichier.
 
@@ -914,11 +1058,12 @@ quel, pour alléger le fichier.
 #| filename: "Table des objets"
 con.sql("""
 CREATE TABLE objets (
-    couche VARCHAR, identifiant VARCHAR, n VARCHAR, t VARCHAR, lon DOUBLE, lat DOUBLE
+    couche VARCHAR, identifiant VARCHAR, n VARCHAR, t VARCHAR, lon DOUBLE, lat DOUBLE,
+    x INTEGER, y INTEGER, habitants DOUBLE
 )
 """)
 con.sql("""
-INSERT INTO objets
+INSERT INTO objets (couche, identifiant, n, t, lon, lat)
 SELECT 'maternites', NULL, NOMRS, 'Maternité', round(lon, 5), round(lat, 5)
 FROM bpe WHERE TYPEQU = 'D107'
 UNION ALL
@@ -941,6 +1086,14 @@ SELECT 'sport', identifiant, nom, type, round(lon, 5), round(lat, 5)
 FROM sport
 """)
 con.sql("""
+INSERT INTO objets
+SELECT 'carreaux', identifiant, NULL, 'Carreau de 1 km',
+       round(ST_X(coin), 5), round(ST_Y(coin), 5), x, y, habitants
+FROM (
+    SELECT *, ST_Transform(ST_Point(x, y), 'EPSG:3035', 'EPSG:4326') AS coin FROM carreaux
+)
+""")
+con.sql("""
 SELECT couche, count(*) AS objets FROM objets GROUP BY ALL ORDER BY ALL
 """).df().style.hide(axis="index")
 ```
@@ -955,7 +1108,9 @@ un fichier {{< iconify vscode-icons file-type-parquet >}} `Parquet`, `donnees/j1
 dont le navigateur ne lit que la partie dont il a besoin : pour chaque objet, sa couche, un numéro
 (`id`), sa position, son identifiant d'origine, son nom et son type. Les coordonnées sont des
 entiers, des degrés multipliés par 100 000 (environ un mètre) : de petits entiers se compressent
-bien.
+bien. Les carreaux du recensement y sont rangés par leur coin sud-ouest (en plus, en mètres, `x` et
+`y`, et `habitants`) : le navigateur redessine le carré de 1 km à partir de ce coin. Ces trois colonnes
+sont vides pour les autres couches, ce que Parquet compresse en presque rien.
 
 Parquet range les données par colonne. Pour afficher une vue, la carte ne lit que la couche et la
 position ; le nom et le type ne sont lus qu'au clic sur un objet.
@@ -985,7 +1140,7 @@ FROM objets
 con.sql(f"""
 COPY (
     SELECT couche, id, round(lon * 1e5)::INTEGER AS lon, round(lat * 1e5)::INTEGER AS lat,
-           identifiant, n AS nom, t AS type
+           identifiant, n AS nom, t AS type, x, y, habitants
     FROM numerotes ORDER BY couche, id
 ) TO '{(SORTIE / "points.parquet").as_posix()}' (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 10000)
 """)
@@ -1021,6 +1176,8 @@ couches = [
      "zoom_min": 11, "couleur": "#f59f00", "sombre": "#fcc419"},
     {"cle": "sport", "nom": "Équipements sportifs", "groupe": "Les autres jours", "jour": "J7",
      "zoom_min": 12, "couleur": "#2f9e44", "sombre": "#69db7c"},
+    {"cle": "carreaux", "nom": "Carreaux du recensement (1 km)", "groupe": "Les autres jours", "jour": "J8",
+     "zoom_min": 9, "couleur": "#e03131", "sombre": "#ff8787", "polygone": True},
     {"cle": "bpe_a", "nom": "Services pour les particuliers", "groupe": "Base permanente des équipements", "jour": None,
      "zoom_min": 14, "couleur": "#495057", "sombre": "#ced4da"},
     {"cle": "bpe_b", "nom": "Commerces", "groupe": "Base permanente des équipements", "jour": None,
@@ -1095,7 +1252,10 @@ DOM.download(
   touchent la vue. Les coordonnées y sont arrondies au mètre, et chaque couche est plafonnée à
   30 000 objets par vue.
 - Les couches de l'IGN viennent d'un service interrogé en direct. Le service limite le nombre
-  d'objets par requête, et ces couches ne s'affichent qu'à fort zoom.
+  d'objets par requête, et ces couches ne s'affichent qu'à fort zoom. Les bâtiments du RNB sont servis
+  en tuiles vectorielles, disponibles à partir du zoom 16 seulement.
+- Les carreaux du recensement ne sont diffusés que s'ils sont habités, et leur nombre d'habitants est
+  une estimation dans les communes de 10 000 habitants ou plus.
 
 ## Pour aller plus loin
 
@@ -1108,3 +1268,5 @@ DOM.download(
 - [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview), la documentation de DuckDB dans le
   navigateur, et [GeoParquet](https://geoparquet.org), la spécification du format Parquet pour les
   données géographiques.
+- [Référentiel national des bâtiments](https://rnb.beta.gouv.fr) (RNB), qui donne à chaque bâtiment un
+  identifiant unique et diffuse ses emprises en tuiles vectorielles.
