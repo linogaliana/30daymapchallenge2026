@@ -653,18 +653,9 @@ html`<p>
 - Insee, [[« 610 000 personnes sont décédées en France en 2018, dont la moitié dans le département où elles sont nées »]{.underline}](https://www.insee.fr/fr/statistiques/4218743),
   Insee Focus n° 163, 2019 : la même question, à partir des bulletins de décès de l'état civil,
   avec la part pour chaque département.
-- Insee, [[« 569 200 personnes décédées en France en 2013 »]{.underline}](https://www.insee.fr/fr/statistiques/1379710),
-  Insee Focus n° 13, 2014 : déjà la moitié des défunts morts dans leur département de naissance.
-- Insee, [[« 594 000 personnes décédées en France en 2016, pour un quart d'entre elles à leur domicile »]{.underline}](https://www.insee.fr/fr/statistiques/3134763),
-  Insee Focus n° 95, 2017, et [[« Les décès en 2024 »]{.underline}](https://www.insee.fr/fr/statistiques/8655177),
-  Insee Focus n° 364, 2025 : où l'on meurt, à l'hôpital, à domicile ou en Ehpad.
-- Insee, [[personnes ne résidant pas dans leur département de naissance]{.underline}](https://www.insee.fr/fr/statistiques/5431020),
-  par tranche d'âge, d'après le recensement de 2023 : l'autre moitié de l'histoire, celle des vivants.
 - Insee, [[fichier des personnes décédées]{.underline}](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees),
   depuis 1970, avec sa documentation.
 - Insee, [[code officiel géographique]{.underline}](https://www.insee.fr/fr/information/8740222) et l'historique
   des communes depuis 1943.
-- Le jour 2 de ce défi, sur les [[navettes domicile-travail]{.underline}](02-lines.qmd) : un autre
-  dedans-dehors, à l'échelle d'une journée.
 
 :::
