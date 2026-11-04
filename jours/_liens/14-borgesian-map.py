@@ -13,4 +13,6 @@ SOURCES = {
     "annuaire": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/annuaire.parquet",
     # https://equipements.sports.gouv.fr/api/explore/v2.1/catalog/datasets/data-es/exports/parquet
     "data_es": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/data_es.parquet",
+    # https://www.insee.fr/fr/statistiques/fichier/9058700/rp2023_carreaux_1km_csv.zip
+    "recensement": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/rp2023_carreaux_1km_csv.zip",
 }
