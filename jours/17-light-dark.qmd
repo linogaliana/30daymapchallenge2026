@@ -243,10 +243,8 @@ Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify
 #| filename: "Configuration de l'environnement"
 import json
 import pathlib
-import tempfile
 
 import duckdb
-import requests
 
 con = duckdb.connect()
 con.sql("""
@@ -270,47 +268,24 @@ et `ARM` pour l'arrondissement à Paris, Lyon et Marseille), la commune où elle
 calcul se fait en sommant les poids. Les communes de travail et d'études sont données à
 l'arrondissement près à Paris, Lyon et Marseille.
 
-Le serveur de l'Insee ne répond pas aux requêtes partielles : DuckDB ne peut pas lire les
-fichiers à distance. On les télécharge (67 et 24 Mo) en vérifiant qu'ils sont complets, puis on
-garde, pour chaque personne, d'où elle part, où elle va et son poids.
+Les deux fichiers sont publiés en {{< iconify vscode-icons file-type-parquet >}} `Parquet` :
+{{< iconify vscode-icons file-type-duckdb >}} `DuckDB` les lit directement à leur adresse, en ne
+gardant, pour chaque personne, que d'où elle part, où elle va et son poids.
 
 ```{python}
 #| filename: "Lecture des navettes (Insee)"
-# Le serveur coupe parfois le téléchargement sans erreur, et n'envoie pas la
-# taille : un fichier Parquet complet finit par « PAR1 ».
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            with requests.get(url, timeout=600, stream=True) as reponse, open(chemin, "wb") as f:
-                reponse.raise_for_status()
-                for bloc in reponse.iter_content(chunk_size=1 << 20):
-                    f.write(bloc)
-        except OSError:
-            if essai == essais - 1:
-                raise
-            continue
-        with open(chemin, "rb") as f:
-            f.seek(-4, 2)
-            if f.read() == b"PAR1":
-                return
-    raise RuntimeError(f"téléchargement incomplet : {url}")
-
-
-with tempfile.TemporaryDirectory() as dossier:
-    telecharger(SOURCES["mobpro"], f"{dossier}/mobpro.parquet")
-    telecharger(SOURCES["mobsco"], f"{dossier}/mobsco.parquet")
-    con.sql(f"""
-    CREATE TABLE deplacements AS
-    SELECT 'travail' AS motif,
-           CASE WHEN ARM <> 'ZZZZZ' THEN ARM ELSE COMMUNE END AS residence,
-           DCLT AS destination, IPONDI AS poids
-    FROM read_parquet('{dossier}/mobpro.parquet')
-    UNION ALL
-    SELECT 'études',
-           CASE WHEN ARM <> 'ZZZZZ' THEN ARM ELSE COMMUNE END,
-           DCETUF, IPONDI
-    FROM read_parquet('{dossier}/mobsco.parquet')
-    """)
+con.sql(f"""
+CREATE TABLE deplacements AS
+SELECT 'travail' AS motif,
+       CASE WHEN ARM <> 'ZZZZZ' THEN ARM ELSE COMMUNE END AS residence,
+       DCLT AS destination, IPONDI AS poids
+FROM read_parquet('{SOURCES["mobpro"]}')
+UNION ALL
+SELECT 'études',
+       CASE WHEN ARM <> 'ZZZZZ' THEN ARM ELSE COMMUNE END,
+       DCETUF, IPONDI
+FROM read_parquet('{SOURCES["mobsco"]}')
+""")
 
 con.sql("""
 SELECT motif, round(sum(poids)) AS personnes,
