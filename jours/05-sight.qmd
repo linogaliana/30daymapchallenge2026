@@ -31,7 +31,7 @@ html`<p class="lead">
   ${pourcent(debut.part_60)} en ${debut.annee}, jusqu'à ${pourcent(pic.part_60)} en ${pic.annee}.
   D'un département à l'autre, la densité va de
   ${virgule(d3.min(derniere, (d) => d.densite))} à ${virgule(d3.max(derniere, (d) => d.densite))}
-  pour 100 000 habitants. Lancez la lecture pour voir les années défiler.
+  pour 100 000 habitants. Lancez la lecture pour voir les années défiler, et survolez la carte pour chausser vos lunettes.
 </p>`
 ```
 
@@ -295,10 +295,16 @@ carte = (variable, echelle, titre) => Plot.plot({
       : [
           Plot.geo(contours, {fill: fondCarte, stroke: fond, strokeWidth: 0.6}),
           // Les plus gros cercles dessous (tri par rayon décroissant, par défaut).
+          // Cercles flous, comme sans lunettes : nets au survol de la carte (styles.css).
           Plot.dot(contours.features.filter((f) => lignes.get(f.properties.code)?.effectif > 0), Plot.centroid({
             r: (f) => lignes.get(f.properties.code).effectif,
             fill: (f) => lignes.get(f.properties.code)[variable],
-            stroke: sombre ? "#ddd" : "#333", strokeWidth: 0.5
+            stroke: sombre ? "#ddd" : "#333", strokeWidth: 0.5,
+            render: (index, echelles, valeurs, dimensions, contexte, suivant) => {
+              const groupe = suivant(index, echelles, valeurs, dimensions, contexte)
+              groupe.classList.add("flou")
+              return groupe
+            }
           }))
         ],
     Plot.tip(contours.features, Plot.pointer(Plot.centroid({

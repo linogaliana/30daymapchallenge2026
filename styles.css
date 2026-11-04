@@ -864,3 +864,16 @@ body.quarto-dark .choix-suggestions {
   flex: 0 1 320px;
   min-width: 0;
 }
+
+/* J5 : les cercles flous, comme sans lunettes ; nets au survol de la carte */
+g.flou {
+  filter: blur(2px);
+  transition: filter 0.4s ease;
+}
+svg:hover > g.flou,
+svg:focus-within > g.flou {
+  filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  g.flou { transition: none; }
+}
