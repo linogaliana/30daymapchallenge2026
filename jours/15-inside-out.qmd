@@ -5,7 +5,17 @@ image: vignettes/15-inside-out.webp
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#eb6834"
+  sombre: "#f6b083"
 ---
+
+Pour la quinzième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Inside out"**]{.underline color="#3987e5"}), on retourne chaque département comme un gant. Vu de l'intérieur : parmi ceux qui sont [nés ici]{.underline}, combien sont allés mourir ailleurs ? Vu de l'extérieur : parmi ceux qui sont [morts ici]{.underline color="#3987e5"}, combien venaient d'ailleurs ? Le [[fichier des personnes décédées]{.underline}](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees), tenu par l'[Insee]{.underline color="#3987e5"}, est la seule source exhaustive qui donne, pour chaque personne, son lieu de naissance et son lieu de décès : le début et la fin d'une vie (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+---------------------------------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -13,20 +23,12 @@ virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, max
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
 pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
 html`<p class="lead">
-  En ${chiffres.annee}, <strong>${entier(chiffres.deces)} personnes</strong> sont mortes en
-  France. Moins d'une sur deux, ${pourcent(chiffres.part_meme)}, est morte dans le département où
-  elle était née. ${pourcent(chiffres.part_autre_dep)} étaient nées dans un autre département,
+  En ${chiffres.annee}, <span class="souligne">${entier(chiffres.deces)} personnes</span> sont mortes en
+  France. Moins d'une sur deux, <span class="souligne">${pourcent(chiffres.part_meme)}, est morte dans le département où
+  elle était née</span>. ${pourcent(chiffres.part_autre_dep)} étaient nées dans un autre département,
   ${pourcent(chiffres.part_etranger)} à l'étranger.
 </p>`
 ```
-
-Pour ce quinzième jour, on retourne chaque département comme un gant. Vu de l'intérieur : parmi
-ceux qui y sont nés, combien sont allés mourir ailleurs ? Vu de l'extérieur : parmi ceux qui y
-sont morts, combien venaient d'ailleurs ? Le fichier des décès de l'Insee est la seule source
-exhaustive qui donne, pour chaque personne, son lieu de naissance et son lieu de décès : le
-début et la fin d'une vie (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -74,7 +76,10 @@ carte = ({titre, valeur, echelle, bulle, choisi, remplir = false}) => {
       // Le département choisi : cerné, et rempli dans les cartes du détail.
       Plot.geo(contours.features.filter((f) => f.properties.code === choisi),
         {stroke: "currentColor", strokeWidth: 1.5, fill: remplir ? couleurSoi : "none"}),
-      Plot.tip(contours.features, Plot.pointer(Plot.centroid({title: (f) => bulle(f.properties.code)})))
+      Plot.tip(contours.features, Plot.pointer(Plot.centroid({
+        fill: fond,  // la version de Plot de Quarto met un fond blanc d'office
+        title: (f) => bulle(f.properties.code)
+      })))
     ]
   })
   plot.style.cursor = "pointer"
@@ -90,11 +95,15 @@ seuils = [0.3, 0.4, 0.5, 0.65]
 legendeSeuils = (label, g) => ({type: "threshold", domain: seuils, range: gamme(g), label, tickFormat: (x) => pourcent(x)})
 ```
 
-## Dedans, dehors
+:::
+
+## Dedans, dehors {.unnumbered}
 
 À gauche, la part des personnes nées dans le département qui sont mortes ailleurs ; à droite, la
 part des personnes mortes dans le département qui étaient nées ailleurs. Cliquez sur un
 département pour le voir en détail plus bas.
+
+::: {.content-visible when-format="html"}
 
 ::: {.column-page}
 
@@ -127,6 +136,8 @@ gauche, les départements d'outre-mer rapprochés. Source : Insee, fichier des p
 code officiel géographique ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small></p>`
 ```
 
+:::
+
 Les deux cartes ne se ressemblent pas. Celle des départs est d'abord celle des maternités : on
 naît là où l'on accouche, et à Paris naissent beaucoup d'enfants de la banlieue. Celle des
 arrivées a deux pôles : la banlieue parisienne, où l'on meurt après être né à Paris, en province
@@ -134,7 +145,9 @@ ou à l'étranger ; le littoral méditerranéen, où l'on s'installe pour la ret
 Nord et le Pas-de-Calais, La Réunion et les Antilles gardent leurs natifs et en accueillent
 peu.
 
-## Un département, retourné
+## Un département, retourné {.unnumbered}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -206,23 +219,26 @@ de : ${liste(premiers(entrees))}. ${pourcent(choisi.part_etranger)} étaient né
 l'étranger${pays.length ? `, d'abord ${pays.map((d) => `${d.pays} (${entier(d.n)})`).join(", ")}` : ""}.</p>`
 ```
 
---------
+:::
 
-On va maintenant décrire comment obtenir les données de ces cartes.
+# Making of
 
 ## Les données
 
+La carte croise quatre sources publiques :
+
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Fichier des personnes décédées](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees) | Insee, à partir de l'état civil | le lieu de naissance et le lieu de décès de chaque personne morte en 2025 | texte à largeur fixe |
-| [Fichier des oppositions à la publication des décès](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees) | Insee | les décès à retirer | CSV |
-| [Code officiel géographique 2026](https://www.insee.fr/fr/information/8740222) | Insee | l'historique des codes de communes depuis 1943, les noms des pays | CSV |
-| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour et le nom de chaque département, outre-mer rapproché | GeoParquet |
+| [Fichier des personnes décédées](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees) | Insee, à partir de l'état civil | le lieu de naissance et le lieu de décès de chaque personne morte en 2025 | {{< iconify vscode-icons file-type-text >}} texte à largeur fixe |
+| [Fichier des oppositions à la publication des décès](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees) | Insee | les décès à retirer | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Code officiel géographique 2026](https://www.insee.fr/fr/information/8740222) | Insee | l'historique des codes de communes depuis 1943, les noms des pays | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour et le nom de chaque département, outre-mer rapproché | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import tempfile
 
@@ -265,6 +281,7 @@ Le fichier de 2025 pèse 130 Mo. On le télécharge par le lien permanent de dat
 renvoie vers la dernière version publiée.
 
 ```{python}
+#| filename: "Téléchargement"
 ANNEE = 2025
 
 
@@ -287,6 +304,7 @@ survenus en 2025 : le fichier contient aussi quelques décès plus anciens, tran
 
 ```{python}
 #| output: false
+#| filename: "Lecture du fichier des décès et des oppositions"
 with tempfile.TemporaryDirectory() as dossier:
     telecharger(SOURCES["deces"], f"{dossier}/deces.txt")
     telecharger(SOURCES["oppositions"], f"{dossier}/oppositions.csv")
@@ -312,6 +330,7 @@ Les proches d'une personne décédée peuvent s'opposer à la publication de son
 publie la liste de ces décès (date, lieu et numéro d'acte), qu'il faut retirer du fichier.
 
 ```{python}
+#| filename: "Retrait des oppositions"
 retires = con.sql("""
 SELECT count(*) FROM deces JOIN oppositions USING (date_deces, lieu_deces, acte)
 """).fetchone()[0]
@@ -341,6 +360,7 @@ touchées. On en garde les changements de département (code `41`) et les fusion
 Chaque code ancien reçoit le code qui l'a remplacé, au dernier de ses événements.
 
 ```{python}
+#| filename: "Lecture du code officiel géographique"
 con.sql(f"""
 CREATE TABLE communes_cog AS
 SELECT DISTINCT COM AS com FROM read_csv('{SOURCES["cog_communes"]}', all_varchar = true);
@@ -365,6 +385,7 @@ GROUP BY ALL;
 Les changements de département, par année :
 
 ```{python}
+#| filename: "Les changements de département"
 con.sql("""
 SELECT left(date, 4) AS annee, left(avant, 2) AS avant, left(apres, 2) AS apres, count(*) AS communes
 FROM evenements WHERE type = '41' GROUP BY ALL HAVING count(*) > 5 ORDER BY annee, avant, apres
@@ -379,6 +400,7 @@ sa petite couronne sont agrandies (`layout=FRANCE_ENTIERE_DROM_RAPPROCHES`). Ils
 ensemble (`ST_CoverageSimplify`) pour rester jointifs.
 
 ```{python}
+#| filename: "Les contours des départements (cartiflette)"
 CARTIFLETTE_URL = (
     "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
     "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
@@ -429,6 +451,7 @@ vont avec l'Algérie. Le reste (collectivités d'outre-mer comme la Polynésie, 
 est classé à part. Le lieu de décès, codé dans la géographie de 2025, suit les mêmes règles.
 
 ```{python}
+#| filename: "Ramener chaque lieu à un département d'aujourd'hui"
 con.sql("""
 CREATE MACRO departement(code) AS CASE WHEN code LIKE '97%' THEN left(code, 3) ELSE left(code, 2) END;
 
@@ -470,6 +493,7 @@ Chaque décès est un flux, du département de naissance vers celui du décès. 
 couple.
 
 ```{python}
+#| filename: "Les flux de naissance à décès"
 con.sql("""
 CREATE TABLE flux AS
 SELECT naissance, deces, count(*)::INTEGER AS n FROM lieux GROUP BY ALL
@@ -481,6 +505,7 @@ un autre département, à l'étranger ou en outre-mer hors département) ; vu de
 décédés, et la part de ceux nés ailleurs, dont à l'étranger.
 
 ```{python}
+#| filename: "Les chiffres par département"
 departements = con.sql("""
 WITH dedans AS (
     SELECT naissance AS code, sum(n) AS nes, sum(n) FILTER (WHERE deces <> naissance) AS partis
@@ -508,6 +533,7 @@ departements.sort_values("part_partis").head(5).style.hide(axis="index").format(
 Pour chaque département, les cinq premiers pays de naissance de ceux qui y sont morts :
 
 ```{python}
+#| filename: "Les pays de naissance"
 origines = con.sql("""
 SELECT deces, p.pays, count(*)::INTEGER AS n
 FROM lieux JOIN pays p ON p.code = pays_naissance
@@ -522,6 +548,7 @@ origines[origines.deces == "75"].style.hide(axis="index")
 Et les chiffres de l'accroche, pour la France entière :
 
 ```{python}
+#| filename: "Les chiffres de l'accroche"
 chiffres = con.sql(f"""
 SELECT {ANNEE} AS annee, count(*) AS deces,
        avg((naissance NOT IN ('etranger', 'autre') AND naissance = deces)::INTEGER) AS part_meme,
@@ -542,6 +569,7 @@ survenus à l'étranger ou hors département, redonner le total.
 
 ```{python}
 #| output: false
+#| filename: "Contrôles"
 lieux_connus = set(departements.code) | {"etranger", "autre"}
 inconnus = set(con.sql("SELECT naissance FROM flux UNION SELECT deces FROM flux").df().naissance) - lieux_connus
 assert not inconnus, f"lieux inconnus : {inconnus}"
@@ -552,6 +580,8 @@ assert departements.morts.sum() + hors == total
 ```
 
 ```{python}
+#| output: false
+#| filename: "Ce qui passe à la page (ojs_define)"
 #| echo: false
 ojs_define(
     departements=departements.to_dict("records"),
@@ -564,9 +594,13 @@ ojs_define(
 
 ## Les données de la carte
 
-Une ligne par département.
+Après toutes ces étapes, on obtient une table des départements (une ligne par département) et une table des flux, de chaque département de naissance vers celui de décès. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
 
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -584,7 +618,11 @@ Inputs.table(recherche, {
     code: "Code", nom: "Département", nes: "Nés ici", part_partis: "… morts ailleurs",
     morts: "Morts ici", part_venus: "… nés ailleurs", part_etranger: "… nés à l'étranger"
   },
-  format: {part_partis: pourcent, part_venus: pourcent, part_etranger: pourcent},
+  // Inputs.table passe aussi le rang de la ligne : on ne garde que la valeur.
+  format: {
+    nes: (x) => entier(x), morts: (x) => entier(x),
+    part_partis: (x) => pourcent(x), part_venus: (x) => pourcent(x), part_etranger: (x) => pourcent(x)
+  },
   sort: "part_partis",
   reverse: true,
   rows: 15
@@ -609,7 +647,10 @@ html`<p>
 
 :::
 
-## Précautions
+:::
+
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - Le lieu de naissance est celui de la maternité, pas celui où vivaient les parents. Depuis les
   années 1960, on naît presque toujours à l'hôpital : les grandes villes, Paris en tête,
@@ -624,11 +665,18 @@ html`<p>
 - Le fichier des décès de 2025 contient les décès transmis à l'Insee en 2025. Les décès de la
   fin d'année 2025 transmis en 2026 manquent, soit environ 2 % des décès de l'année.
 
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
-- Insee, [fichier des personnes décédées](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees),
+- Insee, [[fichier des personnes décédées]{.underline}](https://www.data.gouv.fr/datasets/fichier-des-personnes-decedees),
   depuis 1970, avec sa documentation.
-- Insee, [code officiel géographique](https://www.insee.fr/fr/information/8740222) et l'historique
+- Insee, [[code officiel géographique]{.underline}](https://www.insee.fr/fr/information/8740222) et l'historique
   des communes depuis 1943.
-- Le jour 2 de ce défi, sur les [navettes domicile-travail](02-lines.qmd) : un autre
+- Le jour 2 de ce défi, sur les [[navettes domicile-travail]{.underline}](02-lines.qmd) : un autre
   dedans-dehors, à l'échelle d'une journée.
+
+:::
