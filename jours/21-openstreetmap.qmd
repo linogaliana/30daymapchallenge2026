@@ -1,6 +1,6 @@
 ---
 title: "J21 · OpenStreetMap. Les monuments historiques, recensés deux fois"
-description: "Les monuments protégés de la base Mérimée du ministère de la Culture, retrouvés dans OpenStreetMap grâce à leur identifiant, département par département, et l'écart entre les deux positions."
+description: "Les monuments protégés de la base Mérimée du ministère de la Culture, retrouvés dans OpenStreetMap grâce à leur identifiant, bassin de vie par bassin de vie, et l'écart entre les deux positions."
 execute:
   echo: true
 code-overflow: wrap
@@ -62,32 +62,38 @@ seuilsDe = (valeurs, n = 6) => {
   return Array.from(new Set(d3.range(1, n).map((i) => Math.round(100 * d3.quantile(triees, i / n)) / 100)))
 }
 
-parCode = new Map(stats.map((d) => [d.dep, d]))
+parBassin = new Map(stats.map((d) => [d.bv, d]))
 
-// Une carte des départements, colorée par `valeur`.
-carteDepartements = ({valeur, gamme, label, bulle}) => {
-  const seuils = seuilsDe(stats.map(valeur))
+// Une carte des bassins de vie, colorée par `valeur`. Un bassin qui ne passe pas le seuil `assez`
+// (trop peu de monuments) est en gris neutre et n'entre pas dans le calcul des seuils.
+carteBassins = ({valeur, gamme, label, assez, mention, bulle}) => {
+  const seuils = seuilsDe(stats.filter(assez).map(valeur))
   const couleurs = gamme(seuils.length + 1)
-  const couleur = (x) => x === null || x === undefined ? grisNeutre : couleurs[d3.bisectRight(seuils, x)]
+  const couleur = (d) => d === undefined || !assez(d) || valeur(d) === null ? grisNeutre : couleurs[d3.bisectRight(seuils, valeur(d))]
   const largeur = Math.min(width, 820)
   const legende = Plot.legend({
     color: {type: "threshold", domain: seuils, range: couleurs, label, tickFormat: (x) => pourcent(x)},
     width: Math.min(largeur, 440), style: {background: "transparent", color: "inherit"}
   })
+  const gris = html`<div style="font-size: 0.85em; margin-bottom: 0.6em">
+    <span style="display: inline-block; width: 12px; height: 12px; background: ${grisNeutre}; border: 1px solid currentColor; vertical-align: -1px; margin-right: 0.35em"></span>${mention}</div>`
   const carte = Plot.plot({
     width: largeur,
     height: largeur * 0.95,
     style: stylePlot,
-    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 6},
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: bassins, inset: 6},
     marks: [
-      Plot.geo(departements, {fill: (f) => couleur(valeur(parCode.get(f.properties.code))), stroke: fond, strokeWidth: 0.8}),
-      Plot.tip(departements.features, Plot.pointer(Plot.geoCentroid({
+      Plot.geo(bassins, {fill: (f) => couleur(parBassin.get(f.properties.bv)), stroke: fond, strokeWidth: 0.3}),
+      Plot.geo(departements, {fill: "none", stroke: sombre ? "#eee" : "#222", strokeOpacity: 0.55, strokeWidth: 0.7}),
+      Plot.tip(bassins.features, Plot.pointer(Plot.geoCentroid({
         fill: fond,
-        title: (f) => bulle(f.properties, parCode.get(f.properties.code))
+        title: (f) => `Bassin de vie de ${f.properties.nom} (${f.properties.bv})\n` +
+          (f.properties.population === null ? "" : `Population : ${entier(f.properties.population)}\n`) +
+          bulle(parBassin.get(f.properties.bv))
       })))
     ]
   })
-  return html`<div>${legende}${carte}</div>`
+  return html`<div>${legende}${gris}${carte}</div>`
 }
 ```
 
@@ -101,12 +107,13 @@ carteDepartements = ({valeur, gamme, label, bulle}) => {
 
 ```{ojs}
 //| echo: false
-carteDepartements({
+carteBassins({
   valeur: (d) => d?.part_trouves,
   gamme: gammeTerre,
   label: "Part des monuments de Mérimée retrouvés dans OSM",
-  bulle: (f, d) => d === undefined ? f.nom :
-    `${f.nom} (${f.code})\n` +
+  assez: (d) => d.monuments >= 5,
+  mention: "Moins de cinq monuments",
+  bulle: (d) => d === undefined ? "Aucun monument protégé rattaché" :
     `Monuments protégés : ${entier(d.monuments)}\n` +
     `Retrouvés dans OSM : ${entier(d.trouves)} (${pourcent(d.part_trouves)})`
 })
@@ -117,22 +124,27 @@ carteDepartements({
 ```{ojs}
 //| echo: false
 html`<p><small>Un monument est « retrouvé » si son identifiant Mérimée figure dans l'étiquette
-<code>ref:mhs</code> d'au moins un objet d'OSM. Le département est celui que donne Mérimée. Paris et
-la petite couronne sont agrandies, les départements d'outre-mer rapprochés. Sources : ministère de
-la Culture, base Mérimée ; contributeurs d'OpenStreetMap, extraction du ${dateOsm} (ODbL) ;
-IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small></p>`
+<code>ref:mhs</code> d'au moins un objet d'OSM. Chaque monument est rattaché, d'après sa position, à son
+<a href="https://www.insee.fr/fr/metadonnees/definition/c2060">bassin de vie</a> (zonage 2022 de
+l'Insee) : le plus petit territoire sur lequel les habitants ont accès aux équipements et services
+les plus courants. Les bassins de vie sont nommés d'après leur commune-centre ; leur contour est
+simplifié, les limites de départements sont tracées en trait plus marqué. Les bassins gris comptent
+moins de cinq monuments. Paris et la petite couronne sont agrandies, les départements d'outre-mer
+rapprochés. Sources : ministère de la Culture, base Mérimée ; contributeurs d'OpenStreetMap,
+extraction du ${dateOsm} (ODbL) ; Insee, bassins de vie 2022 ; IGN, ADMIN EXPRESS COG CARTO 2026,
+via cartiflette.</small></p>`
 ```
 
 ```{ojs}
 //| echo: false
 {
-  const assez = stats.filter((d) => d.monuments >= 100)
+  const assez = stats.filter((d) => d.monuments >= 30)
   const liste = (l) => l.map((d) => `${d.nom} (${pourcent(d.part_trouves)})`).join(", ")
-  return html`<p>Parmi les départements qui comptent au moins cent monuments, OSM est le plus
-  complet dans ${liste(d3.sort(assez, (d) => -d.part_trouves).slice(0, 3))} ; il l'est le moins dans
-  ${liste(d3.sort(assez, (d) => d.part_trouves).slice(0, 3))}. La complétude suit moins la
-  population que la présence d'un contributeur qui s'est donné pour tâche de rapprocher les deux
-  listes, département après département.</p>`
+  return html`<p>Parmi les bassins de vie qui comptent au moins trente monuments, désignés par leur
+  commune-centre, OSM est le plus complet dans ${liste(d3.sort(assez, (d) => -d.part_trouves).slice(0, 3))} ;
+  il l'est le moins dans ${liste(d3.sort(assez, (d) => d.part_trouves).slice(0, 3))}. La complétude
+  suit moins la population que la présence d'un contributeur qui s'est donné pour tâche de
+  rapprocher les deux listes, bassin après bassin.</p>`
 }
 ```
 
@@ -184,12 +196,13 @@ différent, ou à une erreur dans l'une des deux bases.</p>`
 
 ```{ojs}
 //| echo: false
-carteDepartements({
+carteBassins({
   valeur: (d) => d?.part_loin,
   gamme: gammeArdoise,
   label: "Part des monuments dont les deux positions sont à plus de 500 m",
-  bulle: (f, d) => d === undefined ? f.nom :
-    `${f.nom} (${f.code})\n` +
+  assez: (d) => d.comparables >= 5,
+  mention: "Moins de cinq monuments localisés dans les deux bases",
+  bulle: (d) => d === undefined ? "Aucun monument protégé rattaché" :
     `Monuments localisés dans les deux bases : ${entier(d.comparables)}\n` +
     `Écart de plus de 500 m : ${entier(d.loin)} (${d.part_loin === null ? "–" : pourcent(d.part_loin)})\n` +
     `Sans position dans Mérimée, localisés par OSM : ${entier(d.combles)}`
@@ -201,8 +214,8 @@ carteDepartements({
 ```{ojs}
 //| echo: false
 html`<p><small>Part, parmi les monuments retrouvés dans OSM et localisés dans Mérimée, de ceux dont
-les deux positions sont séparées de plus de 500 mètres. Les départements gris n'ont aucun monument
-localisé dans les deux bases.</small></p>`
+les deux positions sont séparées de plus de 500 mètres, par bassin de vie. Les bassins gris ont
+moins de cinq monuments localisés dans les deux bases.</small></p>`
 ```
 
 :::
@@ -218,8 +231,8 @@ localisé dans les deux bases.</small></p>`
   return html`<p>Mérimée ne donne aucune coordonnée pour <strong>${entier(chiffres.sans_coord)}
   monuments</strong>, qu'on ne peut donc pas placer sur une carte à partir de la seule base
   publique. OSM, lui, connaît la position de <strong>${entier(chiffres.combles)}</strong> d'entre
-  eux, soit ${pourcent(chiffres.combles / chiffres.sans_coord)}. Les départements où OSM en
-  localise le plus : ${plus.map((d) => `${d.nom} (${entier(d.combles)})`).join(", ")}. Ici, la
+  eux, soit ${pourcent(chiffres.combles / chiffres.sans_coord)}. Les bassins de vie où OSM en
+  localise le plus, désignés par leur commune-centre : ${plus.map((d) => `${d.nom} (${entier(d.combles)})`).join(", ")}. Ici, la
   carte libre n'est pas qu'un double de la base officielle : elle en répare les trous.</p>`
 }
 ```
@@ -339,7 +352,7 @@ La carte croise deux sources publiques et un fond de carte :
 |---|---|---|---|
 | [Base Mérimée](https://www.pop.culture.gouv.fr/) (plateforme POP) | ministère de la Culture | l'identifiant, le titre, le département, la position et le type de protection de chaque monument historique | {{< iconify vscode-icons file-type-csv >}} CSV |
 | [OpenStreetMap](https://www.openstreetmap.org), interrogé par [QLever](https://qlever.cs.uni-freiburg.de/osm-planet) | contributeurs d'OpenStreetMap | les objets portant l'étiquette `ref:mhs`, avec leur nom et leur position | {{< iconify vscode-icons file-type-csv >}} CSV |
-| [Départements et communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour des départements (outre-mer rapproché) et des communes | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+| [Bassins de vie 2022, départements et communes 2026](https://github.com/InseeFrLab/cartiflette) | Insee et IGN, via cartiflette | le contour des bassins de vie et des départements (outre-mer rapproché), et celui des communes, qui sert à rattacher chaque monument à son bassin de vie | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
 Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
@@ -368,7 +381,7 @@ SET enable_progress_bar = false
 
 La base Mérimée est diffusée par la plateforme ouverte du patrimoine (POP) en un fichier CSV d'une centaine de mégaoctets, avec une ligne par monument et `|` comme séparateur. DuckDB le lit directement depuis la copie du SSP Cloud (voir l'encadré sur les données).
 
-La position est un texte « latitude,longitude » (`48.39,4.52`), vide pour environ 2 250 monuments : on la découpe en deux colonnes. Le département est celui que déclare la notice ; à défaut, on le déduit du code de la commune. Un code d'un seul chiffre reçoit un zéro devant (`1` devient `01`).
+La position est un texte « latitude,longitude » (`48.39,4.52`), vide pour environ 2 250 monuments : on la découpe en deux colonnes. Le département est celui que déclare la notice ; à défaut, on le déduit du code de la commune. Un code d'un seul chiffre reçoit un zéro devant (`1` devient `01`). On garde aussi le code de la commune à la date de la protection, qui servira de repli pour rattacher un monument sans position à son bassin de vie.
 
 ```{python}
 #| output: false
@@ -392,7 +405,8 @@ SELECT Reference AS reference,
                 THEN CASE WHEN length(departement_declare) = 1 THEN '0' || departement_declare
                           ELSE departement_declare END
             WHEN commune LIKE '97%' THEN left(commune, 3)
-            ELSE left(commune, 2) END AS dep
+            ELSE left(commune, 2) END AS dep,
+       commune
 FROM brut
 """)
 con.sql("""
@@ -436,13 +450,13 @@ WHERE trim(ref) <> ''
 """)
 ```
 
-### Les départements et les communes (cartiflette)
+### Les bassins de vie, les départements et les communes (cartiflette)
 
-Les contours viennent du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/). Pour la carte, les départements d'outre-mer sont rapprochés de la métropole et Paris et sa petite couronne sont agrandies (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`) ; pour les zooms, les communes (et les arrondissements de Paris) sont à leur place.
+Les contours viennent du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/). Pour la carte, les départements d'outre-mer sont rapprochés de la métropole et Paris et sa petite couronne sont agrandies (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`) ; pour les zooms, les communes (et les arrondissements de Paris) sont à leur place. Les communes entières (Paris, Lyon et Marseille sans leurs arrondissements) portent le code de leur bassin de vie (`BV2022`) : elles servent à rattacher chaque monument à son bassin et à nommer les bassins. Le code d'un bassin de vie est celui de sa commune-centre, dont il prend le nom.
 
 ```{python}
 #| output: false
-#| filename: "Lecture des départements et des communes (cartiflette)"
+#| filename: "Lecture des bassins de vie, des départements et des communes (cartiflette)"
 from cartiflette import carti_download
 
 parametres = dict(
@@ -460,15 +474,62 @@ departements_drom_rapproches = carti_download(
 communes_arrondissements = carti_download(
     borders="COMMUNE_ARRONDISSEMENT", filter_by="FRANCE_ENTIERE", **parametres
 )
+bassins_drom_rapproches = carti_download(
+    borders="BASSIN_VIE", filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES", **parametres
+)
+communes = carti_download(
+    borders="COMMUNE", filter_by="FRANCE_ENTIERE", **parametres
+)
 
 con.sql("""
 CREATE TABLE noms AS
 SELECT INSEE_DEP AS code, LIBELLE_DEPARTEMENT AS nom, geometry
-FROM departements_drom_rapproches
+FROM departements_drom_rapproches;
+
+-- Le nom d'un bassin de vie est celui de sa commune-centre : la commune dont le code est celui du bassin.
+CREATE TABLE noms_bv AS
+SELECT INSEE_COM AS bv, NOM AS nom FROM communes WHERE INSEE_COM = BV2022;
+
+CREATE TABLE bassins AS
+SELECT b.BV2022 AS bv, coalesce(n.nom, b.BV2022) AS nom,
+       CAST(b.POPULATION AS BIGINT) AS population, b.geometry
+FROM bassins_drom_rapproches b LEFT JOIN noms_bv n ON n.bv = b.BV2022;
+
+-- Les communes entières, avec le code de leur bassin de vie, pour le rattachement.
+CREATE TABLE communes_bv AS
+SELECT INSEE_COM AS commune, BV2022 AS bv, geometry FROM communes WHERE BV2022 IS NOT NULL
 """)
 ```
 
-Les contours des départements sont simplifiés ensemble (`ST_CoverageSimplify`), pour rester jointifs.
+Les contours des bassins de vie sont simplifiés ensemble (`ST_CoverageSimplify`), pour rester jointifs, comme ceux des départements plus bas. La tolérance est un peu plus forte pour les 1 707 bassins, afin d'alléger la page. Les départements ne servent plus qu'à tracer leurs limites par-dessus la carte.
+
+```{python}
+#| output: false
+#| filename: "Contours simplifiés des bassins de vie"
+lignes_bassins = con.sql("""
+WITH couverture AS (
+    SELECT list(bv ORDER BY bv) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY bv), 0.005) AS geom
+    FROM bassins
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS bv,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Collect(list(geom)), 0.001)) AS geojson
+FROM morceaux GROUP BY ALL
+""").fetchall()
+
+infos_bassins = {bv: (nom, population) for bv, nom, population in
+                 con.sql("SELECT bv, nom, population FROM bassins").fetchall()}
+bassins_geojson = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature",
+         "properties": {"bv": bv, "nom": infos_bassins[bv][0], "population": infos_bassins[bv][1]},
+         "geometry": json.loads(geojson)}
+        for bv, geojson in lignes_bassins
+    ],
+}
+```
 
 ```{python}
 #| output: false
@@ -553,40 +614,81 @@ ORDER BY forme, ref
 exemples
 ```
 
-### Les chiffres par département
+### Les chiffres par bassin de vie
 
-Pour chaque département : le nombre de monuments, ceux retrouvés dans OSM, ceux qui n'ont pas de position dans Mérimée mais en ont une dans OSM, et, parmi ceux qui ont deux positions, la part de ceux dont l'écart dépasse 500 mètres.
+#### Rattacher chaque monument à son bassin de vie
+
+Le [[bassin de vie]{.underline}](https://www.insee.fr/fr/metadonnees/definition/c2060) est le plus petit territoire sur lequel les habitants ont accès aux équipements et services les plus courants (zonage 2022 de l'Insee, 1 707 bassins). Pour chaque monument, on prend sa position : celle de Mérimée, à défaut celle d'OSM. Une jointure spatiale cherche la commune qui la contient, et la commune donne le bassin de vie. Un monument sans position, ou dont le point tombe hors de tout contour de commune (en mer, près de la côte, les contours étant simplifiés), est rattaché par le code de commune de Mérimée. Il reste sans bassin si ce code ne correspond à aucune commune actuelle.
 
 ```{python}
-#| filename: "Les chiffres par département"
+#| output: false
+#| filename: "Rattacher chaque monument à son bassin de vie"
+con.sql("""
+CREATE TABLE rattachement AS
+WITH positions AS (
+    SELECT reference, commune,
+           ST_Point(coalesce(lon, lon_osm), coalesce(lat, lat_osm)) AS point
+    FROM monuments
+),
+candidats AS (
+    -- 1. par la position du monument
+    SELECT p.reference, c.bv, 1 AS rang
+    FROM positions p JOIN communes_bv c ON ST_Contains(c.geometry, p.point)
+    UNION ALL
+    -- 2. à défaut, par le code de la commune dans Mérimée
+    SELECT p.reference, c.bv, 2 AS rang
+    FROM positions p JOIN communes_bv c ON c.commune = p.commune
+)
+SELECT DISTINCT ON (reference) reference, bv
+FROM candidats
+ORDER BY reference, rang, bv;
+
+ALTER TABLE monuments ADD COLUMN bv VARCHAR;
+UPDATE monuments SET bv = r.bv FROM rattachement r WHERE monuments.reference = r.reference
+""")
+```
+
+Les monuments sans bassin comptent dans les totaux nationaux, mais n'ont pas de couleur sur la carte. Un contrôle :
+
+```{python}
+#| filename: "Monuments sans bassin de vie sur la carte"
+con.sql("""
+SELECT count(*) AS monuments,
+       count(*) FILTER (WHERE bv IS NULL) AS sans_bassin,
+       count(*) FILTER (WHERE bv IS NOT NULL AND bv NOT IN (SELECT bv FROM bassins)) AS sans_contour
+FROM monuments
+""").df()
+```
+
+#### Les chiffres
+
+Pour chaque bassin de vie : le nombre de monuments, ceux retrouvés dans OSM, ceux qui n'ont pas de position dans Mérimée mais en ont une dans OSM, et, parmi ceux qui ont deux positions, la part de ceux dont l'écart dépasse 500 mètres. Le bassin porte le nom de sa commune-centre.
+
+```{python}
+#| filename: "Les chiffres par bassin de vie"
 SEUIL = 500  # mètres
 
 stats = con.sql(f"""
-SELECT s.dep, coalesce(n.nom, s.dep) AS nom, s.monuments, s.trouves,
+SELECT s.bv, coalesce(n.nom, s.bv) AS nom, b.population, s.monuments, s.trouves,
        s.trouves / s.monuments AS part_trouves,
        s.sans_coord, s.combles, s.comparables, s.loin,
        s.loin / nullif(s.comparables, 0) AS part_loin, s.mediane
 FROM (
-    SELECT dep, count(*) AS monuments, count(*) FILTER (WHERE trouve) AS trouves,
+    SELECT bv, count(*) AS monuments, count(*) FILTER (WHERE trouve) AS trouves,
            count(*) FILTER (WHERE lon IS NULL) AS sans_coord,
            count(*) FILTER (WHERE trouve AND lon IS NULL) AS combles,
            count(distance) AS comparables,
            count(*) FILTER (WHERE distance > {SEUIL}) AS loin,
            round(median(distance)) AS mediane
-    FROM monuments GROUP BY dep
-) s LEFT JOIN noms n ON n.code = s.dep
-ORDER BY s.dep
+    FROM monuments WHERE bv IS NOT NULL GROUP BY bv
+) s
+LEFT JOIN noms_bv n ON n.bv = s.bv
+LEFT JOIN bassins b ON b.bv = s.bv
+ORDER BY s.bv
 """).df()
-stats.sort_values("part_trouves").head(5).style.hide(axis="index").format(
+stats[stats["monuments"] >= 30].sort_values("part_trouves").head(5).style.hide(axis="index").format(
     {"part_trouves": "{:.0%}", "part_loin": "{:.0%}"}
 )
-```
-
-Un contrôle : les départements de Mérimée qui n'ont pas de contour sur la carte (collectivités d'outre-mer, valeurs manquantes) ne s'affichent pas, mais comptent dans les totaux.
-
-```{python}
-#| filename: "Départements sans contour"
-stats[~stats["dep"].isin(noms_departements)][["dep", "monuments"]]
 ```
 
 ### Les distances
@@ -684,6 +786,7 @@ len(points), len(communes_cadrages)
 #| filename: "Ce qui passe à la page (ojs_define)"
 ojs_define(
     stats=json.loads(stats.to_json(orient="records")),
+    bassins=bassins_geojson,
     departements=departements,
     histogramme=json.loads(histogramme.to_json(orient="records")),
     exemples=json.loads(exemples.to_json(orient="records")),
@@ -696,7 +799,7 @@ ojs_define(
 
 ## Les données de la carte
 
-Après ces étapes, on obtient une ligne par département : le nombre de monuments de Mérimée, ceux retrouvés dans OSM et l'écart entre les deux positions. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+Après ces étapes, on obtient une ligne par bassin de vie : le nombre de monuments de Mérimée, ceux retrouvés dans OSM et l'écart entre les deux positions. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
 
 <br>
 
@@ -707,24 +810,24 @@ Après ces étapes, on obtient une ligne par département : le nombre de monumen
 ```{ojs}
 //| echo: false
 viewof recherche = Inputs.search(stats, {
-  placeholder: "Rechercher un département…",
-  columns: ["nom", "dep"],
-  format: (n) => `${n} départements`
+  placeholder: "Rechercher un bassin de vie…",
+  columns: ["nom", "bv"],
+  format: (n) => `${n} bassins de vie`
 })
 ```
 
 ```{ojs}
 //| echo: false
 Inputs.table(recherche, {
-  columns: ["dep", "nom", "monuments", "trouves", "part_trouves", "sans_coord", "combles", "comparables", "part_loin", "mediane"],
+  columns: ["bv", "nom", "population", "monuments", "trouves", "part_trouves", "sans_coord", "combles", "comparables", "part_loin", "mediane"],
   header: {
-    dep: "Code", nom: "Département", monuments: "Monuments (Mérimée)", trouves: "Retrouvés dans OSM",
+    bv: "Code", nom: "Bassin de vie (commune-centre)", population: "Population", monuments: "Monuments (Mérimée)", trouves: "Retrouvés dans OSM",
     part_trouves: "Part retrouvée", sans_coord: "Sans position dans Mérimée",
     combles: "… localisés par OSM", comparables: "Localisés dans les deux",
     part_loin: "… à plus de 500 m", mediane: "Écart médian (m)"
   },
   format: {
-    monuments: (x) => entier(x), trouves: (x) => entier(x), sans_coord: (x) => entier(x),
+    population: (x) => x === null ? "" : entier(x), monuments: (x) => entier(x), trouves: (x) => entier(x), sans_coord: (x) => entier(x),
     combles: (x) => entier(x), comparables: (x) => entier(x), mediane: (x) => x === null ? "" : entier(x),
     part_trouves: (x) => x === null ? "" : pourcent(x), part_loin: (x) => x === null ? "" : pourcent(x)
   },
@@ -738,8 +841,8 @@ Inputs.table(recherche, {
 //| echo: false
 html`<p>${DOM.download(
   () => new Blob([d3.csvFormat(stats)], {type: "text/csv"}),
-  "monuments_historiques_osm_departements.csv",
-  "Télécharger les départements (CSV)"
+  "monuments_historiques_osm_bassins_de_vie.csv",
+  "Télécharger les bassins de vie (CSV)"
 )}</p>`
 ```
 
@@ -754,8 +857,8 @@ html`<p>${DOM.download(
 - À l'inverse, un identifiant reporté ne garantit pas que l'objet d'OSM est le bon : une coquille qui tombe sur un autre identifiant valide passe inaperçue. C'est aussi pour cela qu'on regarde la distance.
 - Les deux positions n'ont pas toujours le même sens : Mérimée donne un point, OSM un point posé sur le bâtiment ou un contour, dont on garde le centre. Un grand domaine ou un monument linéaire (rempart, pont, canal) donne un écart de plusieurs centaines de mètres sans erreur de l'une ou l'autre base.
 - Un monument peut être décrit par plusieurs objets d'OSM, et un objet peut en réunir plusieurs (identifiants séparés par `;`). Pour la distance, on retient l'objet le plus proche de Mérimée, ce qui minore légèrement les écarts.
-- Le département est celui que déclare Mérimée (à défaut, celui du code de la commune à la date de la protection). Quelques collectivités d'outre-mer et notices sans département n'ont pas de contour sur la carte, mais figurent dans les totaux.
-- Les parts par département reposent parfois sur peu de monuments : les petits départements ont des écarts qui varient vite d'un monument à l'autre.
+- Le bassin de vie est trouvé par la position du monument (celle de Mérimée, à défaut celle d'OSM) : une position fausse, ou un contour de commune simplifié près d'une limite, peut rattacher un monument au bassin voisin. Les monuments sans position, ou hors de tout contour, sont rattachés par le code de la commune de Mérimée, qui est celui de la commune **à la date de la protection** : une commune fusionnée ou renommée depuis peut ne plus exister, et le monument reste alors sans bassin. Il compte dans les totaux nationaux, mais pas sur la carte. Le nombre de ces monuments est donné par la cellule de contrôle « Monuments sans bassin de vie sur la carte ». Les bassins du zonage 2022 sont posés sur les communes de 2026.
+- Les parts par bassin de vie reposent souvent sur peu de monuments : les petits bassins ont des parts qui varient vite d'un monument à l'autre. Sur les cartes, un bassin de moins de cinq monuments (moins de cinq monuments localisés dans les deux bases pour la carte des écarts) est en gris, et les seuils de couleur ne sont calculés que sur les autres.
 - Mérimée et OSM ne sont pas à la même date : la base du ministère est lue à la date de sa copie sur le SSP Cloud, OSM à celle de l'extrait QLever.
 - Mérimée est une base publique d'État ; ses monuments radiés ou déclassés en disparaissent, alors qu'OSM peut garder longtemps l'ancien identifiant.
 
