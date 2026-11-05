@@ -662,4 +662,5 @@ DOM.download(
 
 - DREES, jeu de données [« La démographie des professionnels de santé depuis 2012 »](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/la-demographie-des-professionnels-de-sante-depuis-2012/) : les autres spécialités, les orthoptistes, les opticiens, et la note de lecture (lisez-moi).
 - DREES, jeu de données [« Projections des effectifs de médecins en activité et étudiants en 3e cycle à l'horizon 2070 »](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/projections-des-effectifs-de-medecins/).
+- DREES, Les Dossiers de la DREES n° 17, [« Déserts médicaux : comment les définir ? Comment les mesurer ? »](https://drees.solidarites-sante.gouv.fr/sites/default/files/2020-08/dd17.pdf) (mai 2017) : à l'échelle de la commune, l'accessibilité aux ophtalmologues est plus de six fois plus forte dans les 10 % des communes les mieux dotées que dans les moins bien dotées.
 :::
