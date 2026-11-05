@@ -5,7 +5,17 @@ image: vignettes/25-is-this-a-map.webp
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#2166ac"
+  sombre: "#7fb8de"
 ---
+
+Pour la vingt-cinquième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Is this a map?"**]{.underline}), une [carte sans carte]{.underline} : pas un contour, pas une côte, seulement des cercles. Chaque pays est un cercle dont la surface est proportionnelle à ce que la France lui vend, lui achète, ou à la différence des deux, poussé juste assez loin de sa place pour ne pas chevaucher ses voisins (un [cartogramme de Dorling]{.underline}). On reconnaît pourtant le monde, tassé autour de l'Europe. Les chiffres viennent des [[Douanes]{.underline}](https://www.douane.gouv.fr/la-douane/opendata/mots-cles/commerce-exterieur), et le bouton « Montrer le monde » remet les contours dessous (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -14,22 +24,15 @@ entier = (x) => Math.round(x).toLocaleString("fr-FR")
 pourcent = (x) => `${Math.round(100 * x)}\u00a0%`
 milliards = (x) => `${virgule(x / 1e9)} Md€`
 html`<p class="lead">
-  En 2025, la France a vendu pour <strong>${milliards(resume.exportations)}</strong> de
+  En 2025, la France a vendu pour <span class="souligne">${milliards(resume.exportations)}</span> de
   marchandises au reste du monde et en a acheté pour ${milliards(resume.importations)}.
   ${pourcent(resume.part_ue)} de ces échanges se font avec les 26 autres pays de l'Union
   européenne, et ${pourcent(resume.part_2000km)} avec des pays dont le centre est à moins de
   2 000 km de Paris. L'Allemagne, premier partenaire, pèse à elle seule
-  ${milliards(resume.allemagne)} d'échanges, ${virgule(resume.allemagne / resume.afrique)} fois
-  plus que les 54 pays d'Afrique réunis.
+  <span class="souligne">${milliards(resume.allemagne)}</span> d'échanges, <span class="souligne">${virgule(resume.allemagne / resume.afrique)} fois
+  plus</span> que les 54 pays d'Afrique réunis.
 </p>`
 ```
-
-Pour le thème *is this a map?*, une carte sans carte : pas un contour, pas une côte, seulement
-des cercles. Chaque pays est un cercle dont la surface est proportionnelle à ce que la France
-lui vend, lui achète, ou à la différence des deux, poussé juste assez loin de sa place pour ne
-pas chevaucher ses voisins (un *cartogramme de Dorling*). On reconnaît pourtant le monde,
-tassé autour de l'Europe. Le bouton « Montrer le monde » remet les contours dessous
-(making of 👇).
 
 ```{ojs}
 //| echo: false
@@ -214,6 +217,8 @@ html`<p><small>
 </small></p>`
 ```
 
+:::
+
 Les ventes de la France sont d'abord européennes : Allemagne, Italie, Espagne, Belgique,
 Royaume-Uni, et les États-Unis, seul gros cercle loin de l'Europe. Côté achats, la Chine
 grossit d'un coup : la France lui achète trois fois plus qu'elle ne lui vend. Selon le
@@ -224,11 +229,13 @@ de Russie ; les avions partent vers les
 États-Unis, le Royaume-Uni et Singapour ; les vêtements arrivent de Chine, d'Italie, du
 Bangladesh et du Viêt Nam.
 
-## Une carte à une dimension
+## Une carte à une dimension {.unnumbered}
 
 Le cartogramme garde un peu de géographie ; on peut n'en garder qu'une seule donnée, la
 distance. Chaque pays est un point : en abscisse, sa distance à Paris ; en ordonnée, la
 somme de ce que la France lui vend et lui achète, les deux sur une échelle logarithmique.
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -293,6 +300,8 @@ dans GISCO. La droite en pointillés est ajustée sur l'ensemble des pays : à d
 les échanges sont en moyenne divisés par ${virgule(2 ** -gravite.pente)}.</small></p>`
 ```
 
+:::
+
 C'est le vieux *modèle de gravité* du commerce international : on échange d'abord avec ses
 voisins. Mais la distance seule n'explique qu'une petite part des écarts (un R² de
 ${virgule(gravite.r2, 2)}) : il manque la taille des pays. Les points au-dessus de la droite
@@ -301,18 +310,21 @@ et la Chine au premier chef ; ceux du dessous, de petits pays proches, ou des pa
 Ce graphique n'a plus rien d'une carte, et c'est pourtant la géographie qui lui donne sa
 forme.
 
+# Making of
+
 ## Les données
 
-Deux sources, lues avec [DuckDB](https://duckdb.org/) : les statistiques du commerce
-extérieur des Douanes et les pays de GISCO, le service d'information géographique
-d'Eurostat.
+La carte croise deux sources publiques : les statistiques du commerce extérieur des Douanes et les pays de GISCO, le service d'information géographique d'Eurostat.
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Statistiques nationales du commerce extérieur, exportations et importations 2025](https://www.douane.gouv.fr/la-douane/opendata/mots-cles/commerce-exterieur) | Douanes (DSECE) | Les ventes et les achats de la France par mois, produit (NC8, A129) et pays partenaire, en euros | Texte zippé |
-| [Countries 2024](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/countries) | Eurostat (GISCO) | Le point d'étiquette de chaque pays, son appartenance à l'UE, ses contours au 1:60 millions | GeoParquet |
+| [Statistiques nationales du commerce extérieur, exportations et importations 2025](https://www.douane.gouv.fr/la-douane/opendata/mots-cles/commerce-exterieur) | Douanes (DSECE) | Les ventes et les achats de la France par mois, produit (NC8, A129) et pays partenaire, en euros | {{< iconify vscode-icons file-type-zip >}} Texte zippé |
+| [Countries 2024](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/countries) | Eurostat (GISCO) | Le point d'étiquette de chaque pays, son appartenance à l'UE, ses contours au 1:60 millions | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
+#| filename: "Configuration de l'environnement"
 import pathlib
 import tempfile
 import zipfile
@@ -346,6 +358,7 @@ en euros, masse en kilos et unité supplémentaire. Ses 4,7 millions de lignes s
 d'emblée par flux, produit (A129) et pays.
 
 ```{python}
+#| filename: "Lecture du commerce extérieur (Douanes)"
 COLONNES = ["flux", "mois", "annee", "cpf6", "a129", "nc8", "pays", "valeur", "masse", "unite_sup"]
 
 telechargements = pathlib.Path(tempfile.mkdtemp())
@@ -387,6 +400,7 @@ pays d'origine la France (`FR`) : des marchandises françaises qui reviennent, a
 réparation, un refus ou un aller-retour. On les laisse de côté.
 
 ```{python}
+#| filename: "Les codes qui ne sont pas des pays"
 con.sql("""
 SELECT e.pays, l.libelle, round(sum(valeur) / 1e9, 2) AS milliards
 FROM echanges e LEFT JOIN libelles_pays l USING (pays)
@@ -407,6 +421,7 @@ au centre de leur territoire, Ceuta, Melilla, le Kosovo et Taïwan, qui n'ont pa
 dans GISCO.
 
 ```{python}
+#| filename: "Les positions des pays (GISCO)"
 con.sql(f"""
 CREATE TABLE positions AS
 SELECT CASE CNTR_ID WHEN 'UK' THEN 'GB' WHEN 'EL' THEN 'GR' WHEN 'RS' THEN 'XS' ELSE CNTR_ID END AS pays,
@@ -440,6 +455,7 @@ le monde changer de forme selon ce qu'on échange ; chaque famille est une liste
 codes A129.
 
 ```{python}
+#| filename: "Les familles de produits"
 FAMILLES = {
     "Tous les produits": [""],
     "Énergie (pétrole, gaz, charbon, électricité)": ["B05", "B06", "C19", "D35"],
@@ -479,6 +495,7 @@ La distance de Paris au point d'étiquette de chaque pays, sur la sphère (formu
 haversine, avec un rayon terrestre de 6 371 km).
 
 ```{python}
+#| filename: "Les distances à Paris"
 con.sql("""
 CREATE TABLE pays AS
 SELECT pays, nom, ue, lon, lat,
@@ -496,6 +513,7 @@ droite des moindres carrés (`regr_slope`) est l'élasticité des échanges à l
 l'ajuste sur les pays avec lesquels la France échange plus d'un million d'euros.
 
 ```{python}
+#| filename: "Le modèle de gravité"
 gravite = con.sql("""
 SELECT regr_slope(ln(f.exportations + f.importations), ln(p.km)) AS pente,
        regr_intercept(ln(f.exportations + f.importations), ln(p.km)) AS constante,
@@ -510,6 +528,7 @@ gravite
 ### Les chiffres de l'accroche
 
 ```{python}
+#| filename: "Les chiffres de l'accroche"
 resume = con.sql("""
 SELECT sum(exportations) AS exportations, sum(importations) AS importations,
        sum(exportations + importations) FILTER (WHERE p.ue) / sum(exportations + importations) AS part_ue,
@@ -537,6 +556,7 @@ projetée en *Equal Earth*, et repoussé par ceux qu'il chevauche, jusqu'à ce q
 se recouvre. La carte est faite avec [Observable Plot](https://observablehq.com/plot/).
 
 ```{python}
+#| filename: "Ce qui passe à la page (ojs_define)"
 import json
 
 contours = con.sql(f"""
@@ -559,7 +579,13 @@ ojs_define(
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient une table des échanges par pays et par famille de produits. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -609,7 +635,10 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
+
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - Ce sont des marchandises : les services (tourisme, transport, logiciels, conseil…), où la
   France est excédentaire, ne sont pas dans ces fichiers.
@@ -633,6 +662,11 @@ DOM.download(
   aux autres. Les cercles des petits pays proches d'un gros voisin (Luxembourg, Suisse, Pays-Bas)
   peuvent finir assez loin de leur place.
 
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - [J10 · Prompting only](10-prompting-only.qmd) : le premier client de chaque département,
@@ -641,3 +675,5 @@ DOM.download(
   mensuelles corrigées, par produit et par pays.
 - Daniel Dorling, *Area cartograms: their use and creation* (1996), l'article qui a donné son
   nom aux cartogrammes de cercles.
+
+:::

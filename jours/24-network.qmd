@@ -1,6 +1,6 @@
 ---
 title: "J24 · Network. Loin du train"
-description: "Le réseau ferré français, ses 27 000 km de lignes exploitées et ses lignes sans trains, et la distance de chaque commune à la gare desservie la plus proche."
+description: "Le réseau ferré français, ses 27 000 km de lignes exploitées et ses lignes sans trains, la distance de chaque commune à la gare desservie la plus proche, et les ménages sans voiture qui vivent loin du train."
 image: vignettes/24-network.webp
 resources:
   - donnees/j24/*.csv
@@ -24,7 +24,9 @@ html`<p class="lead">
   ${pourcent(resume.part_moins_5km)} des habitants de France continentale. Mais
   ${millions(resume.habitants_plus_10km)} de personnes vivent à 10 km ou plus de la
   première gare : ${pourcent(premier.part_loin)} des habitants dans le département le plus
-  éloigné du train (${premier.departement}).
+  éloigné du train (${premier.departement}). Et dans ces communes loin du train,
+  <strong>${entier(resume.menages_sans_voiture_loin)} ménages n'ont pas de voiture</strong>,
+  d'après le recensement de l'Insee.
 </p>`
 ```
 
@@ -33,7 +35,8 @@ autour de Paris se voit au premier coup d'œil, mais il est fait aussi de trous 
 fermées depuis un siècle, les régions où le train ne passe plus. La première vue montre le
 réseau d'aujourd'hui, les lignes sans trains et les gares, avec une surface proportionnelle à
 leur fréquentation en 2024. La seconde montre, pour chaque commune, la distance à la gare
-desservie la plus proche (making of 👇).
+desservie la plus proche (making of 👇). Une dernière partie croise cette distance avec le
+nombre de voitures des ménages.
 
 ```{ojs}
 //| echo: false
@@ -54,7 +57,8 @@ couleurLigne = sombre ? "#e8e8e8" : "#1f2a44"
 // Les lignes et les communes sont dans des fichiers à part, chargés après la page.
 lignes = d3.json("donnees/j24/lignes.json")
 communes = d3.csv("donnees/j24/communes.csv", (d) => ({
-  ...d, habitants: +d.habitants, km: +d.km, lon: +d.lon, lat: +d.lat
+  ...d, habitants: +d.habitants, km: +d.km, lon: +d.lon, lat: +d.lat,
+  menages: +d.menages, part_sans_voiture: +d.part_sans_voiture
 }))
 
 // Les statuts des lignes, regroupés : une couleur pour chaque façon de ne plus voir de trains.
@@ -178,7 +182,8 @@ Plot.plot({
           "Commune": (d) => `${d.nom} (${d.departement})`,
           "Habitants": (d) => entier(d.habitants),
           "Gare la plus proche": "gare",
-          "Distance": (d) => `${virgule(d.km)} km`
+          "Distance": (d) => `${virgule(d.km)} km`,
+          "Ménages sans voiture": (d) => pourcent(d.part_sans_voiture)
         },
         format: {x: false, y: false, fill: false}
       }))
@@ -199,7 +204,8 @@ html`<p><small>
     : `${entier(communesVisibles.length)} communes dans le cadre, chacune réduite à un point.
        Les lignes exploitées sont en trait fin.`}
   Sources : SNCF Réseau, lignes du réseau ferré national par statut ; SNCF Gares & Connexions,
-  fréquentation et liste des gares de voyageurs ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.
+  fréquentation et liste des gares de voyageurs ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette ;
+  Insee, recensement de la population 2023.
 </small></p>`
 ```
 
@@ -249,9 +255,66 @@ vit à 10 km ou plus, à vol d'oiseau, d'une gare où des voyageurs sont montés
 La distance moyenne est pondérée par la population des communes.</small></p>`
 ```
 
+## Sans gare, et sans voiture
+
+Le recensement donne aussi, pour chaque commune, le nombre de ménages selon leur nombre de
+voitures. En le croisant avec la distance à la gare, on voit où vivent les ménages qui n'ont ni
+train tout près ni voiture. Le graphique regroupe les communes par distance, comme la carte, et
+pèse chacune par son nombre de ménages.
+
+```{ojs}
+//| echo: false
+// Les cinq premières classes de la carte, avec leur couleur. La classe « 20 km ou plus » regroupe
+// ici les 20-30 km et les 30 km ou plus : elle prend la couleur des 20-30 km (`couleursDistance[4]`).
+Plot.plot({
+  width: 760,
+  height: 380,
+  style: {background: fond},
+  x: {label: "Distance à la gare desservie la plus proche", domain: classesVoiture.map((d) => d.distance)},
+  // De la marge en haut pour l'étiquette de la plus haute barre.
+  y: {label: "Part des ménages sans voiture", grid: true, tickFormat: (x) => `${x} %`,
+      domain: [0, 115 * d3.max(classesVoiture, (d) => d.part_sans_voiture)]},
+  color: {domain: classesVoiture.map((d) => d.distance), range: couleursDistance.slice(0, 5)},
+  marks: [
+    // Un contour, pour que la classe la plus proche, presque de la couleur du fond, reste visible.
+    Plot.barY(classesVoiture, {
+      x: "distance", y: (d) => 100 * d.part_sans_voiture, fill: "distance",
+      stroke: sombre ? "#8a8a8a" : "#7fb3b0", strokeWidth: 1
+    }),
+    Plot.text(classesVoiture, {
+      x: "distance", y: (d) => 100 * d.part_sans_voiture, text: (d) => pourcent(d.part_sans_voiture),
+      dy: -8, fill: "currentColor"
+    }),
+    Plot.ruleY([0]),
+    Plot.tip(classesVoiture, Plot.pointerX({
+      x: "distance", y: (d) => 100 * d.part_sans_voiture, fill: fond,
+      channels: {
+        "Ménages": (d) => entier(d.menages),
+        "Ménages sans voiture": (d) => entier(d.sans_voiture),
+        "Deux voitures ou plus": (d) => pourcent(d.part_deux_voitures)
+      },
+      format: {x: false, y: false}
+    }))
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p><small>Part des ménages sans voiture, par distance à la gare desservie la plus proche
+(à vol d'oiseau), dans les communes de France continentale. Chaque commune pèse son nombre de
+ménages. Sources : Insee, recensement de la population 2023 ; SNCF Gares & Connexions.</small></p>`
+```
+
+Près des gares, la part de ménages sans voiture est la plus forte : ce sont surtout des villes,
+où l'on peut vivre sans voiture. À partir de 5 km, presque tous les ménages en ont une, et
+environ la moitié en ont deux ou plus. Au-delà de 20 km, la part sans voiture remonte un peu :
+ce sont alors surtout des campagnes, loin du train, où la population est souvent plus âgée. Le
+graphique ne montre pas qu'une gare dispense d'avoir une voiture, mais où vivent les ménages.
+
 ## Les données
 
-Quatre fichiers de l'open data de la SNCF et les contours de
+Quatre fichiers de l'open data de la SNCF, un fichier du recensement de l'Insee et les contours de
 [cartiflette](https://github.com/InseeFrLab/cartiflette), lus avec [DuckDB](https://duckdb.org/).
 
 | Source | Producteur | Ce qu'on en tire | Format |
@@ -260,6 +323,7 @@ Quatre fichiers de l'open data de la SNCF et les contours de
 | [Fréquentation en gares](https://ressources.data.sncf.com/explore/dataset/frequentation-gares/) | SNCF Gares & Connexions | Le nombre de voyageurs de chaque gare, de 2015 à 2024 | Parquet |
 | [Gares de voyageurs](https://ressources.data.sncf.com/explore/dataset/gares-de-voyageurs/) | SNCF Gares & Connexions | La position des gares, par code UIC | Parquet |
 | [Liste des gares](https://ressources.data.sncf.com/explore/dataset/liste-des-gares/) | SNCF Réseau | La position des gares absentes du fichier précédent | Parquet |
+| [Logement en 2023, base des principaux indicateurs](https://www.insee.fr/fr/statistiques/8997194) | Insee, recensement de la population | Le nombre de ménages de chaque commune selon le nombre de voitures, en 2023 | Parquet |
 | ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | Contours des communes, population municipale, départements | GeoParquet |
 
 ```{python}
@@ -317,6 +381,38 @@ CARTIFLETTE_URL = (
     "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
     "vectorfile_format=parquet/simplification=50/raw.parquet"
 )
+```
+
+### Les voitures des ménages (Insee)
+
+Le recensement de la population 2023 (enquêtes de 2021 à 2025) fournit, dans la base des
+principaux indicateurs sur le logement, le nombre de ménages de chaque commune selon le nombre
+de voitures. Un ménage est ici une résidence principale. Le fichier croise de nombreuses
+dimensions : on ne garde que les totaux (`'_T'`), sauf pour le nombre de voitures (`CARS`).
+DuckDB lit le Parquet à distance et ne télécharge que ce qu'il faut. La géographie est celle de
+2026, comme celle de cartiflette.
+
+```{python}
+con.sql(f"""
+CREATE TABLE voitures AS
+SELECT GEO AS code,
+       sum(OBS_VALUE) FILTER (WHERE CARS = '_T') AS menages,
+       sum(OBS_VALUE) FILTER (WHERE CARS = 'C0') AS sans_voiture,
+       sum(OBS_VALUE) FILTER (WHERE CARS = 'C_GE2') AS deux_voitures
+FROM read_parquet('{SOURCES['logement']}')
+WHERE GEO_OBJECT = 'COM' AND TIME_PERIOD = DATE '2023-01-01'
+  AND RP_MEASURE = 'DWELLINGS' AND OCS = 'DW_MAIN'
+  AND L_STAY = '_T' AND TDW = '_T' AND NRG_SRC = '_T' AND CARPARK = '_T'
+  AND NOR = '_T' AND TSH = '_T' AND BUILD_END = '_T'
+GROUP BY ALL
+""")
+
+con.sql("""
+SELECT count(*) AS communes, round(sum(menages)) AS menages,
+       round(100 * sum(sans_voiture) / sum(menages), 1) AS part_sans_voiture,
+       round(100 * sum(deux_voitures) / sum(menages), 1) AS part_deux_voitures
+FROM voitures
+""").df().style.hide(axis="index").format({"menages": "{:,.0f}"})
 ```
 
 ## Les traitements
@@ -450,13 +546,36 @@ departements_loin.head(10).style.hide(axis="index").format(
 )
 ```
 
+### Les voitures, selon la distance au train
+
+On rattache à chaque commune ses ménages et leur nombre de voitures, puis on somme par classe
+de distance. Les classes sont celles de la carte, sauf que les 20 km et plus sont regroupés.
+
+```{python}
+classes_voiture = con.sql("""
+SELECT CASE WHEN km < 2 THEN 'moins de 2 km' WHEN km < 5 THEN '2 à 5 km'
+            WHEN km < 10 THEN '5 à 10 km' WHEN km < 20 THEN '10 à 20 km'
+            ELSE '20 km ou plus' END AS distance,
+       min(km) AS ordre,
+       sum(v.menages) AS menages, sum(v.sans_voiture) AS sans_voiture,
+       sum(v.sans_voiture) / sum(v.menages) AS part_sans_voiture,
+       sum(v.deux_voitures) / sum(v.menages) AS part_deux_voitures
+FROM distances d JOIN voitures v USING (code)
+GROUP BY ALL ORDER BY ordre
+""").df().drop(columns="ordre")
+classes_voiture.style.hide(axis="index").format(
+    {"menages": "{:,.0f}", "sans_voiture": "{:,.0f}", "part_sans_voiture": "{:.0%}", "part_deux_voitures": "{:.0%}"}
+)
+```
+
 ```{python}
 resume = con.sql("""
 SELECT (SELECT sum(km) FROM lignes WHERE statut = 'Exploitée') AS km_exploites,
        (SELECT sum(km) FROM lignes WHERE statut <> 'Exploitée') AS km_sans_trains,
        (SELECT count(*) FROM gares WHERE point IS NOT NULL) AS gares,
        sum(habitants) FILTER (WHERE km < 5) / sum(habitants) AS part_moins_5km,
-       sum(habitants) FILTER (WHERE km >= 10) AS habitants_plus_10km
+       sum(habitants) FILTER (WHERE km >= 10) AS habitants_plus_10km,
+       (SELECT sum(v.sans_voiture) FROM distances d JOIN voitures v USING (code) WHERE d.km >= 10) AS menages_sans_voiture_loin
 FROM distances
 """).df().iloc[0]
 resume
@@ -491,9 +610,11 @@ FROM lignes
 
 con.sql(f"""
 COPY (
-    SELECT code, nom, departement, habitants, gare, round(km, 2) AS km,
-           round(lon, 4) AS lon, round(lat, 4) AS lat
-    FROM distances ORDER BY code
+    SELECT d.code, d.nom, d.departement, d.habitants, d.gare, round(d.km, 2) AS km,
+           round(d.lon, 4) AS lon, round(d.lat, 4) AS lat,
+           round(v.menages) AS menages, round(v.sans_voiture / v.menages, 3) AS part_sans_voiture
+    FROM distances d LEFT JOIN voitures v USING (code)
+    ORDER BY d.code
 ) TO '{SORTIE / "communes.csv"}' (HEADER)
 """)
 ```
@@ -533,6 +654,7 @@ ojs_define(
     departements=departements,
     gares=gares.to_dict("records"),
     departementsLoin=departements_loin.to_dict("records"),
+    classesVoiture=classes_voiture.to_dict("records"),
     resume={k: float(resume[k]) for k in resume.index},
 )
 ```
@@ -553,12 +675,13 @@ viewof tableau = Inputs.search(communes, {
 ```{ojs}
 //| echo: false
 Inputs.table(tableau, {
-  columns: ["code", "nom", "departement", "habitants", "gare", "km"],
+  columns: ["code", "nom", "departement", "habitants", "gare", "km", "menages", "part_sans_voiture"],
   header: {
     code: "Code", nom: "Commune", departement: "Département", habitants: "Habitants",
-    gare: "Gare desservie la plus proche", km: "Distance (km)"
+    gare: "Gare desservie la plus proche", km: "Distance (km)",
+    menages: "Ménages", part_sans_voiture: "Ménages sans voiture"
   },
-  format: {habitants: entier, km: (x) => virgule(x)},
+  format: {habitants: entier, km: (x) => virgule(x), menages: entier, part_sans_voiture: pourcent},
   sort: "km",
   reverse: true,
   rows: 15
@@ -568,7 +691,7 @@ Inputs.table(tableau, {
 ```{ojs}
 //| echo: false
 DOM.download(
-  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "habitants", "gare", "km"])], {type: "text/csv"}),
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "habitants", "gare", "km", "menages", "part_sans_voiture"])], {type: "text/csv"}),
   "distance_gare_communes.csv",
   "Télécharger (CSV)"
 )
@@ -592,6 +715,12 @@ DOM.download(
 - Les dates de fermeture des lignes ne sont pas dans le fichier : la carte montre ce qui reste
   du réseau d'avant, pas son histoire. Les lignes démontées et revendues avant leur entrée dans
   le réseau ferré national de 1997 n'y figurent pas.
+- La part de ménages sans voiture dépend d'abord de la densité et de l'âge : les villes, près des
+  gares, comptent le plus de ménages sans voiture. Le graphique ne dit pas qu'une gare dispense
+  d'avoir une voiture.
+- Le recensement 2023 agrège les enquêtes annuelles de 2021 à 2025, et les nombres de ménages
+  sont des estimations (non entiers). Un ménage est l'ensemble des occupants d'une résidence
+  principale, et le recensement compte les voitures dont il dispose, pas leur usage.
 
 ## Pour aller plus loin
 
@@ -601,3 +730,5 @@ DOM.download(
 - Autorité de régulation des transports, [Le marché français du transport ferroviaire de voyageurs](https://www.autorite-transports.fr/observatoire-des-transports/)
   (bilans annuels).
 - SNCF Réseau, [carte interactive du réseau](https://www.sncf-reseau.com/fr/carte/carte-interactive-du-reseau).
+- Insee, [Logement en 2023, base des principaux indicateurs](https://www.insee.fr/fr/statistiques/8997194),
+  le recensement d'où viennent les voitures des ménages.

@@ -9,4 +9,6 @@ SOURCES = {
     "gares-de-voyageurs": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/gares-de-voyageurs.parquet",
     # https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/liste-des-gares/exports/parquet
     "liste-des-gares": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/liste-des-gares.parquet",
+    # https://www.insee.fr/fr/statistiques/fichier/8997194/DS_RP_LOGEMENT_PRINC_2023.parquet
+    "logement": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/DS_RP_LOGEMENT_PRINC_2023.parquet",
 }

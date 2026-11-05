@@ -25,10 +25,10 @@ website:
           - jours/15-inside-out.qmd
           - jours/16-collaborative-map.qmd
           - jours/17-light-dark.qmd
-          - jours/19-smell.qmd
           - jours/18-null.qmd
-          - jours/21-openstreetmap.qmd
+          - jours/19-smell.qmd
           - jours/20-hexagons.qmd
+          - jours/21-openstreetmap.qmd
       - text: "Semaine 4 · J22 à J28"
         menu:
           - jours/22-projections.qmd
