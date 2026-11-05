@@ -1,0 +1,775 @@
+---
+title: "J21 · OpenStreetMap. Les monuments historiques, recensés deux fois"
+description: "Les monuments protégés de la base Mérimée du ministère de la Culture, retrouvés dans OpenStreetMap grâce à leur identifiant, département par département, et l'écart entre les deux positions."
+execute:
+  echo: true
+code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#9c4f2e"
+  sombre: "#e39b72"
+---
+
+Pour la vingt-et-unième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"OpenStreetMap"**]{.underline color="#3987e5"}), on met la carte libre à l'épreuve d'une liste officielle : celle des [monuments historiques]{.underline}.
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+entier = (x) => Math.round(x).toLocaleString("fr-FR")
+virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+dateOsm = new Date(chiffres.date_osm).toLocaleDateString("fr-FR", {day: "numeric", month: "long", year: "numeric"})
+html`<p class="lead">
+  La base Mérimée du ministère de la Culture recense <span class="souligne">${entier(chiffres.monuments)}
+  monuments historiques</span>. Le ${dateOsm}, <span class="souligne">${pourcent(chiffres.part_trouves)}
+  d'entre eux</span> portent leur identifiant dans OpenStreetMap.
+  Pour ${entier(chiffres.combles)} monuments dont Mérimée ne donne pas la position,
+  OpenStreetMap la connaît.
+</p>`
+```
+
+:::
+
+[OpenStreetMap](https://www.openstreetmap.org) (OSM) est la carte du monde que dessinent ses contributeurs. Le ministère de la Culture tient, lui, la [base Mérimée](https://www.pop.culture.gouv.fr/) : tous les immeubles protégés au titre des monuments historiques, classés ou inscrits, chacun avec un identifiant du type `PA00078066`. Les contributeurs d'OSM reportent cet identifiant sur les objets qu'ils dessinent, dans l'étiquette (*tag*) `ref:mhs`. Les deux bases se recoupent donc sans qu'on ait à deviner : on apparie **par identifiant**, pas par distance. Reste à savoir quelle part de la liste publique se retrouve dans la carte libre, et si les deux positions coïncident (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+--------
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+// Thème du site (clair/sombre), suivi quand l'utilisateur le change.
+sombre = Generators.observe((notifier) => {
+  const lire = () => notifier(document.body.classList.contains("quarto-dark"))
+  lire()
+  const observateur = new MutationObserver(lire)
+  observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
+  return () => observateur.disconnect()
+})
+fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
+grisNeutre = sombre ? "#3a3a3a" : "#ebe8e1"
+couleurPage = sombre ? "#e39b72" : "#9c4f2e"
+
+// Terre cuite pour la part retrouvée, ardoise pour les positions écartées.
+gammeTerre = (n) => d3.quantize(d3.interpolateLab(sombre ? "#3a2a22" : "#f6e9df", sombre ? "#f0b48a" : "#8a3f20"), n)
+gammeArdoise = (n) => d3.quantize(d3.interpolateLab(sombre ? "#1f3340" : "#e6eef2", sombre ? "#8fc3dd" : "#1f5f80"), n)
+
+// Des seuils par quantiles, arrondis au point de pourcentage, sans doublons.
+seuilsDe = (valeurs, n = 6) => {
+  const triees = valeurs.filter((x) => x !== null && x !== undefined).sort(d3.ascending)
+  return Array.from(new Set(d3.range(1, n).map((i) => Math.round(100 * d3.quantile(triees, i / n)) / 100)))
+}
+
+parCode = new Map(stats.map((d) => [d.dep, d]))
+
+// Une carte des départements, colorée par `valeur`.
+carteDepartements = ({valeur, gamme, label, bulle}) => {
+  const seuils = seuilsDe(stats.map(valeur))
+  const couleurs = gamme(seuils.length + 1)
+  const couleur = (x) => x === null || x === undefined ? grisNeutre : couleurs[d3.bisectRight(seuils, x)]
+  const largeur = Math.min(width, 820)
+  const legende = Plot.legend({
+    color: {type: "threshold", domain: seuils, range: couleurs, label, tickFormat: (x) => pourcent(x)},
+    width: Math.min(largeur, 440), style: {background: "transparent", color: "inherit"}
+  })
+  const carte = Plot.plot({
+    width: largeur,
+    height: largeur * 0.95,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], domain: departements, inset: 6},
+    marks: [
+      Plot.geo(departements, {fill: (f) => couleur(valeur(parCode.get(f.properties.code))), stroke: fond, strokeWidth: 0.8}),
+      Plot.tip(departements.features, Plot.pointer(Plot.geoCentroid({
+        fill: fond,
+        title: (f) => bulle(f.properties, parCode.get(f.properties.code))
+      })))
+    ]
+  })
+  return html`<div>${legende}${carte}</div>`
+}
+```
+
+:::
+
+## Retrouvés dans OSM {.unnumbered}
+
+::: {.content-visible when-format="html"}
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+carteDepartements({
+  valeur: (d) => d?.part_trouves,
+  gamme: gammeTerre,
+  label: "Part des monuments de Mérimée retrouvés dans OSM",
+  bulle: (f, d) => d === undefined ? f.nom :
+    `${f.nom} (${f.code})\n` +
+    `Monuments protégés : ${entier(d.monuments)}\n` +
+    `Retrouvés dans OSM : ${entier(d.trouves)} (${pourcent(d.part_trouves)})`
+})
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>Un monument est « retrouvé » si son identifiant Mérimée figure dans l'étiquette
+<code>ref:mhs</code> d'au moins un objet d'OSM. Le département est celui que donne Mérimée. Paris et
+la petite couronne sont agrandies, les départements d'outre-mer rapprochés. Sources : ministère de
+la Culture, base Mérimée ; contributeurs d'OpenStreetMap, extraction du ${dateOsm} (ODbL) ;
+IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.</small></p>`
+```
+
+```{ojs}
+//| echo: false
+{
+  const assez = stats.filter((d) => d.monuments >= 100)
+  const liste = (l) => l.map((d) => `${d.nom} (${pourcent(d.part_trouves)})`).join(", ")
+  return html`<p>Parmi les départements qui comptent au moins cent monuments, OSM est le plus
+  complet dans ${liste(d3.sort(assez, (d) => -d.part_trouves).slice(0, 3))} ; il l'est le moins dans
+  ${liste(d3.sort(assez, (d) => d.part_trouves).slice(0, 3))}. La complétude suit moins la
+  population que la présence d'un contributeur qui s'est donné pour tâche de rapprocher les deux
+  listes, département après département.</p>`
+}
+```
+
+:::
+
+## Les deux positions ne coïncident pas toujours {.unnumbered}
+
+Pour les monuments présents dans les deux bases, on mesure la distance entre la position de Mérimée et celle de l'objet d'OSM (le plus proche, s'il y en a plusieurs : une église et son clocher, un château et ses communs). Chaque barre compte les monuments dont l'écart est dans l'intervalle, sur une échelle logarithmique.
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+{
+  const largeur = Math.min(width, 760)
+  return Plot.plot({
+    width: largeur,
+    height: 340,
+    marginLeft: 60,
+    style: stylePlot,
+    x: {type: "log", label: "Distance entre la position de Mérimée et celle d'OSM (mètres)", grid: true,
+        ticks: [1, 10, 100, 1000, 10000, 100000, 1000000].filter((t) => t <= d3.max(histogramme, (d) => d.fin)),
+        tickFormat: (x) => entier(x)},
+    y: {label: "Monuments", grid: true, tickFormat: (x) => entier(x)},
+    marks: [
+      Plot.rectY(histogramme, {
+        x1: "debut", x2: "fin", y: "n", fill: couleurPage, fillOpacity: 0.85,
+        stroke: fond, strokeWidth: 0.5,
+        title: (d) => `De ${entier(d.debut)} à ${entier(d.fin)} m\n${entier(d.n)} monuments`,
+        tip: true
+      }),
+      Plot.ruleX([500], {stroke: "currentColor", strokeDasharray: "4 3"}),
+      Plot.text(["500 m"], {x: 500, frameAnchor: "top", dx: 6, textAnchor: "start", fill: "currentColor"})
+    ]
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p>La moitié des monuments sont à moins de ${entier(chiffres.mediane)} mètres de leur double ;
+${pourcent(chiffres.part_loin, 1)} seulement en sont à plus de 500 mètres. Quand les deux bases
+connaissent un monument, elles le placent presque toujours au même endroit. Les grands écarts
+tiennent à un grand ensemble (un domaine, un rempart, un canal) dont chacune retient un point
+différent, ou à une erreur dans l'une des deux bases.</p>`
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+carteDepartements({
+  valeur: (d) => d?.part_loin,
+  gamme: gammeArdoise,
+  label: "Part des monuments dont les deux positions sont à plus de 500 m",
+  bulle: (f, d) => d === undefined ? f.nom :
+    `${f.nom} (${f.code})\n` +
+    `Monuments localisés dans les deux bases : ${entier(d.comparables)}\n` +
+    `Écart de plus de 500 m : ${entier(d.loin)} (${d.part_loin === null ? "–" : pourcent(d.part_loin)})\n` +
+    `Sans position dans Mérimée, localisés par OSM : ${entier(d.combles)}`
+})
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>Part, parmi les monuments retrouvés dans OSM et localisés dans Mérimée, de ceux dont
+les deux positions sont séparées de plus de 500 mètres. Les départements gris n'ont aucun monument
+localisé dans les deux bases.</small></p>`
+```
+
+:::
+
+### OSM comble un trou {.unnumbered}
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+{
+  const plus = d3.sort(stats, (d) => -d.combles).slice(0, 3)
+  return html`<p>Mérimée ne donne aucune coordonnée pour <strong>${entier(chiffres.sans_coord)}
+  monuments</strong>, qu'on ne peut donc pas placer sur une carte à partir de la seule base
+  publique. OSM, lui, connaît la position de <strong>${entier(chiffres.combles)}</strong> d'entre
+  eux, soit ${pourcent(chiffres.combles / chiffres.sans_coord)}. Les départements où OSM en
+  localise le plus : ${plus.map((d) => `${d.nom} (${entier(d.combles)})`).join(", ")}. Ici, la
+  carte libre n'est pas qu'un double de la base officielle : elle en répare les trous.</p>`
+}
+```
+
+:::
+
+## Des identifiants sans monument {.unnumbered}
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+{
+  const lien = (d) => `https://www.openstreetmap.org/${d.id}`
+  const formes = {
+    monument: "ressemble à un identifiant de monument",
+    inventaire: "est un dossier de l'Inventaire général (IA)",
+    objet: "est un identifiant d'objet mobilier (PM, IM)",
+    autre: "n'a pas la forme d'un identifiant Mérimée"
+  }
+  return html`<p>L'étiquette <code>ref:mhs</code> d'OSM porte <strong>${entier(chiffres.orphelins)}
+  identifiants</strong> qui ne figurent pas dans Mérimée, sur ${entier(chiffres.identifiants)}.
+  Presque tous, ${entier(chiffres.orphelins_inventaire)}, commencent par <code>IA</code> : ce sont
+  des dossiers de l'Inventaire général du patrimoine culturel, des édifices étudiés et décrits par
+  les régions, mais pas protégés au titre des monuments historiques. Les contributeurs les rangent
+  sous la même étiquette. ${entier(chiffres.orphelins_monument)} seulement ont la forme d'un
+  identifiant de monument (<code>PA</code>) : un monument radié depuis, une coquille.
+  ${entier(chiffres.orphelins_objet)} sont des identifiants d'objets mobiliers (<code>PM</code>,
+  <code>IM</code>), qui relèvent d'une autre base, Palissy. Quelques exemples, avec l'objet d'OSM
+  qui les porte :</p>
+  <ul>${exemples.map((d) => html`<li><code>${d.ref}</code>, ${formes[d.forme]} :
+    <a href="${lien(d)}">${d.nom ?? "(sans nom)"}</a></li>`)}</ul>
+  <p>Le champ peut aussi contenir plusieurs identifiants séparés par un point-virgule, quand un
+  objet réunit plusieurs monuments : c'est le cas de ${entier(chiffres.multiples)} objets, que le
+  traitement éclate avant l'appariement. À l'inverse, ${entier(chiffres.plusieurs_objets)} monuments
+  sont décrits par plusieurs objets d'OSM (les parties d'un même ensemble) : on en garde le plus
+  proche de la position de Mérimée.</p>`
+}
+```
+
+:::
+
+## Sur le terrain {.unnumbered}
+
+Deux zones en détail : Paris, où les monuments sont serrés, et le Lot, un département rural. Chaque point est un monument, coloré selon la base où on le trouve.
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+statuts = [
+  {cle: "les_deux", nom: "Dans les deux bases", couleur: sombre ? "#e39b72" : "#9c4f2e"},
+  {cle: "merimee", nom: "Dans Mérimée seulement", couleur: sombre ? "#8fc3dd" : "#1f5f80"},
+  {cle: "osm", nom: "Dans OSM seulement", couleur: sombre ? "#a99cff" : "#5b4bc4"}
+]
+couleurStatut = new Map(statuts.map((s) => [s.cle, s.couleur]))
+nomStatut = new Map(statuts.map((s) => [s.cle, s.nom]))
+viewof zone = Inputs.radio(new Map(cadrages.map((c) => [c.nom, c])), {value: cadrages[0]})
+```
+
+::: {.column-page}
+
+```{ojs}
+//| echo: false
+{
+  const [[o, s], [e, n]] = zone.cadre
+  const visibles = points.filter((d) => d.cadrage === zone.nom)
+  const compte = d3.rollup(visibles, (v) => v.length, (d) => d.statut)
+  const communes = {type: "FeatureCollection", features: communesCadrages.filter((c) => c.properties.cadrage === zone.nom)}
+  const legende = html`<div style="display: flex; flex-wrap: wrap; gap: 0.4em 1.6em; font-size: 0.85em; margin-bottom: 0.4em">
+    ${statuts.map((st) => html`<span><span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${st.couleur}; vertical-align: -1px; margin-right: 0.35em"></span>${st.nom} (${entier(compte.get(st.cle) ?? 0)})</span>`)}
+  </div>`
+  const largeur = Math.min(width, 820)
+  const carte = Plot.plot({
+    width: largeur,
+    height: largeur * 0.75,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0], inset: 6,
+                 domain: {type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}},
+    marks: [
+      Plot.geo(communes, {fill: grisNeutre, stroke: fond, strokeWidth: 0.8, clip: "frame"}),
+      Plot.dot(visibles, {
+        x: "lon", y: "lat", r: zone.rayon, fill: (d) => couleurStatut.get(d.statut),
+        fillOpacity: 0.85, stroke: fond, strokeWidth: 0.5, clip: "frame"
+      }),
+      Plot.tip(visibles, Plot.pointer({
+        x: "lon", y: "lat", maxRadius: 12, fill: fond,
+        title: (d) => `${nomStatut.get(d.statut)}\n` +
+          (d.titre ? `Mérimée : ${d.titre}\n` : "") +
+          (d.nom_osm ? `OSM : ${d.nom_osm}\n` : d.statut !== "merimee" ? "OSM : (sans nom)\n" : "") +
+          d.reference +
+          (d.distance !== null ? `\nÉcart : ${entier(d.distance)} m` : "")
+      }))
+    ]
+  })
+  return html`<div>${legende}${carte}</div>`
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>Un point par monument : à la position d'OSM s'il y figure, à celle de Mérimée sinon.
+Les points « dans OSM seulement » portent un identifiant que Mérimée ne connaît pas (voir plus haut).</small></p>`
+```
+
+:::
+
+# Making of
+
+## Les données
+
+La carte croise deux sources publiques et un fond de carte :
+
+| Source | Producteur | Ce qu'on en tire | Format |
+|---|---|---|---|
+| [Base Mérimée](https://www.pop.culture.gouv.fr/) (plateforme POP) | ministère de la Culture | l'identifiant, le titre, le département, la position et le type de protection de chaque monument historique | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [OpenStreetMap](https://www.openstreetmap.org), interrogé par [QLever](https://qlever.cs.uni-freiburg.de/osm-planet) | contributeurs d'OpenStreetMap | les objets portant l'étiquette `ref:mhs`, avec leur nom et leur position | {{< iconify vscode-icons file-type-csv >}} CSV |
+| [Départements et communes 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour des départements (outre-mer rapproché) et des communes | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
+
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
+
+```{python}
+#| output: false
+#| filename: "Configuration de l'environnement"
+import json
+
+import duckdb
+import pandas as pd
+
+con = duckdb.connect()
+con.sql("""
+INSTALL spatial; LOAD spatial;
+SET geometry_always_xy = true;  -- coordonnées en (longitude, latitude)
+SET enable_progress_bar = false
+""")
+```
+
+```{python}
+#| filename: "Les sources"
+{{< include _liens/21-openstreetmap.py >}}
+```
+
+### La base Mérimée (ministère de la Culture)
+
+La base Mérimée est diffusée par la plateforme ouverte du patrimoine (POP) en un fichier CSV d'une centaine de mégaoctets, avec une ligne par monument et `|` comme séparateur. DuckDB le lit directement depuis la copie du SSP Cloud (voir l'encadré sur les données).
+
+La position est un texte « latitude,longitude » (`48.39,4.52`), vide pour environ 2 250 monuments : on la découpe en deux colonnes. Le département est celui que déclare la notice ; à défaut, on le déduit du code de la commune. Un code d'un seul chiffre reçoit un zéro devant (`1` devient `01`).
+
+```{python}
+#| output: false
+#| filename: "Lecture de la base Mérimée"
+con.sql(f"""
+CREATE TABLE merimee AS
+WITH brut AS (
+    -- Deux notices déclarent deux départements (« 01;71 ») : on garde le premier.
+    SELECT *, nullif(split_part(trim(Departement_format_numerique), ';', 1), '') AS departement_declare,
+           COG_Insee_lors_de_la_protection AS commune
+    FROM read_csv('{SOURCES["merimee"]}', delim = '|', header = true, all_varchar = true,
+                  max_line_size = 10000000)
+)
+SELECT Reference AS reference,
+       Titre_editorial_de_la_notice AS titre,
+       Domaine AS domaine,
+       Typologie_de_la_protection AS protection,
+       try_cast(split_part(coordonnees_au_format_WGS84, ',', 2) AS DOUBLE) AS lon,
+       try_cast(split_part(coordonnees_au_format_WGS84, ',', 1) AS DOUBLE) AS lat,
+       CASE WHEN departement_declare IS NOT NULL
+                THEN CASE WHEN length(departement_declare) = 1 THEN '0' || departement_declare
+                          ELSE departement_declare END
+            WHEN commune LIKE '97%' THEN left(commune, 3)
+            ELSE left(commune, 2) END AS dep
+FROM brut
+""")
+con.sql("""
+SELECT count(*) AS monuments, count(DISTINCT reference) AS identifiants,
+       count(*) FILTER (WHERE lon IS NULL) AS sans_position, count(DISTINCT dep) AS departements
+FROM merimee
+""").df()
+```
+
+### OpenStreetMap, par QLever
+
+[QLever](https://qlever.cs.uni-freiburg.de/osm-planet), un moteur de requêtes SPARQL de l'université de Fribourg, indexe l'extrait complet d'OpenStreetMap. On l'interroge une seule fois, avec une requête qui demande tous les objets portant l'étiquette `ref:mhs`, leur nom, leur date de modification et leur centre ; l'export est un fichier CSV. Ce fichier est figé sur la copie du SSP Cloud, comme les autres sources : le rendu ne dépend plus d'un serveur public souvent saturé. La requête complète est l'adresse officielle donnée dans la cellule « Les sources ». La contrepartie : OSM est lu tel qu'il était à la date de l'extrait de QLever, avec quelques semaines de retard. La date affichée sur la page est la dernière modification présente dans le fichier.
+
+Le CSV a une ligne par objet. `id` reprend l'adresse de l'objet (`node/…`, `way/…` ou `relation/…`), `centre` est lu en longitude et latitude, et `modification` devient une date.
+
+```{python}
+#| output: false
+#| filename: "Les objets d'OSM (QLever)"
+con.sql(f"""
+CREATE TABLE osm_brut AS
+SELECT DISTINCT replace(osm, 'https://www.openstreetmap.org/', '') AS id,
+       ref AS ref_brut,
+       nom,
+       ST_X(ST_GeomFromText(centre)) AS lon,
+       ST_Y(ST_GeomFromText(centre)) AS lat,
+       CAST(modification AS TIMESTAMP) AS modification
+FROM read_csv('{SOURCES["osm"]}', header = true, all_varchar = true)
+""")
+```
+
+Un objet peut porter plusieurs identifiants, séparés par un point-virgule : `string_split` puis `unnest` donnent une ligne par couple (objet, identifiant). On retire les espaces et on passe en majuscules (`pa00078066` devient `PA00078066`).
+
+```{python}
+#| output: false
+#| filename: "Un identifiant par ligne"
+con.sql("""
+CREATE TABLE osm_refs AS
+SELECT DISTINCT id, nom, lon, lat, upper(replace(trim(ref), ' ', '')) AS ref
+FROM (SELECT *, unnest(string_split(ref_brut, ';')) AS ref FROM osm_brut)
+WHERE trim(ref) <> ''
+""")
+```
+
+### Les départements et les communes (cartiflette)
+
+Les contours viennent du [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/). Pour la carte, les départements d'outre-mer sont rapprochés de la métropole et Paris et sa petite couronne sont agrandies (`filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES"`) ; pour les zooms, les communes (et les arrondissements de Paris) sont à leur place.
+
+```{python}
+#| output: false
+#| filename: "Lecture des départements et des communes (cartiflette)"
+from cartiflette import carti_download
+
+parametres = dict(
+    values="France",
+    year=2026,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
+)
+
+departements_drom_rapproches = carti_download(
+    borders="DEPARTEMENT", filter_by="FRANCE_ENTIERE_DROM_RAPPROCHES", **parametres
+)
+communes_arrondissements = carti_download(
+    borders="COMMUNE_ARRONDISSEMENT", filter_by="FRANCE_ENTIERE", **parametres
+)
+
+con.sql("""
+CREATE TABLE noms AS
+SELECT INSEE_DEP AS code, LIBELLE_DEPARTEMENT AS nom, geometry
+FROM departements_drom_rapproches
+""")
+```
+
+Les contours des départements sont simplifiés ensemble (`ST_CoverageSimplify`), pour rester jointifs.
+
+```{python}
+#| output: false
+#| filename: "Contours simplifiés des départements"
+lignes = con.sql("""
+WITH couverture AS (
+    SELECT list(code ORDER BY code) AS codes,
+           ST_CoverageSimplify(list(geometry ORDER BY code), 0.01) AS geom
+    FROM noms
+),
+morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
+SELECT codes[path[1]] AS code,
+       ST_AsGeoJSON(ST_ReducePrecision(ST_Collect(list(geom)), 0.001)) AS geojson
+FROM morceaux GROUP BY ALL
+""").fetchall()
+
+noms_departements = dict(con.sql("SELECT code, nom FROM noms").fetchall())
+departements = {
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"code": code, "nom": noms_departements[code]},
+         "geometry": json.loads(geojson)}
+        for code, geojson in lignes
+    ],
+}
+```
+
+## Les traitements
+
+### Apparier par identifiant
+
+Chaque monument de Mérimée est cherché parmi les identifiants d'OSM. Si plusieurs objets d'OSM portent le même (les parties d'un monument), on garde celui dont la position est la plus proche de celle de Mérimée, ou, à défaut de position dans Mérimée, le premier : un identifiant, un monument. La distance est celle du grand cercle (formule de haversine), en mètres, et vaut `NULL` si Mérimée ne donne pas de position.
+
+```{python}
+#| output: false
+#| filename: "Apparier les monuments"
+con.sql("""
+CREATE MACRO distance_m(lon1, lat1, lon2, lat2) AS
+    2 * 6371008.8 * asin(sqrt(
+        sin(radians(lat2 - lat1) / 2) ^ 2
+        + cos(radians(lat1)) * cos(radians(lat2)) * sin(radians(lon2 - lon1) / 2) ^ 2
+    ));
+
+CREATE TABLE monuments AS
+WITH proches AS (
+    SELECT m.reference, o.id AS id_osm, o.nom AS nom_osm, o.lon AS lon_osm, o.lat AS lat_osm,
+           distance_m(m.lon, m.lat, o.lon, o.lat) AS distance
+    FROM merimee m JOIN osm_refs o ON o.ref = m.reference
+    QUALIFY row_number() OVER (PARTITION BY m.reference ORDER BY distance NULLS LAST, o.id) = 1
+)
+SELECT m.*, p.id_osm IS NOT NULL AS trouve, p.id_osm, p.nom_osm, p.lon_osm, p.lat_osm, p.distance
+FROM merimee m LEFT JOIN proches p USING (reference)
+""")
+con.sql("""
+SELECT trouve, lon IS NOT NULL AS avec_position, count(*) AS monuments,
+       round(median(distance)) AS distance_mediane
+FROM monuments GROUP BY ALL ORDER BY ALL
+""").df()
+```
+
+### Les identifiants sans monument
+
+Les identifiants d'OSM absents de Mérimée sont rangés selon leur forme. Un identifiant de monument historique est `PA` suivi de huit caractères ; `IA` désigne un dossier de l'Inventaire général du patrimoine culturel, un édifice étudié mais pas forcément protégé ; `PM` et `IM` désignent des objets mobiliers, qui relèvent de la base Palissy.
+
+```{python}
+#| filename: "Les identifiants d'OSM absents de Mérimée"
+con.sql("""
+CREATE TABLE orphelins AS
+SELECT ref, id, nom, lon, lat,
+       CASE WHEN regexp_full_match(ref, 'PA[0-9A-Z]{8}') THEN 'monument'
+            WHEN regexp_full_match(ref, 'IA[0-9A-Z]{8}') THEN 'inventaire'
+            WHEN regexp_full_match(ref, '(PM|IM)[0-9A-Z]{8}') THEN 'objet'
+            ELSE 'autre' END AS forme
+FROM osm_refs WHERE ref NOT IN (SELECT reference FROM merimee)
+""")
+
+exemples = con.sql("""
+SELECT ref, id, nom, forme FROM orphelins
+QUALIFY row_number() OVER (PARTITION BY forme ORDER BY hash(id)) <= 3
+ORDER BY forme, ref
+""").df()
+exemples
+```
+
+### Les chiffres par département
+
+Pour chaque département : le nombre de monuments, ceux retrouvés dans OSM, ceux qui n'ont pas de position dans Mérimée mais en ont une dans OSM, et, parmi ceux qui ont deux positions, la part de ceux dont l'écart dépasse 500 mètres.
+
+```{python}
+#| filename: "Les chiffres par département"
+SEUIL = 500  # mètres
+
+stats = con.sql(f"""
+SELECT s.dep, coalesce(n.nom, s.dep) AS nom, s.monuments, s.trouves,
+       s.trouves / s.monuments AS part_trouves,
+       s.sans_coord, s.combles, s.comparables, s.loin,
+       s.loin / nullif(s.comparables, 0) AS part_loin, s.mediane
+FROM (
+    SELECT dep, count(*) AS monuments, count(*) FILTER (WHERE trouve) AS trouves,
+           count(*) FILTER (WHERE lon IS NULL) AS sans_coord,
+           count(*) FILTER (WHERE trouve AND lon IS NULL) AS combles,
+           count(distance) AS comparables,
+           count(*) FILTER (WHERE distance > {SEUIL}) AS loin,
+           round(median(distance)) AS mediane
+    FROM monuments GROUP BY dep
+) s LEFT JOIN noms n ON n.code = s.dep
+ORDER BY s.dep
+""").df()
+stats.sort_values("part_trouves").head(5).style.hide(axis="index").format(
+    {"part_trouves": "{:.0%}", "part_loin": "{:.0%}"}
+)
+```
+
+Un contrôle : les départements de Mérimée qui n'ont pas de contour sur la carte (collectivités d'outre-mer, valeurs manquantes) ne s'affichent pas, mais comptent dans les totaux.
+
+```{python}
+#| filename: "Départements sans contour"
+stats[~stats["dep"].isin(noms_departements)][["dep", "monuments"]]
+```
+
+### Les distances
+
+L'histogramme compte les monuments par tranches d'un cinquième de décade (de 1 à 1,6 m, de 1,6 à 2,5 m…).
+
+```{python}
+#| filename: "L'histogramme des distances"
+histogramme = con.sql("""
+SELECT 10 ^ e AS debut, 10 ^ (e + 0.2) AS fin, n
+FROM (
+    SELECT floor(log10(greatest(distance, 1)) * 5) / 5 AS e, count(*)::INTEGER AS n
+    FROM monuments WHERE distance IS NOT NULL GROUP BY ALL
+)
+ORDER BY e
+""").df()
+histogramme.round(1).head()
+```
+
+### Les chiffres de l'accroche
+
+```{python}
+#| filename: "Les chiffres de l'accroche"
+chiffres = json.loads(con.sql(f"""
+SELECT count(*) AS monuments,
+       count(*) FILTER (WHERE trouve) AS trouves,
+       count(*) FILTER (WHERE trouve) / count(*) AS part_trouves,
+       count(*) FILTER (WHERE lon IS NULL) AS sans_coord,
+       count(*) FILTER (WHERE trouve AND lon IS NULL) AS combles,
+       median(distance) AS mediane,
+       count(*) FILTER (WHERE distance > {SEUIL}) / count(distance) AS part_loin,
+       (SELECT count(DISTINCT ref) FROM osm_refs) AS identifiants,
+       (SELECT count(DISTINCT ref) FROM orphelins) AS orphelins,
+       (SELECT count(DISTINCT ref) FROM orphelins WHERE forme = 'monument') AS orphelins_monument,
+       (SELECT count(DISTINCT ref) FROM orphelins WHERE forme = 'objet') AS orphelins_objet,
+       (SELECT count(DISTINCT ref) FROM orphelins WHERE forme = 'inventaire') AS orphelins_inventaire,
+       (SELECT count(*) FROM osm_brut WHERE ref_brut LIKE '%;%') AS multiples,
+       (SELECT strftime(max(modification), '%Y-%m-%d') FROM osm_brut) AS date_osm,
+       (SELECT count(*) FROM osm_brut) AS objets_osm,
+       (SELECT count(*) FROM (SELECT ref FROM osm_refs GROUP BY ref HAVING count(*) > 1)) AS plusieurs_objets
+FROM monuments
+""").df().to_json(orient="records"))[0]
+chiffres
+```
+
+### Les zooms
+
+Les deux zones sont des rectangles de longitude et de latitude. Chaque monument y reçoit son statut : dans les deux bases (à la position d'OSM), dans Mérimée seulement, ou dans OSM seulement. Les communes du fond viennent de cartiflette.
+
+```{python}
+#| filename: "Les points des zooms"
+# [nom, [[ouest, sud], [est, nord]], rayon des points]
+CADRAGES = [
+    ("Paris", [[2.22, 48.815], [2.47, 48.905]], 2.5),
+    ("Le Lot", [[1.0, 44.2], [2.25, 45.0]], 2.5),
+]
+cadrages = pd.DataFrame(
+    [(nom, o, s, e, n, rayon) for nom, ((o, s), (e, n)), rayon in CADRAGES],
+    columns=["nom", "ouest", "sud", "est", "nord", "rayon"],
+)
+
+points = json.loads(con.sql("""
+WITH tous AS (
+    SELECT 'les_deux' AS statut, reference, titre, nom_osm, lon_osm AS lon, lat_osm AS lat,
+           round(distance) AS distance
+    FROM monuments WHERE trouve
+    UNION ALL
+    SELECT 'merimee', reference, titre, NULL, lon, lat, NULL
+    FROM monuments WHERE NOT trouve AND lon IS NOT NULL
+    UNION ALL
+    SELECT 'osm', ref, NULL, nom, lon, lat, NULL FROM orphelins
+)
+SELECT c.nom AS cadrage, t.statut, t.reference, t.titre, t.nom_osm,
+       round(t.lon, 5) AS lon, round(t.lat, 5) AS lat, t.distance
+FROM tous t JOIN cadrages c
+  ON t.lon BETWEEN c.ouest AND c.est AND t.lat BETWEEN c.sud AND c.nord
+ORDER BY ALL
+""").df().to_json(orient="records"))
+
+communes_cadrages = [
+    {"type": "Feature", "properties": {"cadrage": cadrage, "nom": nom},
+     "geometry": json.loads(geojson)}
+    for cadrage, nom, geojson in con.sql("""
+    SELECT c.nom, m.NOM, ST_AsGeoJSON(ST_ReducePrecision(m.geometry, 0.0002))
+    FROM communes_arrondissements m JOIN cadrages c
+      ON ST_Intersects(m.geometry, ST_MakeEnvelope(c.ouest, c.sud, c.est, c.nord))
+    """).fetchall()
+]
+len(points), len(communes_cadrages)
+```
+
+```{python}
+#| output: false
+#| echo: false
+#| filename: "Ce qui passe à la page (ojs_define)"
+ojs_define(
+    stats=json.loads(stats.to_json(orient="records")),
+    departements=departements,
+    histogramme=json.loads(histogramme.to_json(orient="records")),
+    exemples=json.loads(exemples.to_json(orient="records")),
+    chiffres=chiffres,
+    cadrages=[{"nom": nom, "cadre": cadre, "rayon": rayon} for nom, cadre, rayon in CADRAGES],
+    points=points,
+    communesCadrages=communes_cadrages,
+)
+```
+
+## Les données de la carte
+
+Après ces étapes, on obtient une ligne par département : le nombre de monuments de Mérimée, ceux retrouvés dans OSM et l'écart entre les deux positions. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
+::: {.column-page}
+
+::: {.content-visible when-format="html"}
+
+```{ojs}
+//| echo: false
+viewof recherche = Inputs.search(stats, {
+  placeholder: "Rechercher un département…",
+  columns: ["nom", "dep"],
+  format: (n) => `${n} départements`
+})
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(recherche, {
+  columns: ["dep", "nom", "monuments", "trouves", "part_trouves", "sans_coord", "combles", "comparables", "part_loin", "mediane"],
+  header: {
+    dep: "Code", nom: "Département", monuments: "Monuments (Mérimée)", trouves: "Retrouvés dans OSM",
+    part_trouves: "Part retrouvée", sans_coord: "Sans position dans Mérimée",
+    combles: "… localisés par OSM", comparables: "Localisés dans les deux",
+    part_loin: "… à plus de 500 m", mediane: "Écart médian (m)"
+  },
+  format: {
+    monuments: (x) => entier(x), trouves: (x) => entier(x), sans_coord: (x) => entier(x),
+    combles: (x) => entier(x), comparables: (x) => entier(x), mediane: (x) => x === null ? "" : entier(x),
+    part_trouves: (x) => x === null ? "" : pourcent(x), part_loin: (x) => x === null ? "" : pourcent(x)
+  },
+  sort: "monuments",
+  reverse: true,
+  rows: 15
+})
+```
+
+```{ojs}
+//| echo: false
+html`<p>${DOM.download(
+  () => new Blob([d3.csvFormat(stats)], {type: "text/csv"}),
+  "monuments_historiques_osm_departements.csv",
+  "Télécharger les départements (CSV)"
+)}</p>`
+```
+
+:::
+
+:::
+
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
+
+- Le rapprochement par identifiant mesure ce que les contributeurs ont **déclaré** : un monument peut être dans OSM, dessiné, sans que son identifiant Mérimée y soit. Il est alors compté comme absent. La part retrouvée est un minorant de la présence réelle des monuments dans OSM.
+- À l'inverse, un identifiant reporté ne garantit pas que l'objet d'OSM est le bon : une coquille qui tombe sur un autre identifiant valide passe inaperçue. C'est aussi pour cela qu'on regarde la distance.
+- Les deux positions n'ont pas toujours le même sens : Mérimée donne un point, OSM un point posé sur le bâtiment ou un contour, dont on garde le centre. Un grand domaine ou un monument linéaire (rempart, pont, canal) donne un écart de plusieurs centaines de mètres sans erreur de l'une ou l'autre base.
+- Un monument peut être décrit par plusieurs objets d'OSM, et un objet peut en réunir plusieurs (identifiants séparés par `;`). Pour la distance, on retient l'objet le plus proche de Mérimée, ce qui minore légèrement les écarts.
+- Le département est celui que déclare Mérimée (à défaut, celui du code de la commune à la date de la protection). Quelques collectivités d'outre-mer et notices sans département n'ont pas de contour sur la carte, mais figurent dans les totaux.
+- Les parts par département reposent parfois sur peu de monuments : les petits départements ont des écarts qui varient vite d'un monument à l'autre.
+- Mérimée et OSM ne sont pas à la même date : la base du ministère est lue à la date de sa copie sur le SSP Cloud, OSM à celle de l'extrait QLever.
+- Mérimée est une base publique d'État ; ses monuments radiés ou déclassés en disparaissent, alors qu'OSM peut garder longtemps l'ancien identifiant.
+
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
+## Pour aller plus loin
+
+- Ministère de la Culture, [[plateforme ouverte du patrimoine (POP)]{.underline}](https://www.pop.culture.gouv.fr/) : la base Mérimée, ses notices et la documentation de ses champs.
+- OpenStreetMap, [[le wiki sur les monuments historiques français]{.underline}](https://wiki.openstreetmap.org/wiki/FR:Monuments_historiques) et la clé [[`ref:mhs`]{.underline}](https://wiki.openstreetmap.org/wiki/Key:ref:mhs) : comment les contributeurs reportent l'identifiant Mérimée.
+- [[Wiki Loves Monuments]{.underline}](https://www.wikilovesmonuments.fr/) : le concours photographique annuel qui, lui aussi, s'appuie sur la liste des monuments historiques.
+- [J16 · Collaborative map](16-collaborative-map.qmd) : la Base Adresse Nationale, une autre carte écrite à plusieurs mains.
+- [J20 · Hexagons](20-hexagons.qmd) : les équipements du quotidien, d'après la base permanente des équipements de l'Insee.
+
+:::
