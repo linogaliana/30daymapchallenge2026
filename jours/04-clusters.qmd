@@ -964,4 +964,5 @@ DOM.download(
 
 - Insee, [zonage en zones d'emploi 2020](https://www.insee.fr/fr/information/4652957) et sa [méthode de constitution](https://www.insee.fr/fr/statistiques/fichier/4652957/methode_constitution_ze2020.pdf).
 - Insee, [documentation des fichiers Sirene](https://www.data.gouv.fr/fr/datasets/base-sirene-des-entreprises-et-de-leurs-etablissements-siren-siret/) : description des variables et des tranches d'effectif.
+- Insee Première n° 1814, [« L'orientation économique des zones d'emploi : entre spécialisation et diversification des économies locales »](https://www.insee.fr/fr/statistiques/4653582) (septembre 2020) : un classement des 306 zones d'emploi 2020 en sept profils, dont 37 spécialisées dans l'industrie (jusqu'à 38 % de l'emploi à Oyonnax).
 :::
