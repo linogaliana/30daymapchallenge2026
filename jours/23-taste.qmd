@@ -55,7 +55,7 @@ appellations = d3.csv("donnees/j23/appellations.csv", d3.autoType).then((liste) 
   return liste.map((a) => ({...a, libelle: doublons.get(a.nom) > 1 ? `${a.nom} (${a.famille.toLowerCase()})` : a.nom}))
 })
 parId = new Map(appellations.map((a) => [a.id, a]))
-communes = d3.csv("donnees/j23/communes.csv", (d) => ({...d, appellations: +d.appellations, communes_aire: d.communes_aire === "" ? null : +d.communes_aire}))
+communes = d3.csv("donnees/j23/communes.csv", (d) => ({...d, appellations: +d.appellations, communes_aire: d.communes_aire === "" ? null : +d.communes_aire, permanentes: +d.permanentes}))
 
 // Sept familles, dans l'ordre de la propriété « t » des contours. Trois nuances par famille :
 // aire de 1 à 50 communes, de 51 à 500, de plus de 500. Sur fond sombre, la plus locale est la
@@ -197,8 +197,12 @@ conteneur = html`<div style="height: min(75vh, 680px); border-radius: 4px"></div
 //| echo: false
 // Texte de la bulle : les appellations de la commune, de la plus locale à la plus étendue.
 function bulle(p) {
+  // Une dernière ligne : les vignes et vergers des exploitations dont le siège est dans la commune.
+  const culturesPermanentes = p.p > 0
+    ? `Vignes et vergers des exploitations : ${entier(p.p)} ha`
+    : "Ni vignes ni vergers dans les exploitations"
   const ids = p.i.split(",").filter((x) => x).map(Number)
-  if (ids.length === 0) return `<strong>${p.nom}</strong><br>Aucune appellation`
+  if (ids.length === 0) return `<strong>${p.nom}</strong><br>Aucune appellation<br><small>${culturesPermanentes}</small>`
   const liste = ids.map((id) => parId.get(id))
   const plusLocale = liste[0]
   // Les grands crus d'Alsace partagent tous la même aire : on les compte au lieu de les lister.
@@ -209,7 +213,8 @@ function bulle(p) {
     ${plusLocale.communes === 1 ? "une seule commune" : `aire de ${entier(plusLocale.communes)} communes`}
     ${exAequo > 1 ? `, à égalité avec ${exAequo - 1} autre${exAequo > 2 ? "s" : ""}` : ""}
     <br><small>${montrees.slice(1).map((a) => `${a.nom} (${entier(a.communes)})`).join(" ; ")}
-    ${ids.length > montrees.length ? ` ; et ${entier(ids.length - montrees.length)} autres` : ""}</small>`
+    ${ids.length > montrees.length ? ` ; et ${entier(ids.length - montrees.length)} autres` : ""}</small>
+    <br><small>${culturesPermanentes}</small>`
 }
 
 // La carte n'est créée qu'une fois ; la vue et l'appellation choisie changent sa couleur.
@@ -218,7 +223,7 @@ carte = {
     container: conteneur,
     style: document.body.classList.contains("quarto-dark") ? styleSombre : styleClair,
     bounds: territoires[0][1],
-    attributionControl: {customAttribution: "INAO, Insee, IGN"}
+    attributionControl: {customAttribution: "INAO, Agreste, Insee, IGN"}
   })
   invalidation.then(() => map.remove())
   map.addControl(new maplibregl.NavigationControl({showCompass: false}))
@@ -279,10 +284,11 @@ cadrageAppellation = choix && carte.fitBounds([[choix.ouest, choix.sud], [choix.
 html`<p><small>Pour chaque commune, l'appellation d'origine (AOP) ou l'indication géographique
 (IGP, IG) dont l'aire compte le moins de communes ; avec une famille choisie, la plus locale de
 cette famille. Tapez le nom d'une appellation pour voir son aire. Zoomez et déplacez-vous dans la
-carte ; survolez une commune pour la liste de ses appellations ; les boutons au-dessus de la
-carte mènent en outre-mer. Sources : INAO, aires géographiques des AOC/AOP et des IGP/IG,
-référentiel des produits sous signe de qualité ; Insee, code officiel géographique 2026 ; IGN,
-ADMIN EXPRESS COG CARTO 2026, via cartiflette ; fond Plan IGN.</small></p>`
+carte ; survolez une commune pour la liste de ses appellations et la surface de ses vignes et
+vergers ; les boutons au-dessus de la carte mènent en outre-mer. Sources : INAO, aires
+géographiques des AOC/AOP et des IGP/IG, référentiel des produits sous signe de qualité ; SSP
+(Agreste), recensement agricole 2020 ; Insee, code officiel géographique 2026 ; IGN, ADMIN EXPRESS
+COG CARTO 2026, via cartiflette ; fond Plan IGN.</small></p>`
 ```
 
 ```{ojs}
@@ -296,6 +302,16 @@ en Normandie (le poiré, le calvados), en Lorraine (la mirabelle) et dans les Ch
 cognac) ; la choucroute en Alsace, le miel de sapin dans les Vosges. Hors du vin, les aires les
 plus petites sont au bord de l'eau : l'anchois de Collioure, le sel de Camargue, la pomme de terre
 de Noirmoutier, le citron de Menton.</p>`
+```
+
+```{ojs}
+//| echo: false
+html`<p>L'aire d'un vin n'est pas un vignoble. D'après le recensement agricole 2020 d'Agreste,
+dans ${pourcent(chiffres.part_vin_sans_permanentes)} des ${entier(chiffres.communes_vin)} communes
+dont l'appellation la plus locale est un vin, les exploitations qui ont leur siège dans la commune
+n'ont ni vigne ni verger. À l'inverse, ${pourcent(chiffres.part_autres_avec_permanentes)} des
+autres communes en ont : des vergers, ou les vignes d'un vin dont l'aire n'est pas la plus petite
+de la commune.</p>`
 ```
 
 ## Le plateau de fromages
@@ -346,6 +362,7 @@ ou le brie de Meaux, dont l'aire va de la Seine-et-Marne à la Meuse.
 | [Aire géographique des IGP et des IG](https://www.data.gouv.fr/datasets/aire-geographique-des-igp-et-des-ig) | INAO | les communes de l'aire de chaque indication géographique | CSV |
 | [Aires et produits AOC/AOP et IGP](https://www.data.gouv.fr/datasets/aires-et-produits-aoc-aop-et-igp) | INAO | les produits de chaque aire, et leur signe | CSV |
 | [Référentiel des produits sous SIQO](https://www.data.gouv.fr/datasets/referentiel-des-produits-sous-signe-officiel-didentification-de-la-qualite-et-de-lorigine-siqo) | INAO | l'appellation et la catégorie de chaque produit | CSV |
+| [Recensement agricole 2020, SAU par commune](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/) | SSP (Agreste) | la surface en vignes et vergers des exploitations, par commune du siège | ODS (zip) |
 | [Code officiel géographique 2026](https://www.insee.fr/fr/information/8740222), mouvements des communes | Insee | la commune actuelle des anciennes communes | CSV |
 | ADMIN EXPRESS COG CARTO 2026, via [cartiflette](https://github.com/InseeFrLab/cartiflette) | IGN, Insee | contours des communes et des départements | GeoParquet |
 
@@ -356,6 +373,7 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 import io
 import json
 import pathlib
+import zipfile
 
 import duckdb
 import pandas as pd
@@ -415,6 +433,39 @@ CREATE TABLE referentiel AS
 SELECT * FROM read_csv('{SOURCES["referentiel"]}', all_varchar = true)
 WHERE appellation NOT LIKE '---%'   -- les labels rouges et STG sans appellation
 """)
+```
+
+### Les vignes et vergers (Agreste, recensement agricole 2020)
+
+Le [recensement agricole 2020](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013/detail/)
+du service statistique du ministère de l'Agriculture (Agreste) publie, par commune, la surface
+agricole utilisée (SAU) des exploitations et celle de leurs cultures permanentes, vignes et
+vergers. La commune est celle du **siège de l'exploitation**, pas celle des parcelles : les
+surfaces d'une exploitation sont comptées là où elle a son siège.
+
+Le fichier est un classeur {{< iconify vscode-icons file-type-libreoffice-calc >}} `ODS` dans une
+archive zip, que DuckDB ne sait pas lire : on le télécharge avec `requests` et on l'ouvre avec
+`pandas`, sans l'écrire sur le disque. On garde le code de la commune, sa SAU et ses cultures
+permanentes, en hectares.
+
+```{python}
+#| filename: "Lecture du recensement agricole (Agreste)"
+reponse = requests.get(SOURCES["agreste"], timeout=300)
+reponse.raise_for_status()
+with zipfile.ZipFile(io.BytesIO(reponse.content)) as archive:
+    classeur = io.BytesIO(archive.read("RA2020_1013_SAU_Communes.ods"))
+sau_communes = (
+    pd.read_excel(classeur, sheet_name="RA2020_1013_SAU_Communes", engine="calamine",
+                  dtype={"CODE_COM": str})
+    # Les intitulés des colonnes de surface sont longs : on les prend par leur position.
+    .iloc[:, [0, 6, 9]]
+    .set_axis(["code", "sau", "permanentes"], axis=1)
+)
+con.sql("CREATE TABLE agreste AS SELECT * FROM sau_communes")
+con.sql("""
+SELECT count(*) AS communes, count(*) FILTER (WHERE permanentes > 0) AS avec_permanentes
+FROM agreste
+""").df()
 ```
 
 ## Les traitements
@@ -514,7 +565,8 @@ Les contours de 2026, en France entière. Pour rattacher une ancienne commune à
 actuelle, on suit les mouvements du code officiel géographique (fusions, créations de communes
 nouvelles) jusqu'à tomber sur une commune de 2026 : une commune fusionnée en 1973 dans une
 commune elle-même devenue déléguée en 2016 fait deux pas. Une commune nouvelle est ainsi dans
-l'aire d'une appellation dès que l'une de ses anciennes communes l'est.
+l'aire d'une appellation dès que l'une de ses anciennes communes l'est. Les codes de commune
+d'Agreste suivent le même chemin.
 
 ```{python}
 CARTIFLETTE_URL = (
@@ -540,7 +592,9 @@ WHERE COM_AV <> COM_AP
 con.sql("""
 CREATE TABLE passage AS
 WITH RECURSIVE chemin(ancien, code, pas) AS (
-    SELECT DISTINCT CI, CI, 0 FROM (SELECT CI FROM communes_ao UNION SELECT CI FROM communes_ig)
+    SELECT DISTINCT CI, CI, 0 FROM (
+        SELECT CI FROM communes_ao UNION SELECT CI FROM communes_ig UNION SELECT code FROM agreste
+    )
     UNION ALL
     SELECT c.ancien, m.apres, c.pas + 1
     FROM chemin c JOIN mouvements m ON m.avant = c.code
@@ -553,6 +607,7 @@ SELECT (SELECT count(DISTINCT CI) FROM (SELECT CI FROM communes_ao UNION SELECT 
        count(DISTINCT ancien) FILTER (WHERE ancien = code) AS communes_actuelles,
        count(DISTINCT ancien) FILTER (WHERE ancien <> code) AS anciennes_communes_rattachees
 FROM passage
+WHERE ancien IN (SELECT CI FROM communes_ao UNION SELECT CI FROM communes_ig)
 """).df()
 ```
 
@@ -618,6 +673,36 @@ FROM classement WHERE rang = 1 GROUP BY famille ORDER BY communes DESC
 """).df()
 ```
 
+### Des vignes dans l'aire des vins ?
+
+Pour chaque commune de 2026, on additionne les surfaces de ses anciennes communes, puis on regarde
+la famille de sa plus locale : un vin, un autre produit, ou aucune appellation.
+
+```{python}
+con.sql("""
+CREATE TABLE vignes AS
+WITH par_commune AS (
+    SELECT p.code, sum(a.sau) AS sau, sum(a.permanentes) AS permanentes
+    FROM agreste a JOIN passage p ON p.ancien = a.code
+    GROUP BY p.code
+)
+SELECT c.code, coalesce(v.sau, 0) AS sau, coalesce(v.permanentes, 0) AS permanentes
+FROM communes c LEFT JOIN par_commune v USING (code)
+""")
+con.sql("""
+SELECT CASE WHEN k.famille = 'Vins' THEN 'Plus locale : un vin'
+            WHEN k.famille IS NOT NULL THEN 'Plus locale : un autre produit'
+            ELSE 'Aucune appellation' END AS categorie,
+       count(*) AS communes,
+       round(100 * avg((v.permanentes > 0)::INT), 1) AS part_avec_permanentes,
+       median(v.permanentes) AS mediane_permanentes_ha
+FROM communes c
+JOIN vignes v USING (code)
+LEFT JOIN classement k ON k.code = c.code AND k.rang = 1
+GROUP BY ALL ORDER BY communes DESC
+""").df()
+```
+
 ### Les chiffres de l'accroche
 
 ```{python}
@@ -629,6 +714,20 @@ chiffres = {
     "mediane_plus_local": plus_locales["communes"].median(),
     "communes_uniques": int((plus_locales["communes"] == 1).sum()),
     "part_vins": (plus_locales["famille"] == "Vins").mean(),
+    "communes_vin": con.sql("""
+        SELECT count(*) FROM classement k JOIN vignes v USING (code)
+        WHERE k.rang = 1 AND k.famille = 'Vins'
+    """).fetchone()[0],
+    "part_vin_sans_permanentes": con.sql("""
+        SELECT avg((v.permanentes = 0)::INT) FROM classement k JOIN vignes v USING (code)
+        WHERE k.rang = 1 AND k.famille = 'Vins'
+    """).fetchone()[0],
+    "part_autres_avec_permanentes": con.sql("""
+        SELECT avg((v.permanentes > 0)::INT)
+        FROM communes c JOIN vignes v USING (code)
+        LEFT JOIN classement k ON k.code = c.code AND k.rang = 1
+        WHERE coalesce(k.famille, '') <> 'Vins'
+    """).fetchone()[0],
 }
 chiffres = {cle: float(valeur) for cle, valeur in chiffres.items()}
 chiffres
@@ -644,6 +743,8 @@ Comme pour [J18](18-null.qmd), les 35 000 communes sont simplifiées ensemble, �
   virgules (`,185,1040,`) : la carte y cherche `,1040,` pour dessiner l'aire d'une appellation ;
 - `t` et `n`, la famille (de 0 à 6, -1 sans appellation) et la taille de l'aire de la plus
   locale ;
+- `p`, les hectares de vignes et de vergers des exploitations dont le siège est dans la commune,
+  arrondis à l'entier, 0 si aucune ;
 - une lettre par famille (`v` pour les vins, `f` pour les fromages…), la taille de l'aire de la
   plus locale de cette famille, 0 si la commune n'en a aucune. Un 0 plutôt qu'un `NULL`, que les
   expressions de MapLibre ne savent pas comparer (voir J18).
@@ -696,12 +797,14 @@ FROM classement k JOIN numeros n USING (id_appellation) JOIN familles f USING (f
 GROUP BY k.code
 """)
 
-colonnes = ["code", "nom", "i", "t", "n", *FAMILLES.values()]
+colonnes = ["code", "nom", "i", "t", "n", "p", *FAMILLES.values()]
 lignes = con.sql(f"""
 SELECT c.code, c.nom, coalesce(p.i, ','), coalesce(p.t, -1), coalesce(p.n, 0),
+       coalesce(round(v.permanentes), 0)::INTEGER,
        {", ".join(f"coalesce(p.{lettre}, 0)" for lettre in FAMILLES.values())},
        ST_AsGeoJSON(ST_ReducePrecision(s.geom, 0.001))
 FROM communes c JOIN simplifiees s USING (code) LEFT JOIN proprietes p USING (code)
+LEFT JOIN vignes v USING (code)
 ORDER BY c.code
 """).fetchall()
 (SORTIE / "communes.geojson").write_text(json.dumps({
@@ -735,8 +838,9 @@ COPY (
     SELECT c.code, c.nom, c.departement, count(k.id_appellation) AS appellations,
            any_value(k.appellation) FILTER (WHERE k.rang = 1) AS plus_locale,
            any_value(k.famille) FILTER (WHERE k.rang = 1) AS famille,
-           any_value(k.communes) FILTER (WHERE k.rang = 1) AS communes_aire
-    FROM communes c LEFT JOIN classement k USING (code)
+           any_value(k.communes) FILTER (WHERE k.rang = 1) AS communes_aire,
+           round(any_value(v.permanentes), 1) AS permanentes
+    FROM communes c LEFT JOIN classement k USING (code) LEFT JOIN vignes v USING (code)
     GROUP BY ALL ORDER BY c.code
 ) TO '{SORTIE / "communes.csv"}' (HEADER)
 """)
@@ -804,14 +908,16 @@ viewof recherche = Inputs.search(communes, {
 ```{ojs}
 //| echo: false
 Inputs.table(recherche, {
-  columns: ["code", "nom", "departement", "appellations", "plus_locale", "famille", "communes_aire"],
+  columns: ["code", "nom", "departement", "appellations", "plus_locale", "famille", "communes_aire", "permanentes"],
   header: {
     code: "Code", nom: "Commune", departement: "Département", appellations: "Appellations",
-    plus_locale: "La plus locale", famille: "Famille", communes_aire: "Communes de son aire"
+    plus_locale: "La plus locale", famille: "Famille", communes_aire: "Communes de son aire",
+    permanentes: "Vignes et vergers (ha)"
   },
   format: {
     appellations: entier,
-    communes_aire: (x) => x === null ? "" : entier(x)
+    communes_aire: (x) => x === null ? "" : entier(x),
+    permanentes: entier
   },
   sort: "appellations",
   reverse: true,
@@ -822,7 +928,7 @@ Inputs.table(recherche, {
 ```{ojs}
 //| echo: false
 html`<p>${DOM.download(
-  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "appellations", "plus_locale", "famille", "communes_aire"])], {type: "text/csv"}),
+  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "appellations", "plus_locale", "famille", "communes_aire", "permanentes"])], {type: "text/csv"}),
   "appellations_plus_locales_communes.csv",
   "Télécharger les communes (CSV)"
 )} ${DOM.download(
@@ -839,7 +945,10 @@ html`<p>${DOM.download(
 - L'aire géographique n'est pas le vignoble ni le pâturage : c'est la liste des communes où le
   produit peut être produit, transformé ou élaboré. Une commune peut être dans l'aire d'un vin
   sans avoir une seule vigne. Pour les vins, l'INAO délimite aussi les parcelles, bien plus
-  précisément ([J3](03-polygons.qmd) montre ce que ce genre de parcelles donne en carte).
+  précisément ([J3](03-polygons.qmd) montre ce que ce genre de parcelles donne en carte). Les
+  surfaces d'Agreste sont rattachées à la commune du siège de l'exploitation, pas à celle des
+  parcelles, et mêlent vignes et vergers : une commune viticole dont les vignes sont exploitées
+  depuis la commune voisine apparaît sans vigne.
 - Les grands crus d'Alsace sont un cas extrême : les 51 ont la même aire géographique, celle de
   tout le vignoble alsacien, alors que chacun ne couvre que quelques lieux-dits. La bulle de la
   carte les compte au lieu de les énumérer.

@@ -11,4 +11,6 @@ SOURCES = {
     "referentiel": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/2025-12-31-inao-ref-produit-siqo.csv",
     # https://www.insee.fr/fr/statistiques/fichier/8740222/v_mvt_commune_2026.csv
     "cog_mouvements": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/v_mvt_commune_2026.csv",
+    # https://agreste.agriculture.gouv.fr/agreste-web/download/publication/publie/RA2020_1013/RA2020_1013_SAU_Communes.zip
+    "agreste": "https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/RA2020_1013_SAU_Communes.zip",
 }
