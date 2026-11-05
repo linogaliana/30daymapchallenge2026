@@ -5,7 +5,17 @@ image: vignettes/22-projections.webp
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#2a6fc2"
+  sombre: "#86b6ef"
 ---
+
+Pour la vingt-deuxième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Projections"**]{.underline}), on joue sur les deux sens du mot. Une carte est une projection : elle aplatit la Terre sur une feuille, ici selon la [projection conique conforme de Lambert]{.underline}, celle des cartes officielles françaises. Celle-ci montre en plus une [projection démographique]{.underline} : la [[Drees]{.underline}](https://drees.solidarites-sante.gouv.fr/), le service statistique des ministères sociaux, projette chaque année le nombre de médecins jusqu'en 2070, à partir des médecins en activité, des étudiants en formation et de leurs comportements observés. Le millésime 2026, publié en octobre, donne les résultats par [ancienne région]{.underline} (celles d'avant 2016), la maille la plus fine publiée. La première carte dit en quelle année chaque région retrouverait sa densité de 2014, la seconde fait défiler les années, des données observées (jusqu'en 2025) aux données projetées (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -23,28 +33,16 @@ effectif = (annee) => series.find((d) => d.region === "00" && d.specialite === "
 html`<p class="lead">
   En 2014, la France comptait ${virgule(mg(2014).densite)} médecins généralistes pour
   100 000 habitants, en densité standardisée (qui tient compte de l'âge des habitants). En 2025,
-  <strong>${virgule(mg(2025).densite)}</strong>, en baisse de ${pourcent(1 - mg(2025).densite / mg(2014).densite)}.
+  <span class="souligne">${virgule(mg(2025).densite)}</span>, en baisse de ${pourcent(1 - mg(2025).densite / mg(2014).densite)}.
   Le creux ${creuxMG.annee > 2025 ? "serait atteint" : "a été touché"} en ${creuxMG.annee}. Selon le
-  scénario tendanciel de la Drees, le niveau de 2014 serait <strong>retrouvé en ${retourMG.retour}</strong>,
+  scénario tendanciel de la Drees, le niveau de 2014 serait <span class="souligne">retrouvé en ${retourMG.retour}</span>,
   grâce à la hausse du nombre d'étudiants : ${virgule(effectif(2025))} médecins en activité en 2025,
   ${virgule(effectif(2040))} en 2040. Mais pas partout au même rythme : de
   ${d3.least(remontees, (d) => d.retour).retour} en ${d3.least(remontees, (d) => d.retour).nom} à
   ${d3.greatest(remontees, (d) => d.retour).retour} en ${d3.greatest(remontees, (d) => d.retour).nom},
-  et <strong>pas avant 2070 en ${retoursMG.filter((d) => d.retour === null).map((d) => d.nom).join(", ")}</strong>.
+  et <span class="souligne">pas avant 2070 en ${retoursMG.filter((d) => d.retour === null).map((d) => d.nom).join(", ")}</span>.
 </p>`
 ```
-
-Une carte est une projection : elle aplatit la Terre sur une feuille, ici selon la projection
-conique conforme de Lambert, celle des cartes officielles françaises. Pour ce 22^e^ jour, l'autre
-sens du mot : la projection démographique. La [Drees](https://drees.solidarites-sante.gouv.fr/),
-le service statistique des ministères sociaux, projette chaque année le nombre de médecins
-jusqu'en 2070, à partir des médecins en activité, des étudiants en formation et de leurs
-comportements observés. Le millésime 2026, publié en octobre, donne les résultats par ancienne
-région (celles d'avant 2016). La première carte dit en quelle année chaque région retrouverait sa
-densité de 2014, la seconde fait défiler les années, des données observées (jusqu'en 2025) aux
-données projetées (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -245,9 +243,13 @@ Sources : Drees, modèle ProMédI, millésime 2026 ; IGN, ADMIN EXPRESS COG CART
 cartiflette.</small></p>`
 ```
 
+:::
+
 Les trajectoires de toutes les régions, pour la spécialité et le scénario choisis. À gauche du
 trait, ce qui a été observé ; à droite, ce qui est projeté. La France entière est en noir, la
 région choisie en couleur.
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -294,10 +296,14 @@ viewof regionChoisie = Inputs.select(
 }
 ```
 
+:::
+
 Ces chiffres sont des projections, pas des prévisions : ils disent ce qui arriverait si les
 étudiants et les médecins se comportaient comme ces dernières années, avec un nombre donné
 d'étudiants admis en deuxième année de médecine. Les quatre scénarios de la Drees ne diffèrent que
 par ce nombre et par l'arrivée de médecins diplômés à l'étranger. Pour la France entière :
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -350,21 +356,24 @@ par ce nombre et par l'arrivée de médecins diplômés à l'étranger. Pour la 
 }
 ```
 
---------
+:::
 
-On va maintenant décrire comment obtenir les données de ces cartes.
+# Making of
 
 ## Les données
 
+La carte croise deux sources publiques :
+
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Projections des effectifs de médecins à l'horizon 2070](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/projections-des-effectifs-de-medecins/) | Drees, modèle ProMédI | les densités standardisées et les effectifs de médecins par ancienne région, observés (2014-2025) et projetés (2026-2070) selon quatre scénarios | Excel |
-| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque département, assemblés en anciennes régions | GeoParquet |
+| [Projections des effectifs de médecins à l'horizon 2070](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/projections-des-effectifs-de-medecins/) | Drees, modèle ProMédI | les densités standardisées et les effectifs de médecins par ancienne région, observés (2014-2025) et projetés (2026-2070) selon quatre scénarios | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Départements 2026](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque département, assemblés en anciennes régions | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import json
 import tempfile
 import zipfile
@@ -407,6 +416,7 @@ ligne par année, scénario, statut (médecins en activité, ou avec les interne
 région ; le tableau commence à la septième ligne, sous le titre et les notes.
 
 ```{python}
+#| filename: "Téléchargement du fichier de la Drees"
 def telecharger(url, chemin, essais=5):
     for essai in range(essais):
         try:
@@ -429,6 +439,7 @@ que les médecins en activité, sans les internes.
 
 ```{python}
 #| output: false
+#| filename: "Lecture des effectifs et des densités (Drees)"
 with tempfile.TemporaryDirectory() as dossier:
     chemin = f"{dossier}/projections.xlsx"
     telecharger(SOURCES["projections"], chemin)
@@ -476,6 +487,7 @@ Les départements sont simplifiés ensemble (`ST_CoverageSimplify`) pour rester 
 fusionnés (`ST_Union_Agg`).
 
 ```{python}
+#| filename: "Les anciennes régions (cartiflette)"
 ANCIENNES_REGIONS = {
     "01": ["67", "68"],  # Alsace
     "02": ["24", "33", "40", "47", "64"],  # Aquitaine
@@ -567,6 +579,7 @@ Pour tracer chaque scénario d'un seul trait, on recopie les années observées 
 d'eux.
 
 ```{python}
+#| filename: "Une série par scénario"
 con.sql("""
 CREATE TABLE series AS
 WITH scenarios AS (
@@ -590,6 +603,7 @@ ne l'atteint pas en 2070 n'a pas d'année de retour (`NULL`). On note aussi le c
 la densité est la plus basse.
 
 ```{python}
+#| filename: "L'année du retour"
 retours = con.sql("""
 WITH niveaux AS (
     SELECT scenario, specialite, region,
@@ -629,6 +643,7 @@ peut pas dépasser le niveau de 2014.
 
 ```{python}
 #| output: false
+#| filename: "Contrôles"
 manquantes = {f["properties"]["region"] for f in regions["features"]} ^ (set(retours.region) - {"00"})
 assert not manquantes, f"régions sans correspondance : {manquantes}"
 annees = con.sql("SELECT DISTINCT annee FROM series ORDER BY annee").df().annee.tolist()
@@ -650,9 +665,15 @@ ojs_define(
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient, pour chaque ancienne région, spécialité et scénario, la densité et l'effectif de médecins année par année, et l'année du retour au niveau de 2014. Les cartes sont faites en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 Les régions pour l'année, la spécialité et le scénario choisis plus haut.
 
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -674,7 +695,7 @@ Inputs.table(recherche, {
     region: "Code Drees", nom: "Région", annee: "Année", densite: "Densité standardisée",
     effectif: "Médecins en activité", annee_creux: "Année du creux", retour: "Retour au niveau de 2014"
   },
-  format: {annee: (x) => String(x), annee_creux: (x) => String(x), densite: (x) => virgule(x),
+  format: {annee: (x) => String(x), annee_creux: (x) => String(x), retour: (x) => String(x), densite: (x) => virgule(x),
            effectif: (x) => virgule(x)},
   sort: "densite",
   rows: 26
@@ -692,7 +713,10 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
+
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - Une projection n'est pas une prévision. Elle prolonge les comportements récents : l'âge de
   départ à la retraite, la part des internes qui choisissent la médecine générale, la région où
@@ -711,6 +735,11 @@ DOM.download(
 - La médecine générale compte les médecins qualifiés en médecine générale, quel que soit leur mode
   d'exercice : une partie d'entre eux travaille à l'hôpital ou n'exerce pas en cabinet de ville.
 
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - Drees, jeu de données [« Projections des effectifs de médecins en activité et étudiants en 3e cycle à l'horizon 2070 »](https://data.drees.solidarites-sante.gouv.fr/explore/dataset/projections-des-effectifs-de-medecins/) :
@@ -720,3 +749,5 @@ DOM.download(
   les effectifs observés par département, utilisés au [J5](05-sight.qmd).
 - Drees, l'[accessibilité potentielle localisée (APL)](https://drees.solidarites-sante.gouv.fr/la-demographie-des-professionnels-de-sante/accessibilite-potentielle-localisee-apl)
   aux médecins généralistes, commune par commune, pour l'accès aux soins d'aujourd'hui.
+
+:::
