@@ -1,7 +1,8 @@
 ---
 title: "J19 · Smell. À quoi sent la campagne ?"
-description: "Lisier de porc, fientes de volaille, champs de lavande : trois odeurs de la campagne, intercommunalité par intercommunalité, d'après le recensement agricole 2020 et le registre parcellaire graphique."
+description: "Lavande, plantes aromatiques, vigne : trois odeurs agréables de la campagne, intercommunalité par intercommunalité, d'après le registre parcellaire graphique 2020."
 image: vignettes/19-smell.webp
+charte: {couleur: "#7144b8", sombre: "#c4a2ff"}
 resources:
   - donnees/j19/*.csv
   - donnees/j19/*.geojson
@@ -15,24 +16,23 @@ code-overflow: wrap
 virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
 pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
-millions = (x) => `${virgule(x / 1e6)} millions`
 html`<p class="lead">
-  En 2020, la France métropolitaine élevait <strong>${millions(chiffres.porcs)} de porcs</strong>
-  et <strong>${millions(chiffres.volailles)} de volailles</strong>, et cultivait
-  <strong>${entier(chiffres.lavande_ha)} hectares de lavande</strong>. Ces odeurs-là ne sont pas
-  partout : la moitié des porcs vit dans des intercommunalités qui couvrent
-  ${pourcent(chiffres.moitie_porcs)} du territoire, la moitié des volailles sur
-  ${pourcent(chiffres.moitie_volailles)}, et la moitié de la lavande pousse sur
-  ${pourcent(chiffres.moitie_lavande, 1)}.
+  En 2020, la France métropolitaine cultivait
+  <strong>${entier(chiffres.lavande_ha)} hectares de lavande</strong>,
+  <strong>${entier(chiffres.aromatiques_ha)} hectares de plantes aromatiques</strong> et
+  <strong>${entier(chiffres.vigne_ha)} hectares de vigne</strong>. Ces odeurs-là ne sont pas
+  partout : la moitié de la lavande pousse sur ${pourcent(chiffres.moitie_lavande, 1)} du
+  territoire, la moitié des plantes aromatiques sur ${pourcent(chiffres.moitie_aromatiques, 1)},
+  et la moitié de la vigne sur ${pourcent(chiffres.moitie_vigne, 1)}.
 </p>`
 ```
 
-Pour le sens de l'odorat, une carte de ce que l'on sent en traversant la campagne. Les odeurs ne
-se mesurent pas, mais leurs sources se comptent : le recensement agricole compte les animaux de
-chaque exploitation, et le registre parcellaire graphique localise chaque champ de lavande déclaré
-à la PAC. Trois odeurs, donc : le lisier des porcheries, les fientes des poulaillers, et la
-lavande en fleur au début de l'été. Pour chaque intercommunalité, la carte montre celle qui s'y
-fait le plus sentir, rapportée à la moyenne nationale (making of 👇).
+Pour le sens de l'odorat, une carte de ce que l'on sent de bon en traversant la campagne. Les
+odeurs ne se mesurent pas, mais leurs sources se comptent : le registre parcellaire graphique
+localise chaque parcelle déclarée à la PAC, avec sa culture. Trois odeurs agréables, donc : la
+lavande en fleur au début de l'été, le thym, la menthe ou la sauge des plantes à parfum et
+aromatiques, et le moût de la vigne au moment des vendanges. Pour chaque intercommunalité, la
+carte montre celle qui s'y fait le plus sentir, rapportée à la moyenne nationale (making of 👇).
 
 --------
 
@@ -49,17 +49,17 @@ sombre = Generators.observe((notifier) => {
 fond = sombre ? "#222" : "#fff"
 stylePlot = `--plot-background: ${fond}; background: transparent`
 grisNeutre = sombre ? "#3a3a3a" : "#ebe8e1"
-grisSecret = sombre ? "#5a5a5a" : "#bdbab2"
+grisBordure = sombre ? "#5a5a5a" : "#bdbab2"
 
-// Les intercommunalités, avec leurs effectifs et leurs densités, et les parcelles de lavande.
+// Les intercommunalités, avec leurs surfaces et leurs parts, et les parcelles de lavande.
 zones = d3.json("donnees/j19/zones.geojson")
 parcelles = d3.csv("donnees/j19/lavande.csv", d3.autoType)
 
 // Une couleur par odeur, en deux intensités : 3 à 10 fois la moyenne nationale, 10 fois et plus.
 odeurs = [
-  {cle: "porcs", nom: "Le porc", clair: ["#f2b8a2", "#c4553a"], sombre: ["#8a4a3a", "#ff8a6a"]},
-  {cle: "volailles", nom: "La volaille", clair: ["#f3d98b", "#c9900c"], sombre: ["#7d6420", "#ffc93c"]},
-  {cle: "lavande", nom: "La lavande", clair: ["#cdb8ea", "#7144b8"], sombre: ["#5a447f", "#c4a2ff"]}
+  {cle: "lavande", nom: "La lavande", clair: ["#cdb8ea", "#7144b8"], sombre: ["#5a447f", "#c4a2ff"]},
+  {cle: "aromatiques", nom: "Les plantes aromatiques", clair: ["#bcd9a8", "#4f8a2e"], sombre: ["#3f5f30", "#9fd67a"]},
+  {cle: "vigne", nom: "La vigne", clair: ["#e3b3c4", "#8e2a4f"], sombre: ["#6e3346", "#f08bb0"]}
 ]
 couleurOdeur = (cle, fort) => {
   const o = odeurs.find((o) => o.cle === cle)
@@ -69,14 +69,15 @@ couleurOdeur = (cle, fort) => {
 
 ```{ojs}
 //| echo: false
+formatPart = (x) => pourcent(x, x < 0.0001 ? 3 : x < 0.001 ? 2 : x < 0.01 ? 1 : 0)
 vues = [
   {cle: "dominante", nom: "L'odeur dominante"},
-  {cle: "porcs", nom: "Porcs", unite: "porcs au km²", seuils: [1, 10, 50, 100, 250, 500],
-   format: entier},
-  {cle: "volailles", nom: "Volailles", unite: "volailles au km²", seuils: [100, 500, 1000, 2500, 5000, 10000],
-   format: entier},
-  {cle: "lavande", nom: "Lavande", unite: "part de la surface en lavande", seuils: [0.0001, 0.001, 0.005, 0.01, 0.03, 0.06],
-   format: (x) => pourcent(x, x < 0.001 ? 2 : x < 0.01 ? 1 : 0)}
+  {cle: "lavande", nom: "Lavande", unite: "part de la surface en lavande",
+   seuils: [0.0001, 0.001, 0.005, 0.01, 0.03, 0.06], format: formatPart},
+  {cle: "aromatiques", nom: "Plantes aromatiques", unite: "part de la surface en plantes aromatiques",
+   seuils: [0.00005, 0.0005, 0.001, 0.005, 0.01, 0.03], format: formatPart},
+  {cle: "vigne", nom: "Vigne", unite: "part de la surface en vigne",
+   seuils: [0.001, 0.01, 0.05, 0.1, 0.2, 0.4], format: formatPart}
 ]
 viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]})
 ```
@@ -89,16 +90,16 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]}
   const legendeDominante = () => html`<div style="display: flex; flex-wrap: wrap; gap: 0.4em 1.6em; font-size: 0.85em; margin-bottom: 0.4em">
     ${odeurs.map((o) => html`<span>
       <span style="display: inline-block; width: 14px; height: 14px; background: ${couleurOdeur(o.cle, false)}; vertical-align: -2px"></span><span style="display: inline-block; width: 14px; height: 14px; background: ${couleurOdeur(o.cle, true)}; vertical-align: -2px; margin-right: 0.3em"></span>${o.nom}</span>`)}
-    <span><span style="display: inline-block; width: 14px; height: 14px; background: ${grisNeutre}; vertical-align: -2px; margin-right: 0.3em; border: 1px solid ${grisSecret}"></span>Aucune des trois</span>
-    <span style="opacity: 0.8">Clair : 3 à 10 fois la densité nationale ; foncé : 10 fois ou plus.</span>
+    <span><span style="display: inline-block; width: 14px; height: 14px; background: ${grisNeutre}; vertical-align: -2px; margin-right: 0.3em; border: 1px solid ${grisBordure}"></span>Aucune des trois</span>
+    <span style="opacity: 0.8">Clair : 3 à 10 fois la part nationale ; foncé : 10 fois ou plus.</span>
   </div>`
 
   const couleurDominante = (p) => p.dominante ? couleurOdeur(p.dominante, p.intensite >= 10) : grisNeutre
   const o = odeurs.find((o) => o.cle === vue.cle)
   const gamme = o && d3.quantize(d3.interpolateLab(grisNeutre, (sombre ? o.sombre : o.clair)[1]), vue.seuils.length + 1)
-  const densite = (p) => p[`densite_${vue.cle}`]
-  const couleurDensite = (p) => densite(p) === null ? grisSecret
-    : gamme[d3.bisectRight(vue.seuils, densite(p))]
+  const part = (p) => p[`densite_${vue.cle}`]
+  const couleurPart = (p) => gamme[d3.bisectRight(vue.seuils, part(p))]
+  const ligne = (p, cle, nom) => `${nom} : ${entier(p[`${cle}_ha`])} ha (${pourcent(p[`densite_${cle}`], 2)} de la surface)`
 
   const carte = Plot.plot({
     width: 820,
@@ -108,7 +109,7 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]}
     marks: [
       Plot.geo(departements, {fill: grisNeutre}),
       Plot.geo(zones, {
-        fill: (f) => vue.cle === "dominante" ? couleurDominante(f.properties) : couleurDensite(f.properties),
+        fill: (f) => vue.cle === "dominante" ? couleurDominante(f.properties) : couleurPart(f.properties),
         stroke: fond, strokeWidth: 0.25
       }),
       Plot.geo(departements, {stroke: fond, strokeWidth: 1}),
@@ -116,9 +117,9 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]}
         title: (f) => {
           const p = f.properties
           return `${p.nom}${p.departements > 1 ? ` (partie ${p.dep})` : ` (${p.dep})`}\n` +
-            `Porcs : ${p.porcs === null ? "secret statistique" : `${entier(p.porcs)} (${entier(p.densite_porcs)} au km²)`}\n` +
-            `Volailles : ${p.volailles === null ? "secret statistique" : `${entier(p.volailles)} (${entier(p.densite_volailles)} au km²)`}\n` +
-            `Lavande : ${entier(p.lavande_ha)} ha (${pourcent(p.densite_lavande, 2)} de la surface)` +
+            `${ligne(p, "lavande", "Lavande")}\n` +
+            `${ligne(p, "aromatiques", "Plantes aromatiques")}\n` +
+            `${ligne(p, "vigne", "Vigne")}` +
             (p.dominante ? `\nÇa sent ${odeurs.find((o) => o.cle === p.dominante).nom.toLowerCase()} : ${entier(p.intensite)} fois la moyenne` : "")
         }
       })))
@@ -140,27 +141,28 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]}
 //| echo: false
 html`<p><small>
   ${vue.cle === "dominante"
-    ? html`Pour chaque intercommunalité, on rapporte la densité de porcs, de volailles et de
-      lavande à leur densité dans toute la France métropolitaine ; l'odeur retenue est celle
-      dont le rapport est le plus élevé, s'il atteint au moins 3.`
-    : html`${vue.unite[0].toUpperCase() + vue.unite.slice(1)}, par intercommunalité.
-      En gris foncé : effectif couvert par le secret statistique.`}
-  Les intercommunalités à cheval sur deux départements sont coupées en deux. Sources : Agreste,
-  recensement agricole 2020 ; IGN, registre parcellaire graphique 2020 ; Insee, intercommunalités
-  au 1<sup>er</sup> janvier 2021 ; IGN, ADMIN EXPRESS COG CARTO 2023, via cartiflette.
+    ? html`Pour chaque intercommunalité, on rapporte la part de la surface en lavande, en plantes
+      aromatiques et en vigne à leur part dans toute la France métropolitaine ; l'odeur retenue
+      est celle dont le rapport est le plus élevé, s'il atteint au moins 3.`
+    : html`${vue.unite[0].toUpperCase() + vue.unite.slice(1)}, par intercommunalité.`}
+  Les intercommunalités à cheval sur deux départements sont coupées en deux. Sources : IGN,
+  registre parcellaire graphique 2020 ; Insee, intercommunalités au 1<sup>er</sup> janvier 2021 ;
+  IGN, ADMIN EXPRESS COG CARTO 2023, via cartiflette.
 </small></p>`
 ```
 
 ```{ojs}
 //| echo: false
-html`<p>La Bretagne sent le porc : ${pourcent(chiffres.part_bretagne_porcs)} des porcs de
-métropole vivent dans ses quatre départements, qui couvrent ${pourcent(chiffres.part_bretagne_surface)}
-du territoire. Autour, dans la Bretagne intérieure, la Sarthe et la Vendée, ce sont les volailles
-qui dominent, comme plus au sud dans les Landes et le Gers, pays du canard gras. La lavande, elle,
-tient dans un triangle de Haute-Provence, de la Drôme et du Vaucluse :
-${pourcent(chiffres.part_lavande_trois_dep)} des surfaces dans ces trois départements. Ailleurs, la
-plus grande partie du pays ne sent aucune des trois plus que la moyenne : céréales, vignes,
-prairies à bovins (que ce fichier ne permet pas de compter, voir plus bas), forêts et villes.</p>`
+liste = (l) => l.length > 1 ? `${l.slice(0, -1).join(", ")} et ${l[l.length - 1]}` : l[0]
+html`<p>${pourcent(chiffres.part_lavande_trois_dep)} de la lavande pousse dans trois
+départements, ${liste(premiers.lavande)}, qui couvrent
+${pourcent(chiffres.surface_lavande_trois_dep)} du territoire. Pour les plantes aromatiques, les
+trois premiers départements, ${liste(premiers.aromatiques)}, en réunissent
+${pourcent(chiffres.part_aromatiques_trois_dep)} (sur ${pourcent(chiffres.surface_aromatiques_trois_dep)}
+du territoire) ; pour la vigne, ${liste(premiers.vigne)} en réunissent
+${pourcent(chiffres.part_vigne_trois_dep)} (sur ${pourcent(chiffres.surface_vigne_trois_dep)}
+du territoire). Ailleurs, la plus grande partie du pays ne sent aucune des trois plus que la
+moyenne : céréales, prairies, forêts et villes.</p>`
 ```
 
 ## Le pays de la lavande
@@ -216,9 +218,8 @@ fine, qui pousse plus haut.
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Recensement agricole 2020, cheptels détaillés par EPCI](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_2141_EPCI/detail/) | Agreste (SSM Agriculture) | nombre de porcs et de volailles des exploitations de chaque intercommunalité | CSV |
-| [Registre parcellaire graphique 2020](https://geoservices.ign.fr/rpg) | IGN, à partir des déclarations PAC (ASP) | le contour et la surface des parcelles de lavande et lavandin | GeoJSON (WFS) |
-| [Intercommunalités au 1<sup>er</sup> janvier 2021 et 2020](https://www.insee.fr/fr/information/2510634) | Insee | l'intercommunalité de chaque commune, et son nom | Excel |
+| [Registre parcellaire graphique 2020](https://geoservices.ign.fr/rpg) | IGN, à partir des déclarations PAC (ASP) | le contour et la surface des parcelles de lavande, de plantes aromatiques et de vigne | GeoJSON (WFS) |
+| [Intercommunalités au 1<sup>er</sup> janvier 2021](https://www.insee.fr/fr/information/2510634) | Insee | l'intercommunalité de chaque commune, et son nom | Excel |
 | [Communes 2023](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune, les départements | GeoParquet |
 
 Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
@@ -228,7 +229,6 @@ Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://d
 import io
 import json
 import pathlib
-import tempfile
 import zipfile
 
 import duckdb
@@ -248,149 +248,97 @@ SET enable_progress_bar = false
 {{< include _liens/19-smell.py >}}
 ```
 
-### Les cheptels (Agreste, recensement agricole 2020)
-
-Le recensement agricole compte, dans chaque exploitation, les animaux présents au moment de
-l'enquête. Agreste diffuse ces effectifs par intercommunalité (EPCI) dans un grand fichier
-(200 Mo) : une ligne par territoire, type d'animal, taille d'exploitation et indicateur. On garde
-les effectifs (`N027 = '040.01'`), toutes tailles d'exploitation confondues (`N122 = '0'`), pour
-le total des porcins (`ra_cheptel2 = '5'`) et celui des volailles (`'7'`). Quand trop peu
-d'exploitations sont en jeu, l'effectif est couvert par le secret statistique : la valeur est
-vide et la colonne `Secret` vaut `oui`.
-
-Le code du territoire (`GEO`) colle `EPCI`, le département et le numéro SIREN de
-l'intercommunalité : une intercommunalité à cheval sur deux départements y a deux lignes, une par
-département.
-
-```{python}
-# Le serveur coupe parfois le téléchargement : requests le signale (la taille reçue ne
-# correspond pas à celle annoncée) et on recommence.
-def telecharger(url, chemin, essais=5):
-    for essai in range(essais):
-        try:
-            reponse = requests.get(url, timeout=600)
-            reponse.raise_for_status()
-            pathlib.Path(chemin).write_bytes(reponse.content)
-            return
-        except requests.RequestException:
-            if essai == essais - 1:
-                raise
-
-
-with tempfile.TemporaryDirectory() as dossier:
-    telecharger(SOURCES["cheptels"], f"{dossier}/cheptels.csv")
-    con.sql(f"""
-    CREATE TABLE cheptels_bruts AS
-    SELECT GEO AS code, DEP AS dep,
-           CASE ra_cheptel2 WHEN '5' THEN 'porcs' ELSE 'volailles' END AS animal,
-           TRY_CAST(VALEUR_EXTRAPOLEE AS DOUBLE) AS effectif, Secret = 'oui' AS secret
-    FROM read_csv('{dossier}/cheptels.csv', delim = ';', all_varchar = true)
-    WHERE N027 = '040.01' AND N122 = '0' AND ra_cheptel2 IN ('5', '7')
-      AND (GEO LIKE 'EPCI%' OR GEO LIKE 'DEPZ%')
-    """)
-
-con.sql("""
-SELECT animal, count(*) AS intercommunalites, count(*) FILTER (WHERE secret) AS sous_secret,
-       sum(effectif) AS effectif_connu
-FROM cheptels_bruts WHERE code LIKE 'EPCI%' GROUP BY animal ORDER BY animal
-""").df().style.hide(axis="index").format("{:,.0f}", subset=["effectif_connu"])
-```
-
-Les bovins figurent aussi dans le fichier, mais leurs lignes sont en double, avec des valeurs
-différentes, pour une partie des intercommunalités : on les laisse de côté. Les libellés des
-territoires (`GEO_LIB`) sont faux eux aussi (un même nom pour tout un département) : les noms
-viendront de l'Insee.
-
-```{python}
-con.sql("""
-CREATE TABLE cheptels AS
-PIVOT (SELECT code, dep, animal, effectif FROM cheptels_bruts WHERE code LIKE 'EPCI%')
-ON animal USING any_value(effectif)
-""")
-# Les totaux départementaux ne sont pas sous secret : ils servent aux chiffres d'ensemble.
-departements_cheptels = con.sql("""
-PIVOT (SELECT dep, animal, effectif FROM cheptels_bruts WHERE code LIKE 'DEPZ%')
-ON animal USING sum(effectif)
-""").df()
-```
-
-### La lavande (IGN, registre parcellaire graphique 2020)
+### Les cultures (IGN, registre parcellaire graphique 2020)
 
 Le [registre parcellaire graphique](https://geoservices.ign.fr/rpg) (RPG) dessine les parcelles
-déclarées par les agriculteurs pour les aides de la PAC, avec leur culture principale. La lavande
-et le lavandin y ont un code, `LAV`. Plutôt que de télécharger le RPG de toute la France (plusieurs
-gigaoctets), on interroge le service WFS de l'IGN avec un filtre sur ce code, par pages de 5 000
-parcelles. On prend le millésime 2020, celui du recensement agricole.
+déclarées par les agriculteurs pour les aides de la PAC, avec leur culture principale. Trois
+familles de codes nous intéressent : la lavande et le lavandin (`LAV`), les plantes à parfum,
+aromatiques et médicinales, annuelles et pérennes (`PPA` et `PPP` : thym, menthe, sauge,
+camomille…), et la vigne de raisin de cuve (`VRC`). Plutôt que de télécharger le RPG de toute la
+France (plusieurs gigaoctets), on interroge le service WFS de l'IGN avec un filtre sur ces codes,
+par pages de 5 000 parcelles. On prend le millésime 2020.
+
+La vigne compte plus de 450 000 parcelles : on ne garde pas leurs contours en mémoire. Page après
+page, on ne conserve que l'identifiant, la culture, la surface et un point à l'intérieur de la
+parcelle, puis la géométrie complète est jetée.
 
 ```{python}
 WFS_URL = "https://data.geopf.fr/wfs/ows"
 PAGE = 5000
 
 
-def page_lavande(debut):
+# Une page de parcelles ; en cas d'erreur réseau, requests la signale et on recommence.
+def page_rpg(filtre, debut, essais=5):
     parametres = {
         "SERVICE": "WFS", "VERSION": "2.0.0", "REQUEST": "GetFeature",
         "TYPENAMES": "RPG.2020:parcelles_graphiques", "OUTPUTFORMAT": "application/json",
-        "CQL_FILTER": "code_cultu = 'LAV'", "SORTBY": "id_parcel",
+        "CQL_FILTER": filtre, "SORTBY": "id_parcel",
         "COUNT": PAGE, "STARTINDEX": debut,
     }
-    reponse = requests.get(WFS_URL, params=parametres, timeout=600)
-    reponse.raise_for_status()
-    return reponse.json()["features"]
+    for essai in range(essais):
+        try:
+            reponse = requests.get(WFS_URL, params=parametres, timeout=300)
+            reponse.raise_for_status()
+            return reponse.json()["features"]
+        except requests.RequestException:
+            if essai == essais - 1:
+                raise
 
 
-parcelles = []
-while True:
-    page = page_lavande(len(parcelles))
-    parcelles += page
-    if len(page) < PAGE:
-        break
+con.sql("CREATE TABLE page_brute (id VARCHAR, culture VARCHAR, ha DOUBLE, geojson VARCHAR)")
+con.sql("CREATE TABLE parcelles (id VARCHAR, culture VARCHAR, ha DOUBLE, point GEOMETRY)")
 
-con.sql("CREATE TABLE lavande_brute (id VARCHAR, ha DOUBLE, geojson VARCHAR)")
-con.executemany(
-    "INSERT INTO lavande_brute VALUES (?, ?, ?)",
-    [(p["properties"]["id_parcel"], p["properties"]["surf_parc"], json.dumps(p["geometry"]))
-     for p in parcelles],
-)
+
+def parcelles_rpg(culture, filtre):
+    debut = 0
+    while True:
+        page = page_rpg(filtre, debut)
+        con.executemany(
+            "INSERT INTO page_brute VALUES (?, ?, ?, ?)",
+            [(p["properties"]["id_parcel"], culture, p["properties"]["surf_parc"],
+              json.dumps(p["geometry"])) for p in page],
+        )
+        con.sql("""
+        INSERT INTO parcelles
+        SELECT id, culture, ha, ST_PointOnSurface(ST_GeomFromGeoJSON(geojson)) FROM page_brute
+        """)
+        con.sql("DELETE FROM page_brute")
+        debut += len(page)
+        if len(page) < PAGE:
+            break
+
+
+parcelles_rpg("lavande", "code_cultu = 'LAV'")
+parcelles_rpg("aromatiques", "code_cultu IN ('PPA', 'PPP')")
+parcelles_rpg("vigne", "code_cultu = 'VRC'")
 con.sql("""
-CREATE TABLE lavande AS
-SELECT id, ha, ST_PointOnSurface(ST_GeomFromGeoJSON(geojson)) AS point FROM lavande_brute
-""")
-con.sql("SELECT count(*) AS parcelles, round(sum(ha)) AS hectares FROM lavande").df()
+SELECT culture, count(*) AS parcelles, round(sum(ha)) AS hectares
+FROM parcelles GROUP BY culture ORDER BY culture
+""").df()
 ```
 
 ### Les intercommunalités (Insee) et leurs contours (cartiflette)
 
-Agreste ne donne pas de contours. On les reconstruit en regroupant les communes par
-intercommunalité et par département. Les effectifs sont diffusés dans la géographie des
-intercommunalités au 1<sup>er</sup> janvier 2021, à une exception près : la Métropole européenne
-de Lille et la communauté de communes de la Haute-Deûle, fusionnées depuis, y sont encore
-séparées, comme en 2020. Pour chaque commune, on retient donc son intercommunalité de 2021 si le
-fichier d'Agreste la connaît, celle de 2020 sinon.
+Le RPG ne donne pas d'intercommunalités. On reconstruit leurs contours en regroupant les communes
+par intercommunalité et par département, d'après la composition communale de l'Insee au
+1<sup>er</sup> janvier 2021. Une intercommunalité à cheval sur deux départements y est coupée en
+deux, une partie par département.
 
 ```{python}
-def composition(annee):
-    reponse = requests.get(SOURCES[f"intercommunalites_{annee}"], timeout=600)
-    reponse.raise_for_status()
-    archive = zipfile.ZipFile(io.BytesIO(reponse.content))
-    excel = archive.read(next(n for n in archive.namelist() if n.endswith(".xlsx")))
-    lire = lambda feuille: pd.read_excel(io.BytesIO(excel), sheet_name=feuille, skiprows=5,
-                                         dtype=str, engine="calamine")
-    communes = lire("Composition_communale")[["CODGEO", "EPCI", "DEP"]]
-    noms = lire("EPCI")[["EPCI", "LIBEPCI"]]
-    return communes.assign(annee=annee).merge(noms, on="EPCI")
-
-
-compositions = pd.concat([
-    composition(2021),
-    composition(2020),
-])
+reponse = requests.get(SOURCES["intercommunalites_2021"], timeout=600)
+reponse.raise_for_status()
+archive = zipfile.ZipFile(io.BytesIO(reponse.content))
+excel = archive.read(next(n for n in archive.namelist() if n.endswith(".xlsx")))
+lire = lambda feuille: pd.read_excel(io.BytesIO(excel), sheet_name=feuille, skiprows=5,
+                                     dtype=str, engine="calamine")
+composition = lire("Composition_communale")[["CODGEO", "EPCI", "DEP"]].merge(
+    lire("EPCI")[["EPCI", "LIBEPCI"]], on="EPCI"
+)
 con.sql("""
 CREATE TABLE commune_epci AS
 SELECT CODGEO AS commune, DEP AS dep, 'EPCI' || DEP || EPCI AS code, LIBEPCI AS nom
-FROM compositions
-WHERE 'EPCI' || DEP || EPCI IN (SELECT code FROM cheptels)
-QUALIFY row_number() OVER (PARTITION BY CODGEO ORDER BY annee DESC) = 1
+FROM composition
+WHERE EPCI <> 'ZZZZZZZZZ'  -- quatre îles sans intercommunalité
 """)
 ```
 
@@ -424,62 +372,69 @@ GROUP BY e.code, e.dep
 """)
 con.sql("""
 SELECT (SELECT count(*) FROM zones) AS zones_dessinees,
-       (SELECT count(*) FROM cheptels WHERE dep < '97' AND code NOT IN (SELECT code FROM zones)) AS sans_contour,
        (SELECT count(*) FROM communes WHERE commune NOT IN (SELECT commune FROM commune_epci)) AS communes_sans_epci
 """).df()
 ```
 
 ## Les traitements
 
-### Densités et odeur dominante
+### Parts de la surface et odeur dominante
 
-Chaque parcelle de lavande est rattachée à l'intercommunalité qui contient son point intérieur.
-On calcule ensuite trois densités : porcs au km², volailles au km², et part de la surface en
-lavande. Chacune est divisée par sa valeur pour toute la France métropolitaine (calculée sur les
-intercommunalités hors secret) : un indice de 3 veut dire trois fois plus dense que la moyenne.
-L'odeur dominante est celle qui a l'indice le plus élevé, si cet indice atteint 3.
+Chaque parcelle est rattachée à l'intercommunalité qui contient son point intérieur. On calcule
+ensuite, pour chaque culture, la part de la surface de l'intercommunalité qu'elle occupe
+(hectares divisés par 100, pour passer en km²). Chaque part est divisée par sa valeur pour toute
+la France métropolitaine : un indice de 3 veut dire trois fois plus de lavande (ou de plantes
+aromatiques, ou de vigne) que la moyenne. L'odeur dominante est celle qui a l'indice le plus
+élevé, si cet indice atteint 3.
 
 ```{python}
 con.sql("""
-CREATE TABLE lavande_zone AS
-SELECT l.id, l.ha, z.code, ST_X(l.point) AS lon, ST_Y(l.point) AS lat
-FROM lavande l JOIN zones z ON ST_Intersects(z.geom, l.point)
+CREATE TABLE parcelles_zone AS
+SELECT p.id, p.culture, p.ha, z.code, ST_X(p.point) AS lon, ST_Y(p.point) AS lat
+FROM parcelles p JOIN zones z ON ST_Intersects(z.geom, p.point)
 """)
 
 con.sql("""
 CREATE TABLE densites AS
-SELECT z.code, z.nom, z.dep, z.km2, c.porcs, c.volailles,
-       coalesce(l.ha, 0) AS lavande_ha,
-       c.porcs / z.km2 AS densite_porcs,
-       c.volailles / z.km2 AS densite_volailles,
-       coalesce(l.ha, 0) / 100 / z.km2 AS densite_lavande   -- 1 km² = 100 ha
+SELECT z.code, z.nom, z.dep, z.km2,
+       coalesce(p.lavande_ha, 0) AS lavande_ha,
+       coalesce(p.aromatiques_ha, 0) AS aromatiques_ha,
+       coalesce(p.vigne_ha, 0) AS vigne_ha,
+       coalesce(p.lavande_ha, 0) / 100 / z.km2 AS densite_lavande,   -- 1 km² = 100 ha
+       coalesce(p.aromatiques_ha, 0) / 100 / z.km2 AS densite_aromatiques,
+       coalesce(p.vigne_ha, 0) / 100 / z.km2 AS densite_vigne
 FROM zones z
-JOIN cheptels c USING (code)
-LEFT JOIN (SELECT code, sum(ha) AS ha FROM lavande_zone GROUP BY code) l USING (code)
+LEFT JOIN (
+    SELECT code,
+           sum(ha) FILTER (WHERE culture = 'lavande') AS lavande_ha,
+           sum(ha) FILTER (WHERE culture = 'aromatiques') AS aromatiques_ha,
+           sum(ha) FILTER (WHERE culture = 'vigne') AS vigne_ha
+    FROM parcelles_zone GROUP BY code
+) p USING (code)
 """)
 
 SEUIL = 3
 con.sql(f"""
 CREATE TABLE odeurs AS
 WITH nationales AS (
-    SELECT sum(porcs) / sum(km2) FILTER (WHERE porcs IS NOT NULL) AS porcs,
-           sum(volailles) / sum(km2) FILTER (WHERE volailles IS NOT NULL) AS volailles,
-           sum(lavande_ha) / 100 / sum(km2) AS lavande
+    SELECT sum(lavande_ha) / 100 / sum(km2) AS lavande,
+           sum(aromatiques_ha) / 100 / sum(km2) AS aromatiques,
+           sum(vigne_ha) / 100 / sum(km2) AS vigne
     FROM densites
 ),
 indices AS (
     SELECT d.*,
-           d.densite_porcs / n.porcs AS indice_porcs,
-           d.densite_volailles / n.volailles AS indice_volailles,
-           d.densite_lavande / n.lavande AS indice_lavande
+           d.densite_lavande / n.lavande AS indice_lavande,
+           d.densite_aromatiques / n.aromatiques AS indice_aromatiques,
+           d.densite_vigne / n.vigne AS indice_vigne
     FROM densites d, nationales n
 )
 SELECT *,
-       greatest(coalesce(indice_porcs, 0), coalesce(indice_volailles, 0), indice_lavande) AS intensite,
+       greatest(indice_lavande, indice_aromatiques, indice_vigne) AS intensite,
        CASE WHEN intensite < {SEUIL} THEN NULL
-            WHEN intensite = indice_porcs THEN 'porcs'
-            WHEN intensite = indice_volailles THEN 'volailles'
-            ELSE 'lavande' END AS dominante
+            WHEN intensite = indice_lavande THEN 'lavande'
+            WHEN intensite = indice_aromatiques THEN 'aromatiques'
+            ELSE 'vigne' END AS dominante
 FROM indices
 """)
 
@@ -503,9 +458,9 @@ ORDER BY dominante, intensite DESC
 
 ### Les chiffres de l'accroche
 
-La part du territoire où vit la moitié des animaux (ou pousse la moitié de la lavande) : on
-range les intercommunalités de la plus dense à la moins dense et on cumule effectifs et
-surfaces jusqu'à la moitié du total.
+La part du territoire où pousse la moitié d'une culture : on range les intercommunalités de la
+plus dense à la moins dense et on cumule surfaces cultivées et surfaces des territoires jusqu'à la
+moitié du total.
 
 ```{python}
 def moitie(colonne):
@@ -513,45 +468,50 @@ def moitie(colonne):
     WITH cumul AS (
         SELECT km2, sum({colonne}) OVER (ORDER BY {colonne} / km2 DESC) AS cumul,
                sum({colonne}) OVER () AS total
-        FROM densites WHERE {colonne} IS NOT NULL
+        FROM densites
     )
     SELECT sum(km2) FILTER (WHERE cumul <= total / 2) / (SELECT sum(km2) FROM densites)
     FROM cumul
     """).fetchone()[0]
 
 
-metropole = departements_cheptels[departements_cheptels["dep"] < "97"]
-bretagne = ["22", "29", "35", "56"]
-surface_dep = con.sql("SELECT dep, sum(km2) AS km2 FROM zones GROUP BY dep").df().set_index("dep")["km2"]
-lavande_dep = con.sql("""
-SELECT z.dep, sum(l.ha) AS ha FROM lavande_zone l JOIN zones z USING (code) GROUP BY z.dep
-""").df().set_index("dep")["ha"]
+par_dep = con.sql("""
+SELECT dep, sum(km2) AS km2, sum(lavande_ha) AS lavande, sum(aromatiques_ha) AS aromatiques,
+       sum(vigne_ha) AS vigne
+FROM densites GROUP BY dep
+""").df().set_index("dep")
 
 chiffres = {
-    "porcs": metropole["porcs"].sum(),
-    "volailles": metropole["volailles"].sum(),
-    "lavande_ha": lavande_dep.sum(),
-    "parcelles": con.sql("SELECT count(*) FROM lavande_zone").fetchone()[0],
-    "moitie_porcs": moitie("porcs"),
-    "moitie_volailles": moitie("volailles"),
-    "moitie_lavande": moitie("lavande_ha"),
-    "part_bretagne_porcs": metropole.loc[metropole["dep"].isin(bretagne), "porcs"].sum() / metropole["porcs"].sum(),
-    "part_bretagne_surface": surface_dep[bretagne].sum() / surface_dep.sum(),
-    "part_lavande_trois_dep": lavande_dep[["04", "26", "84"]].sum() / lavande_dep.sum(),
+    "parcelles": con.sql("SELECT count(*) FROM parcelles_zone WHERE culture = 'lavande'").fetchone()[0],
     "part_parcelles_cadre": con.sql("""
-        SELECT avg((lon BETWEEN 4.55 AND 6.45 AND lat BETWEEN 43.45 AND 44.6)::INTEGER) FROM lavande_zone
+        SELECT avg((lon BETWEEN 4.55 AND 6.45 AND lat BETWEEN 43.45 AND 44.6)::INTEGER)
+        FROM parcelles_zone WHERE culture = 'lavande'
     """).fetchone()[0],
 }
+noms_dep = dict(con.sql(f"""
+SELECT INSEE_DEP, LIBELLE_DEPARTEMENT
+FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
+""").fetchall())
+# Les trois départements où chaque culture est la plus présente : leur part de la culture et du territoire.
+premiers = {}
+for culture in ["lavande", "aromatiques", "vigne"]:
+    tete = par_dep[culture].nlargest(3)
+    premiers[culture] = [noms_dep[dep] for dep in tete.index]
+    chiffres[f"{culture}_ha"] = par_dep[culture].sum()
+    chiffres[f"moitie_{culture}"] = moitie(f"{culture}_ha")
+    chiffres[f"part_{culture}_trois_dep"] = tete.sum() / par_dep[culture].sum()
+    chiffres[f"surface_{culture}_trois_dep"] = par_dep.loc[tete.index, "km2"].sum() / par_dep["km2"].sum()
 chiffres = {cle: float(valeur) for cle, valeur in chiffres.items()}
-chiffres
+chiffres, premiers
 ```
 
 ### Ce qui passe à la carte
 
 Les contours des intercommunalités sont simplifiés ensemble (`ST_CoverageSimplify`, à 500 m
-environ) pour rester jointifs, et écrits avec leurs effectifs et leurs densités dans
+environ) pour rester jointifs, et écrits avec leurs surfaces et leurs parts dans
 `donnees/j19/zones.geojson`. Les parcelles de lavande, réduites à leur point intérieur, vont
-dans un CSV. Le fond des départements suit le même traitement.
+dans un CSV (celles de la vigne, bien trop nombreuses, restent hors de la page). Le fond des
+départements suit le même traitement.
 
 ```{python}
 #| output: false
@@ -577,9 +537,12 @@ def couverture_simplifiee(requete, tolerance):
 proprietes = (
     con.sql("""
     SELECT code, nom, dep, count(*) OVER (PARTITION BY nom) AS departements,
-           porcs, volailles, round(lavande_ha, 1) AS lavande_ha,
-           round(densite_porcs, 1) AS densite_porcs, round(densite_volailles, 1) AS densite_volailles,
-           round(densite_lavande, 6) AS densite_lavande, round(intensite, 1) AS intensite, dominante
+           round(lavande_ha, 1) AS lavande_ha, round(aromatiques_ha, 1) AS aromatiques_ha,
+           round(vigne_ha, 1) AS vigne_ha,
+           round(densite_lavande, 6) AS densite_lavande,
+           round(densite_aromatiques, 6) AS densite_aromatiques,
+           round(densite_vigne, 6) AS densite_vigne,
+           round(intensite, 1) AS intensite, dominante
     FROM odeurs
     """).df().set_index("code")
 )
@@ -597,8 +560,9 @@ contours = couverture_simplifiee("SELECT code, geom FROM zones WHERE code IN (SE
 con.sql(f"""
 COPY (
     SELECT l.id, c.nom AS commune, round(l.ha, 2) AS ha, round(l.lon, 4) AS lon, round(l.lat, 4) AS lat
-    FROM lavande_zone l
+    FROM parcelles_zone l
     LEFT JOIN communes c ON ST_Intersects(c.geometry, ST_Point(l.lon, l.lat))
+    WHERE l.culture = 'lavande'
     ORDER BY l.id
 ) TO '{SORTIE / "lavande.csv"}' (HEADER)
 """)
@@ -626,7 +590,7 @@ SELECT nom, round(ST_X(ST_PointOnSurface(geometry)), 4) AS lon,
 FROM communes
 WHERE commune IN ('04230', '04112', '04070', '84123', '26220', '84003', '04088')
 """).df()
-ojs_define(departements=departements, chiffres=chiffres, reperes=reperes)
+ojs_define(departements=departements, chiffres=chiffres, premiers=premiers, reperes=reperes)
 ```
 
 ## Les données de la carte
@@ -646,22 +610,23 @@ viewof tableau = Inputs.search(lignes, {
 ```{ojs}
 //| echo: false
 Inputs.table(tableau, {
-  columns: ["nom", "dep", "porcs", "volailles", "lavande_ha", "densite_porcs", "densite_volailles", "densite_lavande", "dominante"],
+  columns: ["nom", "dep", "lavande_ha", "aromatiques_ha", "vigne_ha", "densite_lavande", "densite_aromatiques", "densite_vigne", "dominante"],
   header: {
-    nom: "Intercommunalité", dep: "Département", porcs: "Porcs", volailles: "Volailles",
-    lavande_ha: "Lavande (ha)", densite_porcs: "Porcs au km²", densite_volailles: "Volailles au km²",
-    densite_lavande: "Part en lavande", dominante: "Odeur dominante"
+    nom: "Intercommunalité", dep: "Département",
+    lavande_ha: "Lavande (ha)", aromatiques_ha: "Aromatiques (ha)", vigne_ha: "Vigne (ha)",
+    densite_lavande: "Part en lavande", densite_aromatiques: "Part en aromatiques",
+    densite_vigne: "Part en vigne", dominante: "Odeur dominante"
   },
   format: {
-    porcs: (x) => x === null ? "secret" : entier(x),
-    volailles: (x) => x === null ? "secret" : entier(x),
     lavande_ha: (x) => virgule(x),
-    densite_porcs: (x) => x === null ? "" : virgule(x),
-    densite_volailles: (x) => x === null ? "" : entier(x),
+    aromatiques_ha: (x) => virgule(x),
+    vigne_ha: (x) => virgule(x),
     densite_lavande: (x) => pourcent(x, 2),
+    densite_aromatiques: (x) => pourcent(x, 3),
+    densite_vigne: (x) => pourcent(x, 2),
     dominante: (x) => x ?? ""
   },
-  sort: "densite_porcs",
+  sort: "densite_lavande",
   reverse: true,
   rows: 15
 })
@@ -670,7 +635,7 @@ Inputs.table(tableau, {
 ```{ojs}
 //| echo: false
 DOM.download(
-  () => new Blob([d3.csvFormat(lignes, ["code", "nom", "dep", "porcs", "volailles", "lavande_ha", "densite_porcs", "densite_volailles", "densite_lavande", "intensite", "dominante"])], {type: "text/csv"}),
+  () => new Blob([d3.csvFormat(lignes, ["code", "nom", "dep", "lavande_ha", "aromatiques_ha", "vigne_ha", "densite_lavande", "densite_aromatiques", "densite_vigne", "intensite", "dominante"])], {type: "text/csv"}),
   "odeurs_intercommunalites_2020.csv",
   "Télécharger (CSV)"
 )
@@ -680,32 +645,28 @@ DOM.download(
 
 ## Précautions
 
-- La carte ne mesure pas des odeurs, mais des sources d'odeurs. Ce qu'on sent dépend du vent, de
-  la saison, des bâtiments (une porcherie fermée avec lavage d'air sent moins qu'une fosse à
-  lisier ouverte) et surtout des épandages, qui portent le lisier bien au-delà de l'élevage.
-- Une densité par intercommunalité étale les animaux sur tout le territoire, forêts et villes
-  comprises. Une grande intercommunalité avec un seul gros élevage peut paraître peu odorante.
-- Les effectifs sont ceux du jour de l'enquête, en 2020. Une volaille de chair vit six à
-  dix semaines : l'effectif présent ne dit pas le nombre d'animaux élevés dans l'année.
-- Le secret statistique masque les effectifs d'une partie des intercommunalités :
-  surtout pour les porcs, quand une ou deux exploitations seulement en élèvent. Ces territoires
-  sont en gris foncé sur les cartes de densité et ne comptent pas dans les moyennes nationales.
-- 19 communes n'ont pas de données : quatre îles qui n'appartiennent à aucune intercommunalité
-  (Bréhat, Ouessant, Sein, Yeu), et quelques communes d'intercommunalités à cheval sur deux
-  départements, dont Agreste ne publie pas la partie (la partie essonnienne de Grand-Orly Seine
-  Bièvre, par exemple). Elles restent en gris clair.
-- Les bovins, première source d'effluents en France, manquent : leurs lignes dans le fichier
-  d'Agreste par intercommunalité sont incohérentes.
+- La carte ne mesure pas des odeurs, mais des sources d'odeurs. Ce qu'on sent dépend de la saison
+  (la lavande fleurit en juin et juillet, les vendanges ont lieu en septembre), du vent et de
+  l'heure : une vigne ne sent presque rien en hiver.
+- Une part de surface par intercommunalité étale les cultures sur tout le territoire, forêts et
+  villes comprises. Une grande intercommunalité avec quelques champs seulement peut paraître peu
+  odorante.
 - Le RPG ne contient que les parcelles déclarées à la PAC : la lavande des jardins, et celle de
   quelques exploitations qui ne demandent pas d'aide, n'y figurent pas. La lavande fine et le
   lavandin partagent le même code.
+- Les codes `PPA` et `PPP` regroupent des plantes très diverses (thym, menthe, sauge, mais aussi
+  plantes médicinales ou à usage industriel) : toutes ne sentent pas, ou pas de la même façon.
+- Seule la vigne de raisin de cuve (`VRC`) est retenue : les vignes de raisin de table ou de
+  porte-greffes sont à part.
+- Quatre îles n'appartiennent à aucune intercommunalité (Bréhat, Ouessant, Sein, Yeu) : elles
+  restent en gris clair.
 
 ## Pour aller plus loin
 
 - [J3 · Polygons](03-polygons.qmd) : les parcelles du registre parcellaire graphique dans le
   Pas-de-Calais.
 - [J5 · Sight](05-sight.qmd) et [J11 · Sound](11-sound.qmd) : les deux autres sens du défi.
+- [J23 · Taste](23-taste.qmd) : les appellations d'origine, dont celles des vins, commune par
+  commune.
 - Agreste, [la spécialisation agricole des communes en 2020](https://agreste.agriculture.gouv.fr/agreste-web/disaron/Carte-RA2020-otex/detail/) :
   la production principale des exploitations, commune par commune.
-- Agreste, [cartographie communale du recensement agricole 2020](https://stats.agriculture.gouv.fr/cartostat/#c=indicator&i=elev_2020_2.explporcsengr20&t=A02) :
-  les exploitations qui élèvent des porcs, commune par commune.
