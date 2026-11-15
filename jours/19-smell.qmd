@@ -2,14 +2,23 @@
 title: "J19 · Smell. À quoi sent la campagne ?"
 description: "Lavande, plantes aromatiques, vigne : trois odeurs agréables de la campagne, intercommunalité par intercommunalité, d'après le registre parcellaire graphique 2020."
 image: vignettes/19-smell.webp
-charte: {couleur: "#7144b8", sombre: "#c4a2ff"}
 resources:
   - donnees/j19/*.csv
   - donnees/j19/*.geojson
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#7144b8"
+  sombre: "#c4a2ff"
 ---
+
+Pour la dix-neuvième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Smell"**]{.underline}), une carte de ce que l'on sent de bon en traversant la campagne. Les odeurs ne se mesurent pas, mais leurs sources se comptent : le [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) de l'IGN localise chaque parcelle déclarée à la PAC, avec sa culture. Trois odeurs agréables, donc : la [lavande]{.underline} en fleur au début de l'été, le thym, la menthe ou la sauge des [plantes aromatiques]{.underline color="#4f8a2e"}, et le moût de la [vigne]{.underline color="#8e2a4f"} au moment des vendanges. Pour chaque intercommunalité, la carte montre celle qui s'y fait le plus sentir, rapportée à la moyenne nationale (voir @tip-pour-aller-plus-loin pour aller plus loin).
+
+------
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -18,23 +27,14 @@ entier = (x) => Math.round(x).toLocaleString("fr-FR")
 pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
 html`<p class="lead">
   En 2020, la France métropolitaine cultivait
-  <strong>${entier(chiffres.lavande_ha)} hectares de lavande</strong>,
-  <strong>${entier(chiffres.aromatiques_ha)} hectares de plantes aromatiques</strong> et
-  <strong>${entier(chiffres.vigne_ha)} hectares de vigne</strong>. Ces odeurs-là ne sont pas
+  <span class="souligne">${entier(chiffres.lavande_ha)} hectares de lavande</span>,
+  <span class="souligne" style="--souligne: #4f8a2e">${entier(chiffres.aromatiques_ha)} hectares de plantes aromatiques</span> et
+  <span class="souligne" style="--souligne: #8e2a4f">${entier(chiffres.vigne_ha)} hectares de vigne</span>. Ces odeurs-là ne sont pas
   partout : la moitié de la lavande pousse sur ${pourcent(chiffres.moitie_lavande, 1)} du
   territoire, la moitié des plantes aromatiques sur ${pourcent(chiffres.moitie_aromatiques, 1)},
   et la moitié de la vigne sur ${pourcent(chiffres.moitie_vigne, 1)}.
 </p>`
 ```
-
-Pour le sens de l'odorat, une carte de ce que l'on sent de bon en traversant la campagne. Les
-odeurs ne se mesurent pas, mais leurs sources se comptent : le registre parcellaire graphique
-localise chaque parcelle déclarée à la PAC, avec sa culture. Trois odeurs agréables, donc : la
-lavande en fleur au début de l'été, le thym, la menthe ou la sauge des plantes à parfum et
-aromatiques, et le moût de la vigne au moment des vendanges. Pour chaque intercommunalité, la
-carte montre celle qui s'y fait le plus sentir, rapportée à la moyenne nationale (making of 👇).
-
---------
 
 ```{ojs}
 //| echo: false
@@ -165,7 +165,7 @@ du territoire). Ailleurs, la plus grande partie du pays ne sent aucune des trois
 moyenne : céréales, prairies, forêts et villes.</p>`
 ```
 
-## Le pays de la lavande
+## Le pays de la lavande {.unnumbered}
 
 ```{ojs}
 //| echo: false
@@ -214,18 +214,25 @@ hybride, plus productive, distillée pour la parfumerie et la lessive. Au nord-o
 d'Albion autour de Sault et la Drôme provençale autour de Nyons cultivent aussi la lavande
 fine, qui pousse plus haut.
 
+:::
+
+# Making of
+
 ## Les données
+
+La carte croise trois sources publiques : le [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) de l'IGN, la [[composition communale des intercommunalités]{.underline}](https://www.insee.fr/fr/information/2510634) de l'Insee, et le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) pour les contours des communes et des départements.
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Registre parcellaire graphique 2020](https://geoservices.ign.fr/rpg) | IGN, à partir des déclarations PAC (ASP) | le contour et la surface des parcelles de lavande, de plantes aromatiques et de vigne | GeoJSON (WFS) |
-| [Intercommunalités au 1<sup>er</sup> janvier 2021](https://www.insee.fr/fr/information/2510634) | Insee | l'intercommunalité de chaque commune, et son nom | Excel |
-| [Communes 2023](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune, les départements | GeoParquet |
+| [Registre parcellaire graphique 2020](https://geoservices.ign.fr/rpg) | IGN, à partir des déclarations PAC (ASP) | le contour et la surface des parcelles de lavande, de plantes aromatiques et de vigne | {{< iconify vscode-icons file-type-json >}} GeoJSON (WFS) |
+| [Intercommunalités au 1<sup>er</sup> janvier 2021](https://www.insee.fr/fr/information/2510634) | Insee | l'intercommunalité de chaque commune, et son nom | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Communes 2023](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune, les départements | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
-Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
+Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
 
 ```{python}
 #| output: false
+#| filename: "Configuration de l'environnement"
 import io
 import json
 import pathlib
@@ -263,6 +270,7 @@ page, on ne conserve que l'identifiant, la culture, la surface et un point à l'
 parcelle, puis la géométrie complète est jetée.
 
 ```{python}
+#| filename: "Lecture du RPG par le WFS (IGN)"
 WFS_URL = "https://data.geopf.fr/wfs/ows"
 PAGE = 5000
 
@@ -325,6 +333,7 @@ par intercommunalité et par département, d'après la composition communale de 
 deux, une partie par département.
 
 ```{python}
+#| filename: "Lecture des intercommunalités (Insee)"
 reponse = requests.get(SOURCES["intercommunalites_2021"], timeout=600)
 reponse.raise_for_status()
 archive = zipfile.ZipFile(io.BytesIO(reponse.content))
@@ -348,6 +357,7 @@ l'une d'elles, qui suffit à retrouver l'intercommunalité. On se limite à la F
 métropolitaine.
 
 ```{python}
+#| filename: "Lecture des communes et contours des intercommunalités (cartiflette)"
 CARTIFLETTE_URL = (
     "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
     "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2023/"
@@ -388,6 +398,7 @@ aromatiques, ou de vigne) que la moyenne. L'odeur dominante est celle qui a l'in
 élevé, si cet indice atteint 3.
 
 ```{python}
+#| filename: "Parts de la surface et odeur dominante"
 con.sql("""
 CREATE TABLE parcelles_zone AS
 SELECT p.id, p.culture, p.ha, z.code, ST_X(p.point) AS lon, ST_Y(p.point) AS lat
@@ -448,6 +459,7 @@ FROM odeurs GROUP BY ALL ORDER BY km2 DESC
 Les intercommunalités où chaque odeur est la plus forte :
 
 ```{python}
+#| filename: "Les intercommunalités les plus parfumées"
 con.sql("""
 SELECT dominante, nom, dep, round(intensite) AS fois_la_moyenne
 FROM odeurs WHERE dominante IS NOT NULL
@@ -463,6 +475,7 @@ plus dense à la moins dense et on cumule surfaces cultivées et surfaces des te
 moitié du total.
 
 ```{python}
+#| filename: "Les chiffres de l'accroche"
 def moitie(colonne):
     return con.sql(f"""
     WITH cumul AS (
@@ -515,6 +528,7 @@ départements suit le même traitement.
 
 ```{python}
 #| output: false
+#| filename: "Contours simplifiés et parcelles (GeoJSON, CSV)"
 SORTIE = pathlib.Path("donnees/j19")
 SORTIE.mkdir(parents=True, exist_ok=True)
 
@@ -584,6 +598,7 @@ departements = {
 Quelques communes servent de repères sur la carte de la lavande.
 
 ```{python}
+#| filename: "Ce qui passe à la page (ojs_define)"
 reperes = con.sql("""
 SELECT nom, round(ST_X(ST_PointOnSurface(geometry)), 4) AS lon,
        round(ST_Y(ST_PointOnSurface(geometry)), 4) AS lat
@@ -595,7 +610,13 @@ ojs_define(departements=departements, chiffres=chiffres, premiers=premiers, repe
 
 ## Les données de la carte
 
+Après toutes ces étapes, on obtient une table des intercommunalités, avec leurs surfaces en lavande, en plantes aromatiques et en vigne, leur part du territoire et l'odeur dominante. La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+
+<br>
+
 ::: {.column-page}
+
+::: {.content-visible when-format="html"}
 
 ```{ojs}
 //| echo: false
@@ -643,7 +664,10 @@ DOM.download(
 
 :::
 
-## Précautions
+:::
+
+::: {.callout-caution collapse="true"}
+## Précautions d'analyse
 
 - La carte ne mesure pas des odeurs, mais des sources d'odeurs. Ce qu'on sent dépend de la saison
   (la lavande fleurit en juin et juillet, les vendanges ont lieu en septembre), du vent et de
@@ -661,6 +685,11 @@ DOM.download(
 - Quatre îles n'appartiennent à aucune intercommunalité (Bréhat, Ouessant, Sein, Yeu) : elles
   restent en gris clair.
 
+:::
+
+## Références {.unnumbered}
+
+::: {#tip-pour-aller-plus-loin .callout-tip}
 ## Pour aller plus loin
 
 - [J3 · Polygons](03-polygons.qmd) : les parcelles du registre parcellaire graphique dans le
@@ -668,5 +697,7 @@ DOM.download(
 - [J5 · Sight](05-sight.qmd) et [J11 · Sound](11-sound.qmd) : les deux autres sens du défi.
 - [J23 · Taste](23-taste.qmd) : les appellations d'origine, dont celles des vins, commune par
   commune.
-- Agreste, [la spécialisation agricole des communes en 2020](https://agreste.agriculture.gouv.fr/agreste-web/disaron/Carte-RA2020-otex/detail/) :
+- Agreste, [[la spécialisation agricole des communes en 2020]{.underline}](https://agreste.agriculture.gouv.fr/agreste-web/disaron/Carte-RA2020-otex/detail/) :
   la production principale des exploitations, commune par commune.
+
+:::
