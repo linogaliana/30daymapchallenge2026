@@ -1,6 +1,7 @@
 ---
 title: "J18 · NULL. Le prix du mètre carré, et ses trous"
 description: "Combien coûte un mètre carré dans votre commune ? Dans 1 780 communes, les données des notaires répondent NULL : pas zéro, une absence, qui a quatre causes différentes et qu'on peut dessiner de quatre façons."
+image: vignettes/18-null.webp
 resources:
   - donnees/j18/*.csv
   - donnees/j18/*.geojson
