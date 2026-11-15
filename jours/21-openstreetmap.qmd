@@ -1,6 +1,7 @@
 ---
 title: "J21 · OpenStreetMap. Les monuments historiques, recensés deux fois"
 description: "Les monuments protégés de la base Mérimée du ministère de la Culture, retrouvés dans OpenStreetMap grâce à leur identifiant, bassin de vie par bassin de vie, et l'écart entre les deux positions."
+image: vignettes/21-openstreetmap.webp
 execute:
   echo: true
 code-overflow: wrap

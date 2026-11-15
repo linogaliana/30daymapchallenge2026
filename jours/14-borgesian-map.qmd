@@ -1,6 +1,7 @@
 ---
 title: "J14 · Borgesian map. La carte qui recouvre tout"
 description: "Une carte qui s'ouvre sur une adresse, où l'on ajoute couche après couche les équipements des autres jours, jusqu'à recouvrir le territoire, comme la carte de Borges."
+image: vignettes/14-borgesian-map.webp
 charte: {couleur: "#7048e8", sombre: "#b197fc"}
 resources:
   - donnees/j14/*.parquet
