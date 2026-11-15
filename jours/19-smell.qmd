@@ -1,6 +1,6 @@
 ---
 title: "J19 · Smell. À quoi sent la campagne ?"
-description: "Lavande, plantes aromatiques, vigne : trois odeurs agréables de la campagne, intercommunalité par intercommunalité, d'après le registre parcellaire graphique 2020."
+description: "Lavande, plantes aromatiques, vigne : trois odeurs agréables de la campagne, intercommunalité par intercommunalité, d'après le registre parcellaire graphique et le recensement agricole 2020."
 image: vignettes/19-smell.webp
 resources:
   - donnees/j19/*.csv
@@ -14,7 +14,7 @@ charte:
   sombre: "#c4a2ff"
 ---
 
-Pour la dix-neuvième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Smell"**]{.underline}), une carte de ce que l'on sent de bon en traversant la campagne. Les odeurs ne se mesurent pas, mais leurs sources se comptent : le [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) de l'IGN localise chaque parcelle déclarée à la PAC, avec sa culture. Trois odeurs agréables, donc : la [lavande]{.underline} en fleur au début de l'été, le thym, la menthe ou la sauge des [plantes aromatiques]{.underline color="#4f8a2e"}, et le moût de la [vigne]{.underline color="#8e2a4f"} au moment des vendanges. Pour chaque intercommunalité, la carte montre celle qui s'y fait le plus sentir, rapportée à la moyenne nationale (voir @tip-pour-aller-plus-loin pour aller plus loin).
+Pour la dix-neuvième journée du [*30 day map challenge*](https://30daymapchallenge.com/) ([**"Smell"**]{.underline}), une carte de ce que l'on sent de bon en traversant la campagne. Les odeurs ne se mesurent pas, mais leurs sources se comptent : le [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) de l'IGN localise chaque parcelle déclarée à la PAC, avec sa culture. Trois odeurs agréables, donc : la [lavande]{.underline} en fleur au début de l'été, le thym, la menthe ou la sauge des [plantes aromatiques]{.underline color="#4f8a2e"}, et le moût de la [vigne]{.underline color="#8e2a4f"} au moment des vendanges, dont les surfaces viennent du [[recensement agricole]{.underline}](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013_EPCI/detail/) d'Agreste. Pour chaque intercommunalité, la carte montre celle qui s'y fait le plus sentir, rapportée à la moyenne nationale (voir @tip-pour-aller-plus-loin pour aller plus loin).
 
 ------
 
@@ -24,7 +24,7 @@ Pour la dix-neuvième journée du [*30 day map challenge*](https://30daymapchall
 //| echo: false
 virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
-pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
+pourcent = (x, n = 0) => `${virgule(100 * x, n)} %`
 html`<p class="lead">
   En 2020, la France métropolitaine cultivait
   <span class="souligne">${entier(chiffres.lavande_ha)} hectares de lavande</span>,
@@ -50,6 +50,7 @@ fond = sombre ? "#222" : "#fff"
 stylePlot = `--plot-background: ${fond}; background: transparent`
 grisNeutre = sombre ? "#3a3a3a" : "#ebe8e1"
 grisBordure = sombre ? "#5a5a5a" : "#bdbab2"
+grisSecret = sombre ? "#5a5a5a" : "#bdbab2"
 
 // Les intercommunalités, avec leurs surfaces et leurs parts, et les parcelles de lavande.
 zones = d3.json("donnees/j19/zones.geojson")
@@ -98,8 +99,9 @@ viewof vue = Inputs.radio(new Map(vues.map((v) => [v.nom, v])), {value: vues[0]}
   const o = odeurs.find((o) => o.cle === vue.cle)
   const gamme = o && d3.quantize(d3.interpolateLab(grisNeutre, (sombre ? o.sombre : o.clair)[1]), vue.seuils.length + 1)
   const part = (p) => p[`densite_${vue.cle}`]
-  const couleurPart = (p) => gamme[d3.bisectRight(vue.seuils, part(p))]
-  const ligne = (p, cle, nom) => `${nom} : ${entier(p[`${cle}_ha`])} ha (${pourcent(p[`densite_${cle}`], 2)} de la surface)`
+  const couleurPart = (p) => part(p) === null ? grisSecret : gamme[d3.bisectRight(vue.seuils, part(p))]
+  const ligne = (p, cle, nom) => p[`${cle}_ha`] === null ? `${nom} : secret statistique`
+    : `${nom} : ${entier(p[`${cle}_ha`])} ha (${pourcent(p[`densite_${cle}`], 2)} de la surface)`
 
   const carte = Plot.plot({
     width: 820,
@@ -144,9 +146,11 @@ html`<p><small>
     ? html`Pour chaque intercommunalité, on rapporte la part de la surface en lavande, en plantes
       aromatiques et en vigne à leur part dans toute la France métropolitaine ; l'odeur retenue
       est celle dont le rapport est le plus élevé, s'il atteint au moins 3.`
-    : html`${vue.unite[0].toUpperCase() + vue.unite.slice(1)}, par intercommunalité.`}
+    : html`${vue.unite[0].toUpperCase() + vue.unite.slice(1)}, par intercommunalité.
+      ${vue.cle === "vigne" ? "En gris foncé : surface couverte par le secret statistique." : ""}`}
   Les intercommunalités à cheval sur deux départements sont coupées en deux. Sources : IGN,
-  registre parcellaire graphique 2020 ; Insee, intercommunalités au 1<sup>er</sup> janvier 2021 ;
+  registre parcellaire graphique 2020 (lavande et plantes aromatiques) ; Agreste, recensement
+  agricole 2020 (vigne) ; Insee, intercommunalités au 1<sup>er</sup> janvier 2021 et 2020 ;
   IGN, ADMIN EXPRESS COG CARTO 2023, via cartiflette.
 </small></p>`
 ```
@@ -220,12 +224,13 @@ fine, qui pousse plus haut.
 
 ## Les données
 
-La carte croise trois sources publiques : le [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) de l'IGN, la [[composition communale des intercommunalités]{.underline}](https://www.insee.fr/fr/information/2510634) de l'Insee, et le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) pour les contours des communes et des départements.
+La carte croise quatre sources publiques : le [[registre parcellaire graphique]{.underline}](https://geoservices.ign.fr/rpg) de l'IGN pour la lavande et les plantes aromatiques, le [[recensement agricole 2020]{.underline}](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013_EPCI/detail/) d'Agreste pour la vigne, la [[composition communale des intercommunalités]{.underline}](https://www.insee.fr/fr/information/2510634) de l'Insee, et le [[package Python `cartiflette`]{.underline}](https://inseefrlab.github.io/cartiflette/) pour les contours des communes et des départements.
 
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Registre parcellaire graphique 2020](https://geoservices.ign.fr/rpg) | IGN, à partir des déclarations PAC (ASP) | le contour et la surface des parcelles de lavande, de plantes aromatiques et de vigne | {{< iconify vscode-icons file-type-json >}} GeoJSON (WFS) |
-| [Intercommunalités au 1<sup>er</sup> janvier 2021](https://www.insee.fr/fr/information/2510634) | Insee | l'intercommunalité de chaque commune, et son nom | {{< iconify vscode-icons file-type-excel >}} Excel |
+| [Recensement agricole 2020, cultures détaillées par EPCI](https://agreste.agriculture.gouv.fr/agreste-web/disaron/RA2020_1013_EPCI/detail/) | Agreste (SSM Agriculture) | la surface en vigne de raisin de cuve de chaque intercommunalité | {{< iconify vscode-icons file-type-excel >}} CSV |
+| [Registre parcellaire graphique 2020](https://geoservices.ign.fr/rpg) | IGN, à partir des déclarations PAC (ASP) | le contour et la surface des parcelles de lavande et de plantes aromatiques | {{< iconify vscode-icons file-type-json >}} GeoJSON (WFS) |
+| [Intercommunalités au 1<sup>er</sup> janvier 2021 et 2020](https://www.insee.fr/fr/information/2510634) | Insee | l'intercommunalité de chaque commune, et son nom | {{< iconify vscode-icons file-type-excel >}} Excel |
 | [Communes 2023](https://github.com/InseeFrLab/cartiflette) | IGN, via cartiflette | le contour de chaque commune, les départements | {{< iconify vscode-icons file-type-parquet >}} GeoParquet |
 
 Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify vscode-icons file-type-duckdb >}} DuckDB](https://duckdb.org/) pour les étapes de travail de données.
@@ -236,6 +241,7 @@ Comme pour les jours précédents, le code s'appuie sur `Python` et [{{< iconify
 import io
 import json
 import pathlib
+import tempfile
 import zipfile
 
 import duckdb
@@ -255,19 +261,86 @@ SET enable_progress_bar = false
 {{< include _liens/19-smell.py >}}
 ```
 
-### Les cultures (IGN, registre parcellaire graphique 2020)
+### La vigne (Agreste, recensement agricole 2020)
+
+Le recensement agricole décrit chaque exploitation. Agreste en diffuse les cultures détaillées par
+intercommunalité (EPCI) dans un grand fichier (600 Mo) : une ligne par territoire, culture, taille
+d'exploitation et indicateur. On garde les superficies (`N027 = '050.01'`, en hectares), toutes
+tailles d'exploitation confondues (`N122 = '0'`), pour la vigne à raisin de cuve
+(`N301 = '1.2.1.11'`). Quand trop peu d'exploitations sont en jeu, la surface est couverte par le
+secret statistique : la valeur est vide et la colonne `Secret` vaut `oui`.
+
+Le code du territoire (`GEO`) colle `EPCI`, le département et le numéro SIREN de
+l'intercommunalité : une intercommunalité à cheval sur deux départements y a deux lignes, une par
+département. Les lignes `DEPZ` sont les totaux des départements. Les libellés des territoires
+(`GEO_LIB`) ne sont pas fiables : les noms viendront de l'Insee. Le fichier pesant 600 Mo, on le
+télécharge en flux vers un fichier temporaire, en recommençant si le serveur coupe la connexion.
+
+```{python}
+#| filename: "Lecture des surfaces en vigne (Agreste)"
+# Le serveur coupe parfois le téléchargement : requests le signale et on recommence.
+def telecharger(url, chemin, essais=5):
+    for essai in range(essais):
+        try:
+            with requests.get(url, stream=True, timeout=600) as reponse:
+                reponse.raise_for_status()
+                with open(chemin, "wb") as fichier:
+                    for morceau in reponse.iter_content(chunk_size=1 << 20):
+                        fichier.write(morceau)
+            return
+        except requests.RequestException:
+            if essai == essais - 1:
+                raise
+
+
+with tempfile.TemporaryDirectory() as dossier:
+    telecharger(SOURCES["vigne"], f"{dossier}/vigne.csv")
+    con.sql(f"""
+    CREATE TABLE vigne_brute AS
+    SELECT GEO AS code, substr(GEO, 5, 2) AS dep,  -- la colonne DEP n'est pas le département
+           TRY_CAST(VALEUR_EXTRAPOLEE AS DOUBLE) AS surface_ha, Secret = 'oui' AS secret
+    FROM read_csv('{dossier}/vigne.csv', delim = ';', all_varchar = true)
+    WHERE N027 = '050.01' AND N122 = '0' AND N301 = '1.2.1.11'
+      AND (GEO LIKE 'EPCI%' OR GEO LIKE 'DEPZ%')
+    """)
+
+con.sql("""
+SELECT count(*) AS intercommunalites, count(*) FILTER (WHERE secret) AS sous_secret,
+       sum(surface_ha) AS surface_connue_ha,
+       (SELECT count(*) FROM (SELECT code FROM vigne_brute GROUP BY code HAVING count(*) > 1)) AS codes_en_double
+FROM vigne_brute WHERE code LIKE 'EPCI%'
+""").df().style.hide(axis="index").format("{:,.0f}")
+```
+
+La dernière colonne du tableau contrôle les doublons : dans un autre fichier de la même série,
+des lignes apparaissent deux fois avec des valeurs différentes. Si des codes sont en double ici,
+on retient une seule valeur par intercommunalité (`any_value`).
+
+```{python}
+#| filename: "Une ligne par intercommunalité"
+con.sql("""
+CREATE TABLE vigne AS
+SELECT code, dep, any_value(surface_ha) AS vigne_ha
+FROM vigne_brute WHERE code LIKE 'EPCI%' GROUP BY code, dep
+""")
+# Les totaux départementaux servent aux chiffres d'ensemble ; 21 départements sont eux aussi sous secret.
+departements_vigne = con.sql("""
+SELECT dep, sum(surface_ha) AS vigne_ha FROM vigne_brute WHERE code LIKE 'DEPZ%' GROUP BY dep
+""").df()
+```
+
+### Lavande et plantes aromatiques (IGN, registre parcellaire graphique 2020)
 
 Le [registre parcellaire graphique](https://geoservices.ign.fr/rpg) (RPG) dessine les parcelles
-déclarées par les agriculteurs pour les aides de la PAC, avec leur culture principale. Trois
-familles de codes nous intéressent : la lavande et le lavandin (`LAV`), les plantes à parfum,
+déclarées par les agriculteurs pour les aides de la PAC, avec leur culture principale. Deux
+familles de codes nous intéressent : la lavande et le lavandin (`LAV`), et les plantes à parfum,
 aromatiques et médicinales, annuelles et pérennes (`PPA` et `PPP` : thym, menthe, sauge,
-camomille…), et la vigne de raisin de cuve (`VRC`). Plutôt que de télécharger le RPG de toute la
-France (plusieurs gigaoctets), on interroge le service WFS de l'IGN avec un filtre sur ces codes,
-par pages de 5 000 parcelles. On prend le millésime 2020.
+camomille…). Plutôt que de télécharger le RPG de toute la France (plusieurs gigaoctets), on
+interroge le service WFS de l'IGN avec un filtre sur ces codes, par pages de 5 000 parcelles. On
+prend le millésime 2020, celui du recensement agricole.
 
-La vigne compte plus de 450 000 parcelles : on ne garde pas leurs contours en mémoire. Page après
-page, on ne conserve que l'identifiant, la culture, la surface et un point à l'intérieur de la
-parcelle, puis la géométrie complète est jetée.
+Page après page, on ne conserve que l'identifiant, la culture, la surface et un point à
+l'intérieur de la parcelle, puis la géométrie complète est jetée.
 
 ```{python}
 #| filename: "Lecture du RPG par le WFS (IGN)"
@@ -318,7 +391,6 @@ def parcelles_rpg(culture, filtre):
 
 parcelles_rpg("lavande", "code_cultu = 'LAV'")
 parcelles_rpg("aromatiques", "code_cultu IN ('PPA', 'PPP')")
-parcelles_rpg("vigne", "code_cultu = 'VRC'")
 con.sql("""
 SELECT culture, count(*) AS parcelles, round(sum(ha)) AS hectares
 FROM parcelles GROUP BY culture ORDER BY culture
@@ -327,27 +399,40 @@ FROM parcelles GROUP BY culture ORDER BY culture
 
 ### Les intercommunalités (Insee) et leurs contours (cartiflette)
 
-Le RPG ne donne pas d'intercommunalités. On reconstruit leurs contours en regroupant les communes
-par intercommunalité et par département, d'après la composition communale de l'Insee au
-1<sup>er</sup> janvier 2021. Une intercommunalité à cheval sur deux départements y est coupée en
-deux, une partie par département.
+Ni le RPG ni Agreste ne donnent de contours. On les reconstruit en regroupant les communes par
+intercommunalité et par département, d'après la composition communale de l'Insee. Une
+intercommunalité à cheval sur deux départements y est coupée en deux, une partie par
+département. Agreste diffuse ses surfaces dans la géographie des intercommunalités au
+1<sup>er</sup> janvier 2021, à une exception près : la Métropole européenne de Lille et la
+communauté de communes de la Haute-Deûle, fusionnées depuis, y sont encore séparées, comme en 2020.
+Pour chaque commune, on retient donc son intercommunalité de 2021 si le fichier d'Agreste la
+connaît, celle de 2020 sinon.
 
 ```{python}
 #| filename: "Lecture des intercommunalités (Insee)"
-reponse = requests.get(SOURCES["intercommunalites_2021"], timeout=600)
-reponse.raise_for_status()
-archive = zipfile.ZipFile(io.BytesIO(reponse.content))
-excel = archive.read(next(n for n in archive.namelist() if n.endswith(".xlsx")))
-lire = lambda feuille: pd.read_excel(io.BytesIO(excel), sheet_name=feuille, skiprows=5,
-                                     dtype=str, engine="calamine")
-composition = lire("Composition_communale")[["CODGEO", "EPCI", "DEP"]].merge(
-    lire("EPCI")[["EPCI", "LIBEPCI"]], on="EPCI"
-)
+def composition(annee):
+    reponse = requests.get(SOURCES[f"intercommunalites_{annee}"], timeout=600)
+    reponse.raise_for_status()
+    archive = zipfile.ZipFile(io.BytesIO(reponse.content))
+    excel = archive.read(next(n for n in archive.namelist() if n.endswith(".xlsx")))
+    lire = lambda feuille: pd.read_excel(io.BytesIO(excel), sheet_name=feuille, skiprows=5,
+                                         dtype=str, engine="calamine")
+    communes = lire("Composition_communale")[["CODGEO", "EPCI", "DEP"]]
+    noms = lire("EPCI")[["EPCI", "LIBEPCI"]]
+    return communes.assign(annee=annee).merge(noms, on="EPCI")
+
+
+compositions = pd.concat([
+    composition(2021),
+    composition(2020),
+])
 con.sql("""
 CREATE TABLE commune_epci AS
 SELECT CODGEO AS commune, DEP AS dep, 'EPCI' || DEP || EPCI AS code, LIBEPCI AS nom
-FROM composition
+FROM compositions
 WHERE EPCI <> 'ZZZZZZZZZ'  -- quatre îles sans intercommunalité
+  AND 'EPCI' || DEP || EPCI IN (SELECT code FROM vigne)
+QUALIFY row_number() OVER (PARTITION BY CODGEO ORDER BY annee DESC) = 1
 """)
 ```
 
@@ -382,6 +467,7 @@ GROUP BY e.code, e.dep
 """)
 con.sql("""
 SELECT (SELECT count(*) FROM zones) AS zones_dessinees,
+       (SELECT count(*) FROM vigne WHERE dep < '97' AND code NOT IN (SELECT code FROM zones)) AS sans_contour,
        (SELECT count(*) FROM communes WHERE commune NOT IN (SELECT commune FROM commune_epci)) AS communes_sans_epci
 """).df()
 ```
@@ -394,14 +480,17 @@ Chaque parcelle est rattachée à l'intercommunalité qui contient son point int
 ensuite, pour chaque culture, la part de la surface de l'intercommunalité qu'elle occupe
 (hectares divisés par 100, pour passer en km²). Chaque part est divisée par sa valeur pour toute
 la France métropolitaine : un indice de 3 veut dire trois fois plus de lavande (ou de plantes
-aromatiques, ou de vigne) que la moyenne. L'odeur dominante est celle qui a l'indice le plus
+aromatiques, ou de vigne) que la moyenne. Pour la vigne, la moyenne nationale est calculée sur les
+intercommunalités hors secret statistique : une intercommunalité sous secret n'a ni part ni indice
+de vigne. Une intercommunalité absente du fichier d'Agreste n'a pas de vigne de raisin de cuve :
+on lui donne 0 ha. L'odeur dominante est celle qui a l'indice le plus
 élevé, si cet indice atteint 3.
 
 ```{python}
 #| filename: "Parts de la surface et odeur dominante"
 con.sql("""
 CREATE TABLE parcelles_zone AS
-SELECT p.id, p.culture, p.ha, z.code, ST_X(p.point) AS lon, ST_Y(p.point) AS lat
+SELECT p.id, p.culture, p.ha, z.code, z.dep, ST_X(p.point) AS lon, ST_Y(p.point) AS lat
 FROM parcelles p JOIN zones z ON ST_Intersects(z.geom, p.point)
 """)
 
@@ -410,18 +499,18 @@ CREATE TABLE densites AS
 SELECT z.code, z.nom, z.dep, z.km2,
        coalesce(p.lavande_ha, 0) AS lavande_ha,
        coalesce(p.aromatiques_ha, 0) AS aromatiques_ha,
-       coalesce(p.vigne_ha, 0) AS vigne_ha,
+       CASE WHEN v.code IS NULL THEN 0 ELSE v.vigne_ha END AS vigne_ha,  -- NULL : secret statistique
        coalesce(p.lavande_ha, 0) / 100 / z.km2 AS densite_lavande,   -- 1 km² = 100 ha
        coalesce(p.aromatiques_ha, 0) / 100 / z.km2 AS densite_aromatiques,
-       coalesce(p.vigne_ha, 0) / 100 / z.km2 AS densite_vigne
+       CASE WHEN v.code IS NULL THEN 0 ELSE v.vigne_ha / 100 / z.km2 END AS densite_vigne
 FROM zones z
+LEFT JOIN vigne v ON v.code = z.code  -- le code contient le département
 LEFT JOIN (
-    SELECT code,
+    SELECT code, dep,
            sum(ha) FILTER (WHERE culture = 'lavande') AS lavande_ha,
-           sum(ha) FILTER (WHERE culture = 'aromatiques') AS aromatiques_ha,
-           sum(ha) FILTER (WHERE culture = 'vigne') AS vigne_ha
-    FROM parcelles_zone GROUP BY code
-) p USING (code)
+           sum(ha) FILTER (WHERE culture = 'aromatiques') AS aromatiques_ha
+    FROM parcelles_zone GROUP BY code, dep
+) p ON p.code = z.code AND p.dep = z.dep
 """)
 
 SEUIL = 3
@@ -430,7 +519,7 @@ CREATE TABLE odeurs AS
 WITH nationales AS (
     SELECT sum(lavande_ha) / 100 / sum(km2) AS lavande,
            sum(aromatiques_ha) / 100 / sum(km2) AS aromatiques,
-           sum(vigne_ha) / 100 / sum(km2) AS vigne
+           sum(vigne_ha) / 100 / sum(km2) FILTER (WHERE vigne_ha IS NOT NULL) AS vigne
     FROM densites
 ),
 indices AS (
@@ -441,7 +530,7 @@ indices AS (
     FROM densites d, nationales n
 )
 SELECT *,
-       greatest(indice_lavande, indice_aromatiques, indice_vigne) AS intensite,
+       greatest(indice_lavande, indice_aromatiques, coalesce(indice_vigne, 0)) AS intensite,
        CASE WHEN intensite < {SEUIL} THEN NULL
             WHEN intensite = indice_lavande THEN 'lavande'
             WHEN intensite = indice_aromatiques THEN 'aromatiques'
@@ -472,7 +561,9 @@ ORDER BY dominante, intensite DESC
 
 La part du territoire où pousse la moitié d'une culture : on range les intercommunalités de la
 plus dense à la moins dense et on cumule surfaces cultivées et surfaces des territoires jusqu'à la
-moitié du total.
+moitié du total. Pour la vigne, les intercommunalités sous secret sont écartées de ce calcul ; la
+surface totale et les départements en tête viennent des totaux départementaux d'Agreste, pas de
+la somme des intercommunalités.
 
 ```{python}
 #| filename: "Les chiffres de l'accroche"
@@ -481,7 +572,7 @@ def moitie(colonne):
     WITH cumul AS (
         SELECT km2, sum({colonne}) OVER (ORDER BY {colonne} / km2 DESC) AS cumul,
                sum({colonne}) OVER () AS total
-        FROM densites
+        FROM densites WHERE {colonne} IS NOT NULL
     )
     SELECT sum(km2) FILTER (WHERE cumul <= total / 2) / (SELECT sum(km2) FROM densites)
     FROM cumul
@@ -489,10 +580,11 @@ def moitie(colonne):
 
 
 par_dep = con.sql("""
-SELECT dep, sum(km2) AS km2, sum(lavande_ha) AS lavande, sum(aromatiques_ha) AS aromatiques,
-       sum(vigne_ha) AS vigne
+SELECT dep, sum(km2) AS km2, sum(lavande_ha) AS lavande, sum(aromatiques_ha) AS aromatiques
 FROM densites GROUP BY dep
 """).df().set_index("dep")
+# La vigne vient des totaux départementaux d'Agreste ; un département sous secret compte pour 0.
+par_dep["vigne"] = departements_vigne.set_index("dep")["vigne_ha"].reindex(par_dep.index).fillna(0)
 
 chiffres = {
     "parcelles": con.sql("SELECT count(*) FROM parcelles_zone WHERE culture = 'lavande'").fetchone()[0],
@@ -523,7 +615,7 @@ chiffres, premiers
 Les contours des intercommunalités sont simplifiés ensemble (`ST_CoverageSimplify`, à 500 m
 environ) pour rester jointifs, et écrits avec leurs surfaces et leurs parts dans
 `donnees/j19/zones.geojson`. Les parcelles de lavande, réduites à leur point intérieur, vont
-dans un CSV (celles de la vigne, bien trop nombreuses, restent hors de la page). Le fond des
+dans un CSV. Les surfaces en vigne sous secret statistique restent vides (`null`). Le fond des
 départements suit le même traitement.
 
 ```{python}
@@ -610,7 +702,7 @@ ojs_define(departements=departements, chiffres=chiffres, premiers=premiers, repe
 
 ## Les données de la carte
 
-Après toutes ces étapes, on obtient une table des intercommunalités, avec leurs surfaces en lavande, en plantes aromatiques et en vigne, leur part du territoire et l'odeur dominante. La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
+Après toutes ces étapes, on obtient une table des intercommunalités, avec leurs surfaces en lavande, en plantes aromatiques (registre parcellaire graphique) et en vigne (recensement agricole), leur part du territoire et l'odeur dominante. La carte est faite en `Javascript` avec [Observable Plot](https://observablehq.com/plot/) ; le code source est disponible sur [Github {{< fa brands github >}}](https://github.com/linogaliana/30daymapchallenge2026).
 
 <br>
 
@@ -641,10 +733,10 @@ Inputs.table(tableau, {
   format: {
     lavande_ha: (x) => virgule(x),
     aromatiques_ha: (x) => virgule(x),
-    vigne_ha: (x) => virgule(x),
+    vigne_ha: (x) => x === null ? "secret" : virgule(x),
     densite_lavande: (x) => pourcent(x, 2),
     densite_aromatiques: (x) => pourcent(x, 3),
-    densite_vigne: (x) => pourcent(x, 2),
+    densite_vigne: (x) => x === null ? "" : pourcent(x, 2),
     dominante: (x) => x ?? ""
   },
   sort: "densite_lavande",
@@ -680,7 +772,15 @@ DOM.download(
   lavandin partagent le même code.
 - Les codes `PPA` et `PPP` regroupent des plantes très diverses (thym, menthe, sauge, mais aussi
   plantes médicinales ou à usage industriel) : toutes ne sentent pas, ou pas de la même façon.
-- Seule la vigne de raisin de cuve (`VRC`) est retenue : les vignes de raisin de table ou de
+- La vigne vient du recensement agricole, qui localise les surfaces au siège de l'exploitation, et
+  non à l'emplacement des parcelles : une exploitation dont les vignes s'étendent sur plusieurs
+  intercommunalités est comptée là où elle a son siège.
+- Le secret statistique masque la surface en vigne d'une partie des intercommunalités, quand trop
+  peu d'exploitations en cultivent. Ces territoires sont en gris foncé sur la carte de la vigne et
+  ne comptent pas dans la moyenne nationale ni dans l'odeur dominante. Le total de 21 départements
+  est lui aussi sous secret, dont l'Aisne et le Tarn-et-Garonne, qui ont des vignes : ils comptent
+  pour 0 dans les chiffres par département.
+- Seule la vigne à raisin de cuve est retenue : les vignes de raisin de table ou de
   porte-greffes sont à part.
 - Quatre îles n'appartiennent à aucune intercommunalité (Bréhat, Ouessant, Sein, Yeu) : elles
   restent en gris clair.

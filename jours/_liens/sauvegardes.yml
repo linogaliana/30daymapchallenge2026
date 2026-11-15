@@ -103,8 +103,12 @@
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/dvf
 - source: https://files.data.gouv.fr/geo-dvf/latest/csv/
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/geo_dvf
+- source: https://agreste.agriculture.gouv.fr/agreste-web/download/publication/publie/RA2020_1013_EPCI/FDS_RA2020_1013_EPCI.csv
+  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/FDS_RA2020_1013_EPCI.csv
 - source: https://www.insee.fr/fr/statistiques/fichier/2510634/Intercommunalite_Metropole_au_01-01-2021.zip
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/Intercommunalite_Metropole_au_01-01-2021.zip
+- source: https://www.insee.fr/fr/statistiques/fichier/2510634/Intercommunalite_Metropole_au_01-01-2020_v1.zip
+  substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/Intercommunalite_Metropole_au_01-01-2020_v1.zip
 - source: https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-ips-ecoles-ap2022/exports/parquet?where=rentree_scolaire+%3D+%272024-2025%27
   substitution: https://minio.lab.sspcloud.fr/lgaliana/30daymapchallenge2026/ips.parquet
 - source: https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-ecoles-effectifs-nb_classes/exports/parquet?where=rentree_scolaire+%3D+date%272024-01-01%27
