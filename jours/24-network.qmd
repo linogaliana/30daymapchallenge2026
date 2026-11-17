@@ -1,42 +1,42 @@
 ---
-title: "J24 · Network. Loin du train"
-description: "Le réseau ferré français, ses 27 000 km de lignes exploitées et ses lignes sans trains, la distance de chaque commune à la gare desservie la plus proche, et les ménages sans voiture qui vivent loin du train."
-image: vignettes/24-network.webp
+title: "J24 · Network. Le réseau des déménagements"
+description: "Qui déménage d'une aire d'attraction des villes à une autre en un an, et vers où : étudiants vers les métropoles, jeunes actifs hors de Paris, retraités vers les littoraux, d'après le recensement de 2023 de l'Insee."
 resources:
   - donnees/j24/*.csv
-  - donnees/j24/*.json
 execute:
   echo: true
 code-overflow: wrap
+number-sections: true
+charte:
+  couleur: "#6a4c93"
+  sombre: "#b39ddb"
 ---
 
 ```{ojs}
 //| echo: false
 virgule = (x, n = 1) => x.toLocaleString("fr-FR", {minimumFractionDigits: n, maximumFractionDigits: n})
 entier = (x) => Math.round(x).toLocaleString("fr-FR")
-pourcent = (x) => `${Math.round(100 * x)} %`
 millions = (x) => `${virgule(x / 1e6)} millions`
+pour1000 = (x) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${virgule(Math.abs(x))}`
 html`<p class="lead">
-  Le réseau ferré national compte <strong>${entier(resume.km_exploites)} km de lignes
-  exploitées</strong>, et ${entier(resume.km_sans_trains)} km de lignes qui ne voient plus
-  passer de trains : neutralisées, fermées ou déclassées. Les ${entier(resume.gares)} gares
-  où des voyageurs sont montés ou descendus en 2024 sont à moins de 5 km, à vol d'oiseau, de
-  ${pourcent(resume.part_moins_5km)} des habitants de France continentale. Mais
-  ${millions(resume.habitants_plus_10km)} de personnes vivent à 10 km ou plus de la
-  première gare : ${pourcent(premier.part_loin)} des habitants dans le département le plus
-  éloigné du train (${premier.departement}). Et dans ces communes loin du train,
-  <strong>${entier(resume.menages_sans_voiture_loin)} ménages n'ont pas de voiture</strong>,
-  d'après le recensement de l'Insee.
+  En un an, <strong>${millions(resume.changements_commune)}</strong> de personnes ont changé de
+  commune en France métropolitaine, d'après le recensement de 2023, et
+  <strong>${millions(resume.changements_aire)}</strong> d'entre elles ont changé d'aire d'attraction
+  des villes. L'aire de Paris y ${resume.solde_paris < 0 ? "perd" : "gagne"}
+  <strong>${entier(Math.abs(resume.solde_paris))}</strong> habitants en un an, tous âges confondus.
+  Chez les 15-24 ans, c'est <strong>${resume.nom_15_24}</strong> qui gagne le plus, rapporté à sa
+  population (${pour1000(resume.taux_15_24)} pour 1 000)&nbsp;; chez les 60 ans ou plus, c'est
+  <strong>${resume.nom_60}</strong> (${pour1000(resume.taux_60)} pour 1 000)&nbsp;; chez les 25-39 ans,
+  <strong>${resume.nom_25_39}</strong> perd le plus (${pour1000(resume.taux_25_39)} pour 1 000).
 </p>`
 ```
 
-Pour le thème *network*, le réseau ferré, avec ses lignes et ses nœuds. Sa forme en étoile
-autour de Paris se voit au premier coup d'œil, mais il est fait aussi de trous : les lignes
-fermées depuis un siècle, les régions où le train ne passe plus. La première vue montre le
-réseau d'aujourd'hui, les lignes sans trains et les gares, avec une surface proportionnelle à
-leur fréquentation en 2024. La seconde montre, pour chaque commune, la distance à la gare
-desservie la plus proche (making of 👇). Une dernière partie croise cette distance avec le
-nombre de voitures des ménages.
+Pour le thème *network*, le réseau des déménagements. Chaque aire d'attraction des villes est un
+nœud, et chaque flèche va de l'aire où l'on habitait un an plus tôt à celle où l'on habite
+aujourd'hui : le recensement demande cela à chacun. Le réseau change avec l'âge, des étudiants
+aux retraités (making of 👇).
+
+--------
 
 ```{ojs}
 //| echo: false
@@ -48,198 +48,211 @@ sombre = Generators.observe((notifier) => {
   observateur.observe(document.body, {attributes: true, attributeFilter: ["class"]})
   return () => observateur.disconnect()
 })
-premier = departementsLoin[0]
 fond = sombre ? "#222" : "#fff"
+stylePlot = `--plot-background: ${fond}; background: transparent`
 couleurTerre = sombre ? "#2e2e2e" : "#f2efe8"
 couleurBord = sombre ? "#444" : "#d8d3c8"
-couleurLigne = sombre ? "#e8e8e8" : "#1f2a44"
+neutre = sombre ? "#7a7a7a" : "#a7adb8"
 
-// Les lignes et les communes sont dans des fichiers à part, chargés après la page.
-lignes = d3.json("donnees/j24/lignes.json")
-communes = d3.csv("donnees/j24/communes.csv", (d) => ({
-  ...d, habitants: +d.habitants, km: +d.km, lon: +d.lon, lat: +d.lat,
-  menages: +d.menages, part_sans_voiture: +d.part_sans_voiture
-}))
-
-// Les statuts des lignes, regroupés : une couleur pour chaque façon de ne plus voir de trains.
-statuts = [
-  {cle: "Exploitée", nom: "Exploitée"},
-  {cle: "Neutralisée", nom: "Neutralisée (voie en place, plus de trains)", clair: "#e08a1e", sombre: "#ffb04a"},
-  {cle: "Fermée", nom: "Fermée", clair: "#c0392b", sombre: "#ff6b5b"},
-  {cle: "Déclassée", nom: "Déclassée (sortie du réseau)", clair: "#8e7cc3", sombre: "#b9a6ff"}
-]
-couleurStatut = (cle) => cle === "Exploitée" ? couleurLigne : statuts.find((s) => s.cle === cle)[sombre ? "sombre" : "clair"]
-
-// Distance à la gare : du plus proche (pâle) au plus loin (foncé, ou vif en thème sombre).
-seuils = [2, 5, 10, 20, 30]
-couleursDistance = sombre
-  ? ["#1f3b4d", "#2f6b7a", "#4fa39a", "#c9c76a", "#f2a541", "#ff6b4a"]
-  : ["#e8f1f2", "#b7d7d8", "#7fb3b0", "#e6b85c", "#d9752b", "#a3271f"]
-```
-
-```{ojs}
-//| echo: false
-// Cadrages : [nom, [[ouest, sud], [est, nord]], rayon maximal des gares].
-cadrages = [
-  ["France continentale", [[-5.2, 42.3], [8.3, 51.1]], 24],
-  ["Île-de-France", [[1.4, 48.1], [3.6, 49.25]], 30],
-  ["Bretagne", [[-5.2, 47.2], [-1.0, 48.95]], 20],
-  ["Massif central", [[1.3, 44.0], [4.9, 46.6]], 20],
-  ["Gascogne", [[-1.6, 42.8], [1.9, 44.7]], 20],
-  ["Alpes du Sud", [[5.2, 43.6], [7.8, 45.3]], 20]
-]
-viewof vue = Inputs.radio(new Map([["🚆 Le réseau", "reseau"], ["📏 Loin du train", "distance"]]), {value: "reseau"})
-```
-
-```{ojs}
-//| echo: false
-viewof cadrage = Inputs.select(new Map(cadrages.map((c) => [c[0], c])), {
-  value: cadrages[0], label: "Cadrage"
+// Couleurs de chaque groupe d'âge, des soldes, des arrivées et des départs.
+couleurs = ({
+  tous: {clair: "#1f2a44", sombre: "#e8e8e8"},
+  "15-24": {clair: "#6a4c93", sombre: "#b39ddb"},
+  "25-39": {clair: "#00897b", sombre: "#4dd0c0"},
+  "40-59": {clair: "#d9752b", sombre: "#f2a541"},
+  "60+": {clair: "#c0392b", sombre: "#ff6b5b"},
+  gain: {clair: "#2166ac", sombre: "#6baed6"},
+  perte: {clair: "#d9752b", sombre: "#f2a541"},
+  arrivees: {clair: "#2166ac", sombre: "#6baed6"},
+  departs: {clair: "#c0392b", sombre: "#ff6b5b"}
 })
-```
+couleur = (cle) => couleurs[cle][sombre ? "sombre" : "clair"]
 
-```{ojs}
-//| echo: false
 // Cadre en sens des aiguilles d'une montre : sinon, d3 prend tout le globe sauf le cadre.
 function cadreGeo([[o, s], [e, n]]) {
   return {type: "Polygon", coordinates: [[[o, s], [o, n], [e, n], [e, s], [o, s]]]}
 }
-function dansCadre(d) {
-  const [[o, s], [e, n]] = cadrage[1]
-  return d.lon >= o && d.lon <= e && d.lat >= s && d.lat <= n
+
+// Une pastille de couleur suivie de son libellé, pour la légende.
+function pastille(teinte, texte) {
+  return html`<span style="display: inline-flex; align-items: center; gap: 0.35em; margin-right: 1.2em">
+    <span style="width: 0.8em; height: 0.8em; border-radius: 50%; background: ${teinte}; display: inline-block"></span>${texte}</span>`
 }
-franceEntiere = cadrage[0] === "France continentale"
-exploitees = lignes.features.filter((f) => f.properties.statut === "Exploitée")
-sansTrains = lignes.features.filter((f) => f.properties.statut !== "Exploitée")
-garesVisibles = d3.sort(gares.filter(dansCadre), (d) => -d.voyageurs)
-communesVisibles = communes.filter(dansCadre)
-// Les noms des gares les plus fréquentées, sauf trop près d'une gare déjà nommée.
-etiquettes = franceEntiere ? [] : garesVisibles.reduce((gardees, g) => {
-  const ecart = (cadrage[1][1][0] - cadrage[1][0][0]) / 12
-  if (gardees.length < 8 && gardees.every((d) => Math.hypot(d.lon - g.lon, d.lat - g.lat) > ecart)) gardees.push(g)
-  return gardees
-}, [])
-echelleDistance = ({
-  type: "threshold", domain: seuils, range: couleursDistance,
-  label: "Distance à la gare desservie la plus proche (km, à vol d'oiseau)",
-  tickFormat: (x) => `${x} km`
-})
+
+// Les aires de 50 000 habitants ou plus, de la plus peuplée à la moins peuplée.
+grandes = d3.sort(
+  bilans.filter((b) => b.groupe === "tous" && !b.hors_aire && b.habitants >= 50000),
+  (b) => -b.habitants
+)
 ```
 
 ```{ojs}
 //| echo: false
-vue === "reseau"
-  ? Plot.legend({
-      color: {domain: statuts.map((s) => s.nom), range: statuts.map((s) => couleurStatut(s.cle))},
-      swatchWidth: 18, swatchHeight: 3
-    })
-  : Plot.legend({color: echelleDistance, width: 380, marginLeft: 16})
+viewof age = Inputs.radio(new Map([
+  ["Tous âges", "tous"], ["15-24 ans", "15-24"], ["25-39 ans", "25-39"],
+  ["40-59 ans", "40-59"], ["60 ans ou plus", "60+"]
+]), {value: "tous", label: "Âge"})
 ```
 
 ```{ojs}
 //| echo: false
-Plot.plot({
-  width: 900,
-  height: franceEntiere ? 880 : 700,
-  style: {background: fond},
-  projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0],
-               domain: cadreGeo(cadrage[1]), inset: 10},
-  // La surface des gares est calée sur la plus fréquentée du cadre, pour qu'on les voie hors de Paris.
-  r: {range: [0, cadrage[2]], domain: [0, d3.max(garesVisibles, (d) => d.voyageurs)]},
-  color: vue === "distance" ? echelleDistance : undefined,
-  marks: [
-    Plot.geo(departements, {fill: couleurTerre, stroke: couleurBord, strokeWidth: 0.6, clip: "frame"}),
-    vue === "reseau" ? [
-      // Les lignes sans trains d'abord, en pointillés, sous le réseau exploité.
-      Plot.geo(sansTrains, {
-        stroke: (f) => couleurStatut(f.properties.statut), strokeWidth: franceEntiere ? 1.3 : 1.8,
-        strokeDasharray: "2,2", clip: "frame"
-      }),
-      Plot.geo(exploitees, {stroke: couleurLigne, strokeWidth: franceEntiere ? 0.9 : 1.4, clip: "frame"}),
-      Plot.dot(garesVisibles, {
-        x: "lon", y: "lat", r: "voyageurs",
-        fill: sombre ? "#4fc3f7" : "#1e88e5", fillOpacity: 0.55,
-        stroke: fond, strokeWidth: 0.5, clip: "frame"
-      }),
-      Plot.tip(garesVisibles, Plot.pointer({
-        x: "lon", y: "lat", maxRadius: 20, fill: fond,
-        channels: {
-          "Gare": "nom",
-          "Voyageurs en 2024": (d) => entier(d.voyageurs),
-          "Voyageurs en 2015": (d) => d.voyageurs_2015 ? entier(d.voyageurs_2015) : "–"
-        },
-        format: {x: false, y: false, r: false}
-      }))
-    ] : [
-      Plot.dot(communesVisibles, {
-        x: "lon", y: "lat", fill: "km",
-        r: franceEntiere ? 1.4 : 2.6, clip: "frame"
-      }),
-      Plot.geo(exploitees, {stroke: couleurLigne, strokeWidth: 0.6, strokeOpacity: 0.6, clip: "frame"}),
-      Plot.tip(communesVisibles, Plot.pointer({
-        x: "lon", y: "lat", maxRadius: 10, fill: fond,
-        channels: {
-          "Commune": (d) => `${d.nom} (${d.departement})`,
-          "Habitants": (d) => entier(d.habitants),
-          "Gare la plus proche": "gare",
-          "Distance": (d) => `${virgule(d.km)} km`,
-          "Ménages sans voiture": (d) => pourcent(d.part_sans_voiture)
-        },
-        format: {x: false, y: false, fill: false}
-      }))
-    ],
-    Plot.text(etiquettes, {
-      x: "lon", y: "lat", text: "nom", dy: -10, fontSize: 11, fontWeight: 600,
-      fill: "currentColor", stroke: fond, strokeWidth: 3, clip: "frame"
-    })
-  ]
-})
+viewof vue = Inputs.radio(new Map([["↔ Les flux", "flux"], ["± Les soldes", "soldes"]]), {value: "flux", label: "Vue"})
 ```
 
 ```{ojs}
 //| echo: false
-html`<p><small>
-  ${vue === "reseau"
-    ? `${entier(garesVisibles.length)} gares dans le cadre, avec une surface proportionnelle au nombre de voyageurs en 2024 (la plus grande est celle de la gare la plus fréquentée du cadre).`
-    : `${entier(communesVisibles.length)} communes dans le cadre, chacune réduite à un point.
-       Les lignes exploitées sont en trait fin.`}
-  Sources : SNCF Réseau, lignes du réseau ferré national par statut ; SNCF Gares & Connexions,
-  fréquentation et liste des gares de voyageurs ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette ;
-  Insee, recensement de la population 2023.
-</small></p>`
+viewof aire = Inputs.select(new Map([
+  ["Toutes les aires", "toutes"],
+  ...grandes.map((b) => [b.nom, b.code])
+]), {value: "toutes", label: "Aire"})
 ```
 
-Le réseau exploité dessine encore l'étoile de Legrand, avec ses transversales et ses lignes
-de grande vitesse. Les lignes sans trains en remplissent les vides : le Massif central, la
-Bretagne intérieure, la Gascogne, l'Ardèche, qui n'a plus de trains de voyageurs depuis 1973.
-Pour leurs habitants, la gare la plus proche est souvent à plus de 20 km. À l'inverse, en Île-de-France, dans le Nord et autour des grandes villes, presque
-toutes les communes ont une gare à moins de 5 km.
-
-## Les départements les plus loin du train
+::: {.column-page}
 
 ```{ojs}
 //| echo: false
 {
-  const premiers = departementsLoin.slice(0, 20)
+  const groupe = age
+  const noeudsGroupe = bilans.filter((b) => b.groupe === groupe)
+  const flux = fluxCarte.filter((f) => f.groupe === groupe)
+  const choisie = aire !== "toutes"
+  const nomAire = choisie ? grandes.find((b) => b.code === aire)?.nom : null
+  // Pour une aire choisie : ses 25 plus gros entrants et sortants du groupe.
+  const entrants = choisie ? d3.sort(flux.filter((f) => f.destination === aire), (f) => -f.n).slice(0, 25) : []
+  const sortants = choisie ? d3.sort(flux.filter((f) => f.origine === aire), (f) => -f.n).slice(0, 25) : []
+  // Toutes les aires : les 300 plus gros flux du groupe, du plus petit au plus gros pour que les gros restent dessus.
+  const premiers = d3.sort(d3.sort(flux, (f) => -f.n).slice(0, 300), (f) => f.n)
+  const fluxAffiches = choisie ? [...entrants, ...sortants] : premiers
+  const largeur = d3.scaleLinear().domain([0, d3.max(fluxAffiches, (f) => f.n)]).range([0.3, 7])
+  // Les flèches ne se survolent pas directement : on survole leur milieu, invisible.
+  const milieux = fluxAffiches.map((f) => ({...f, mx: (f.lon_o + f.lon_d) / 2, my: (f.lat_o + f.lat_d) / 2}))
+
+  const marksFlux = choisie
+    ? [
+        Plot.arrow(entrants, {x1: "lon_o", y1: "lat_o", x2: "lon_d", y2: "lat_d", bend: true,
+          stroke: couleur("arrivees"), strokeWidth: (f) => largeur(f.n), strokeOpacity: 0.7, headLength: 6}),
+        Plot.arrow(sortants, {x1: "lon_o", y1: "lat_o", x2: "lon_d", y2: "lat_d", bend: true,
+          stroke: couleur("departs"), strokeWidth: (f) => largeur(f.n), strokeOpacity: 0.7, headLength: 6})
+      ]
+    : [
+        Plot.arrow(premiers, {x1: "lon_o", y1: "lat_o", x2: "lon_d", y2: "lat_d", bend: true,
+          stroke: couleur(groupe), strokeWidth: (f) => largeur(f.n), strokeOpacity: 0.55, headLength: 6})
+      ]
+
+  const marksNoeuds = vue === "flux"
+    ? [Plot.dot(noeudsGroupe, {x: "lon", y: "lat", r: "population", fill: neutre, fillOpacity: 0.8,
+        stroke: fond, strokeWidth: 0.8})]
+    : [Plot.dot(noeudsGroupe, {x: "lon", y: "lat", r: (d) => Math.abs(d.solde),
+        fill: (d) => d.solde >= 0 ? couleur("gain") : couleur("perte"), fillOpacity: 0.75,
+        stroke: fond, strokeWidth: 0.8})]
+
+  const tipFlux = Plot.tip(milieux, Plot.pointer({
+    x: "mx", y: "my", maxRadius: 8, fill: fond,
+    channels: {
+      "De": "nom_origine",
+      "Vers": "nom_destination",
+      "Personnes": (f) => entier(f.n)
+    },
+    format: {x: false, y: false, mx: false, my: false}
+  }))
+
+  const tipNoeuds = Plot.tip(noeudsGroupe, Plot.pointer({
+    x: "lon", y: "lat", maxRadius: 16, fill: fond,
+    channels: {
+      "Aire": "nom",
+      "Habitants": (d) => entier(d.habitants),
+      "Entrants": (d) => entier(d.entrants),
+      "Sortants": (d) => entier(d.sortants),
+      "Solde": (d) => `${d.solde > 0 ? "+" : d.solde < 0 ? "−" : ""}${entier(Math.abs(d.solde))}`,
+      "Pour 1 000 habitants": (d) => pour1000(d.taux)
+    },
+    format: {x: false, y: false, r: false, fill: false}
+  }))
+
+  const carte = Plot.plot({
+    width: 900,
+    height: 900,
+    style: stylePlot,
+    projection: {type: "conic-conformal", parallels: [44, 49], rotate: [-3, 0],
+                 domain: cadreGeo([[-5.2, 41.3], [9.6, 51.1]]), inset: 10},
+    r: {type: "sqrt", range: vue === "flux" ? [0, 14] : [0, 22]},
+    marks: [
+      Plot.geo(departements, {fill: couleurTerre, stroke: couleurBord, strokeWidth: 0.6, clip: "frame"}),
+      ...(vue === "flux" ? marksFlux : []),
+      ...marksNoeuds,
+      Plot.text(grandes.slice(0, 12), {
+        x: "lon", y: "lat", text: "nom", dy: -10, fontSize: 11, fontWeight: 600,
+        fill: "currentColor", stroke: fond, strokeWidth: 3, paintOrder: "stroke"
+      }),
+      ...(vue === "flux" ? [tipFlux] : []),
+      tipNoeuds
+    ]
+  })
+
+  const legende = vue === "soldes"
+    ? html`<div>${pastille(couleur("gain"), "Gain net")}${pastille(couleur("perte"), "Perte nette")}
+        <span style="font-size: 0.85em">Taille des cercles : valeur absolue du solde.</span></div>`
+    : choisie
+      ? html`<div>${pastille(couleur("arrivees"), `Arrivées dans ${nomAire}`)}${pastille(couleur("departs"), `Départs de ${nomAire}`)}
+          <span style="font-size: 0.85em">Les 25 plus gros flux de chaque sens.</span></div>`
+      : html`<div><span style="font-size: 0.85em">Les flèches vont de l'aire de résidence d'un an
+          plus tôt vers l'aire actuelle ; plus elles sont épaisses, plus elles sont nombreuses.
+          Les cercles sont proportionnels à la population du groupe.</span></div>`
+
+  return html`<div>
+    <div style="margin-bottom: 0.4em">${legende}</div>
+    ${carte}
+  </div>`
+}
+```
+
+:::
+
+```{ojs}
+//| echo: false
+html`<p><small>
+  ${vue === "flux"
+    ? html`Les 300 plus gros flux de chaque tranche d'âge, et, pour les aires de 50 000 habitants ou
+      plus, leurs 25 plus gros entrants et sortants. Un flux de moins de 20 personnes n'est pas montré.`
+    : html`Solde net (entrées moins sorties) de chaque aire, en valeur absolue, pour la tranche d'âge choisie.`}
+  Chaque nœud est placé au centre de la commune la plus peuplée de son aire ; les aires hors
+  attraction des villes sont regroupées par département. France métropolitaine. Sources : Insee,
+  recensement de la population 2023, migrations résidentielles ; Insee, aires d'attraction des
+  villes 2020 ; IGN, ADMIN EXPRESS COG CARTO 2026, via cartiflette.
+</small></p>`
+```
+
+## Qui gagne, qui perd
+
+Rapporté à la population de chaque aire, le solde permet de comparer des aires de tailles très
+différentes. Le graphique reprend la tranche d'âge choisie plus haut, pour les aires de 50 000
+habitants ou plus : les 12 plus forts soldes et les 12 plus faibles.
+
+```{ojs}
+//| echo: false
+{
+  const aires = d3.sort(
+    bilans.filter((b) => b.groupe === age && !b.hors_aire && b.habitants >= 50000),
+    (b) => -b.taux
+  )
+  // Les 12 plus forts soldes, puis les 12 plus faibles : déjà dans l'ordre du graphique.
+  const extremes = [...aires.slice(0, 12), ...aires.slice(-12)]
   return Plot.plot({
     width: 760,
-    height: 480,
-    marginLeft: 150,
-    style: {background: fond},
-    x: {label: "Part des habitants à 10 km ou plus d'une gare desservie", grid: true, domain: [0, 100], tickFormat: (x) => `${x} %`},
-    y: {label: null, domain: premiers.map((d) => d.departement)},
+    height: 620,
+    marginLeft: 200,
+    style: stylePlot,
+    x: {label: "Solde pour 1 000 habitants", grid: true, tickFormat: (x) => virgule(x, 0)},
+    y: {label: null, domain: extremes.map((d) => d.nom)},
     marks: [
-      Plot.barX(premiers, {x: (d) => 100 * d.part_loin, y: "departement", fill: sombre ? "#f2a541" : "#d9752b"}),
-      Plot.text(premiers, {
-        x: (d) => 100 * d.part_loin, y: "departement", text: (d) => pourcent(d.part_loin),
-        dx: 4, textAnchor: "start", fill: "currentColor"
-      }),
+      Plot.barX(extremes, {x: "taux", y: "nom", fill: (d) => d.taux >= 0 ? couleur("gain") : couleur("perte")}),
       Plot.ruleX([0]),
-      Plot.tip(premiers, Plot.pointerY({
-        x: (d) => 100 * d.part_loin, y: "departement", fill: fond,
+      Plot.tip(extremes, Plot.pointerY({
+        x: "taux", y: "nom", fill: fond,
         channels: {
-          "Habitants à 10 km ou plus": (d) => entier(d.habitants_loin),
-          "Distance moyenne": (d) => `${virgule(d.km_moyen)} km`
+          "Habitants": (d) => entier(d.habitants),
+          "Solde": (d) => `${d.solde > 0 ? "+" : d.solde < 0 ? "−" : ""}${entier(Math.abs(d.solde))}`,
+          "Pour 1 000 habitants": (d) => pour1000(d.taux)
         },
         format: {x: false, y: false}
       }))
@@ -250,88 +263,34 @@ toutes les communes ont une gare à moins de 5 km.
 
 ```{ojs}
 //| echo: false
-html`<p><small>Les 20 départements de France continentale où la plus grande part des habitants
-vit à 10 km ou plus, à vol d'oiseau, d'une gare où des voyageurs sont montés ou descendus en 2024.
-La distance moyenne est pondérée par la population des communes.</small></p>`
+html`<p><small>Solde des entrées et des sorties, pour 1 000 habitants, tranche d'âge choisie plus
+haut, aires de 50 000 habitants ou plus. Sources : Insee, recensement de la population 2023 ;
+Insee, aires d'attraction des villes 2020.</small></p>`
 ```
 
-## Sans gare, et sans voiture
-
-Le recensement donne aussi, pour chaque commune, le nombre de ménages selon leur nombre de
-voitures. En le croisant avec la distance à la gare, on voit où vivent les ménages qui n'ont ni
-train tout près ni voiture. Le graphique regroupe les communes par distance, comme la carte, et
-pèse chacune par son nombre de ménages.
-
-```{ojs}
-//| echo: false
-// Les cinq premières classes de la carte, avec leur couleur. La classe « 20 km ou plus » regroupe
-// ici les 20-30 km et les 30 km ou plus : elle prend la couleur des 20-30 km (`couleursDistance[4]`).
-Plot.plot({
-  width: 760,
-  height: 380,
-  style: {background: fond},
-  x: {label: "Distance à la gare desservie la plus proche", domain: classesVoiture.map((d) => d.distance)},
-  // De la marge en haut pour l'étiquette de la plus haute barre.
-  y: {label: "Part des ménages sans voiture", grid: true, tickFormat: (x) => `${x} %`,
-      domain: [0, 115 * d3.max(classesVoiture, (d) => d.part_sans_voiture)]},
-  color: {domain: classesVoiture.map((d) => d.distance), range: couleursDistance.slice(0, 5)},
-  marks: [
-    // Un contour, pour que la classe la plus proche, presque de la couleur du fond, reste visible.
-    Plot.barY(classesVoiture, {
-      x: "distance", y: (d) => 100 * d.part_sans_voiture, fill: "distance",
-      stroke: sombre ? "#8a8a8a" : "#7fb3b0", strokeWidth: 1
-    }),
-    Plot.text(classesVoiture, {
-      x: "distance", y: (d) => 100 * d.part_sans_voiture, text: (d) => pourcent(d.part_sans_voiture),
-      dy: -8, fill: "currentColor"
-    }),
-    Plot.ruleY([0]),
-    Plot.tip(classesVoiture, Plot.pointerX({
-      x: "distance", y: (d) => 100 * d.part_sans_voiture, fill: fond,
-      channels: {
-        "Ménages": (d) => entier(d.menages),
-        "Ménages sans voiture": (d) => entier(d.sans_voiture),
-        "Deux voitures ou plus": (d) => pourcent(d.part_deux_voitures)
-      },
-      format: {x: false, y: false}
-    }))
-  ]
-})
-```
-
-```{ojs}
-//| echo: false
-html`<p><small>Part des ménages sans voiture, par distance à la gare desservie la plus proche
-(à vol d'oiseau), dans les communes de France continentale. Chaque commune pèse son nombre de
-ménages. Sources : Insee, recensement de la population 2023 ; SNCF Gares & Connexions.</small></p>`
-```
-
-Près des gares, la part de ménages sans voiture est la plus forte : ce sont surtout des villes,
-où l'on peut vivre sans voiture. À partir de 5 km, presque tous les ménages en ont une, et
-environ la moitié en ont deux ou plus. Au-delà de 20 km, la part sans voiture remonte un peu :
-ce sont alors surtout des campagnes, loin du train, où la population est souvent plus âgée. Le
-graphique ne montre pas qu'une gare dispense d'avoir une voiture, mais où vivent les ménages.
+Les métropoles universitaires gagnent des jeunes de 15 à 24 ans, et l'aire de Paris aussi, mais
+elle en perd à tous les autres âges. Les 60 ans ou plus partent vers les littoraux, de Perpignan
+à Saint-Malo, et vers les campagnes de l'Ouest et du Sud-Ouest. Le graphique ne montre que
+les extrêmes : le tableau de la fin donne les flux, aire par aire.
 
 ## Les données
 
-Quatre fichiers de l'open data de la SNCF, un fichier du recensement de l'Insee et les contours de
-[cartiflette](https://github.com/InseeFrLab/cartiflette), lus avec [DuckDB](https://duckdb.org/).
-
 | Source | Producteur | Ce qu'on en tire | Format |
 |---|---|---|---|
-| [Lignes par statut](https://ressources.data.sncf.com/explore/dataset/lignes-par-statut/) | SNCF Réseau | Le tracé de chaque tronçon du réseau ferré national et son statut (exploité, neutralisé, fermé, déclassé…) | Parquet |
-| [Fréquentation en gares](https://ressources.data.sncf.com/explore/dataset/frequentation-gares/) | SNCF Gares & Connexions | Le nombre de voyageurs de chaque gare, de 2015 à 2024 | Parquet |
-| [Gares de voyageurs](https://ressources.data.sncf.com/explore/dataset/gares-de-voyageurs/) | SNCF Gares & Connexions | La position des gares, par code UIC | Parquet |
-| [Liste des gares](https://ressources.data.sncf.com/explore/dataset/liste-des-gares/) | SNCF Réseau | La position des gares absentes du fichier précédent | Parquet |
-| [Logement en 2023, base des principaux indicateurs](https://www.insee.fr/fr/statistiques/8997194) | Insee, recensement de la population | Le nombre de ménages de chaque commune selon le nombre de voitures, en 2023 | Parquet |
-| ADMIN EXPRESS COG CARTO 2026, via cartiflette | IGN, Insee | Contours des communes, population municipale, départements | GeoParquet |
+| [Migrations résidentielles : localisation à la commune de résidence et à la commune de résidence antérieure, recensement 2023](https://www.insee.fr/fr/statistiques/9004805) (MIGCOM) | Insee, recensement de la population | La commune de résidence actuelle et celle d'un an plus tôt, pour chaque individu de métropole, avec son âge | Parquet |
+| [Aires d'attraction des villes 2020](https://www.insee.fr/fr/information/4803954), noms | Insee, API Métadonnées | Le nom de chaque aire, à partir de son code | JSON (API) |
+| Communes, arrondissements et départements 2026, via cartiflette | IGN, Insee | Le rattachement de chaque commune à son aire, la population municipale, les contours | GeoParquet |
+
+Comme pour les autres jours, le code s'appuie sur `Python` et [DuckDB](https://duckdb.org/).
 
 ```{python}
+#| output: false
+#| filename: "Connexion DuckDB"
 import json
 import pathlib
-import tempfile
 
 import duckdb
+import pandas as pd
 import requests
 
 con = duckdb.connect()
@@ -347,290 +306,309 @@ SET enable_progress_bar = false
 {{< include _liens/24-network.py >}}
 ```
 
-### Le réseau et les gares (SNCF)
+### Les migrations entre communes (Insee)
 
-Le portail open data de la SNCF exporte chaque jeu de données en Parquet, avec les géométries
-déjà lisibles par DuckDB. L'export est produit à la demande et ne répond pas aux requêtes
-partielles : on télécharge les quatre fichiers (moins de 10 Mo en tout) avant de les lire.
-
-```{python}
-JEUX = ["lignes-par-statut", "frequentation-gares", "gares-de-voyageurs", "liste-des-gares"]
-
-with tempfile.TemporaryDirectory() as dossier:
-    for jeu in JEUX:
-        reponse = requests.get(SOURCES[jeu], timeout=300)
-        reponse.raise_for_status()
-        pathlib.Path(f"{dossier}/{jeu}.parquet").write_bytes(reponse.content)
-        con.sql(f"CREATE TABLE \"{jeu}\" AS SELECT * FROM read_parquet('{dossier}/{jeu}.parquet')")
-
-con.sql("""
-SELECT statut, count(*) AS troncons
-FROM "lignes-par-statut" GROUP BY ALL ORDER BY troncons DESC
-""").df().style.hide(axis="index")
-```
-
-### Les communes (cartiflette)
-
-Les contours des communes de 2026 donnent leur population municipale (`POPULATION`) et leur
-département.
+Le fichier détail du recensement de 2023 a une ligne par individu. Pour chacun, il donne la
+commune de résidence actuelle (`COMMUNE`, ou son arrondissement à Paris, Lyon et Marseille,
+`ARM`), la commune de résidence au 1<sup>er</sup> janvier de l'année précédente (`DCRAN`), la
+nature du déplacement (`IRAN`), l'âge et le poids de l'individu (`IPONDI`). On ne garde que les
+résidents de France métropolitaine, et on lit le fichier une seule fois : DuckDB le lit à
+distance, sans le télécharger en entier.
 
 ```{python}
-CARTIFLETTE_URL = (
-    "https://minio.lab.sspcloud.fr/projet-cartiflette/production/provider=IGN/"
-    "dataset_family=ADMINEXPRESS/source=EXPRESS-COG-CARTO-TERRITOIRE/year=2026/"
-    "administrative_level={niveau}/crs=4326/layout=FRANCE_ENTIERE/"
-    "vectorfile_format=parquet/simplification=50/raw.parquet"
-)
-```
-
-### Les voitures des ménages (Insee)
-
-Le recensement de la population 2023 (enquêtes de 2021 à 2025) fournit, dans la base des
-principaux indicateurs sur le logement, le nombre de ménages de chaque commune selon le nombre
-de voitures. Un ménage est ici une résidence principale. Le fichier croise de nombreuses
-dimensions : on ne garde que les totaux (`'_T'`), sauf pour le nombre de voitures (`CARS`).
-DuckDB lit le Parquet à distance et ne télécharge que ce qu'il faut. La géographie est celle de
-2026, comme celle de cartiflette.
-
-```{python}
+#| filename: "Les migrations, lues une fois (MIGCOM)"
 con.sql(f"""
-CREATE TABLE voitures AS
-SELECT GEO AS code,
-       sum(OBS_VALUE) FILTER (WHERE CARS = '_T') AS menages,
-       sum(OBS_VALUE) FILTER (WHERE CARS = 'C0') AS sans_voiture,
-       sum(OBS_VALUE) FILTER (WHERE CARS = 'C_GE2') AS deux_voitures
-FROM read_parquet('{SOURCES['logement']}')
-WHERE GEO_OBJECT = 'COM' AND TIME_PERIOD = DATE '2023-01-01'
-  AND RP_MEASURE = 'DWELLINGS' AND OCS = 'DW_MAIN'
-  AND L_STAY = '_T' AND TDW = '_T' AND NRG_SRC = '_T' AND CARPARK = '_T'
-  AND NOR = '_T' AND TSH = '_T' AND BUILD_END = '_T'
-GROUP BY ALL
+CREATE TABLE migcom AS
+SELECT CAST(CASE WHEN ARM <> 'ZZZZZ' THEN ARM ELSE COMMUNE END AS VARCHAR) AS residence,
+       CAST(DCRAN AS VARCHAR) AS residence_avant,
+       CAST(IRAN AS VARCHAR) AS IRAN,
+       CAST(AGEREVQ AS INTEGER) AS age,
+       CAST(IPONDI AS DOUBLE) AS poids
+FROM read_parquet('{SOURCES['migcom']}')
+WHERE METRODOM = 'M'
 """)
 
 con.sql("""
-SELECT count(*) AS communes, round(sum(menages)) AS menages,
-       round(100 * sum(sans_voiture) / sum(menages), 1) AS part_sans_voiture,
-       round(100 * sum(deux_voitures) / sum(menages), 1) AS part_deux_voitures
-FROM voitures
-""").df().style.hide(axis="index").format({"menages": "{:,.0f}"})
+SELECT IRAN AS mobilite, count(*) AS lignes, round(sum(poids)) AS personnes
+FROM migcom GROUP BY ALL ORDER BY IRAN
+""").df().style.hide(axis="index").format({"personnes": "{:,.0f}"})
+```
+
+### Les aires et les communes (Insee, cartiflette)
+
+Chaque commune est rattachée à son aire d'attraction des villes 2020 (`AAV2020`), à partir de la
+couche des communes et arrondissements 2026 de cartiflette. Les noms des aires viennent de l'API
+Métadonnées de l'Insee, comme pour le [J2](02-lines.qmd).
+
+```{python}
+#| output: false
+#| filename: "Communes, arrondissements et départements (cartiflette)"
+from cartiflette import carti_download
+
+parametres = dict(
+    values="France",
+    filter_by="FRANCE_ENTIERE",
+    year=2026,
+    simplification=50,
+    crs=4326,
+    engine="duckdb",
+    con=con,
+)
+
+communes_arrondissements = carti_download(borders="COMMUNE_ARRONDISSEMENT", **parametres)
+communes_entieres = carti_download(borders="COMMUNE", **parametres)
+departements_ign = carti_download(borders="DEPARTEMENT", **parametres)
+```
+
+```{python}
+#| output: false
+#| filename: "Noms des aires d'attraction des villes (API Métadonnées de l'Insee)"
+reponse = requests.get(
+    "https://api.insee.fr/metadonnees/geo/airesDAttractionDesVilles2020",
+    headers={"Accept": "application/json"},
+    timeout=60,
+)
+reponse.raise_for_status()
+noms_aav = pd.DataFrame(reponse.json())[["code", "intitule"]]
 ```
 
 ## Les traitements
 
-### Les lignes, par statut
+### Le rattachement de chaque commune à son nœud
 
-Le fichier distingue treize statuts. On les regroupe en quatre : les lignes exploitées (y
-compris une ligne en travaux), les lignes neutralisées, où la voie reste en place mais où plus
-aucun train ne circule, les lignes fermées, sous toutes leurs formes (voie déposée ou non,
-retranchée, transférée en voie de service ou mise à disposition de tiers), et les lignes
-déclassées, sorties du domaine ferroviaire, vendues ou non. Les longueurs sont mesurées en
-Lambert-93 (EPSG:2154), en mètres.
+Un nœud est une aire d'attraction des villes (`AAV2020` différent de `000`). Les communes hors
+attraction des villes forment un nœud par département, nommé « Hors aire · <département> » et
+noté `H` suivi du code du département. Paris, Lyon et Marseille sont rattachées à leur premier
+arrondissement, qui porte la même aire.
 
 ```{python}
+#| filename: "Rattachement des communes et arrondissements"
 con.sql("""
-CREATE TABLE lignes AS
-SELECT code_ligne, lib_ligne AS libelle, statut AS statut_detaille,
-       CASE
-           WHEN statut = 'Exploitée' OR statut LIKE '%travaux%' THEN 'Exploitée'
-           WHEN statut LIKE 'Neutralisée%' THEN 'Neutralisée'
-           WHEN statut LIKE 'Déclassée%' THEN 'Déclassée'
-           ELSE 'Fermée'
-       END AS statut,
-       geo_shape::GEOMETRY AS geometry,
-       ST_Length(ST_Transform(geo_shape::GEOMETRY, 'EPSG:4326', 'EPSG:2154')) / 1000 AS km
-FROM "lignes-par-statut"
+CREATE TABLE rattachement AS
+SELECT INSEE_COG AS code, INSEE_DEP AS dep,
+       CASE WHEN AAV2020 = '000' THEN 'H' || INSEE_DEP ELSE AAV2020 END AS noeud
+FROM communes_arrondissements
+WHERE INSEE_DEP < '97'
 """)
 
+# Chaque commune entière, avec son nœud et son centroïde.
 con.sql("""
-SELECT statut, count(*) AS troncons, round(sum(km)) AS km
-FROM lignes GROUP BY ALL ORDER BY km DESC
-""").df().style.hide(axis="index").format({"km": "{:,.0f}"})
+CREATE TABLE communes_noeuds AS
+SELECT c.INSEE_COM AS commune, c.POPULATION AS habitants, r.noeud, r.dep,
+       ST_Centroid(c.geometry) AS point
+FROM communes_entieres c
+JOIN rattachement r
+  ON r.code = CASE c.INSEE_COM
+                WHEN '75056' THEN '75101'
+                WHEN '69123' THEN '69381'
+                WHEN '13055' THEN '13201'
+                ELSE c.INSEE_COM
+              END
+""")
 ```
 
-### Les gares desservies
+### Les nœuds : position et nom
 
-La fréquentation est donnée par gare, avec son code UIC. On garde les gares où au moins un
-voyageur est monté ou descendu en 2024. Leur position vient du fichier des gares de voyageurs,
-où une gare peut avoir plusieurs codes UIC (séparés par `;`), et à défaut de la liste des gares
-de SNCF Réseau. Deux gares restent sans position : Monaco-Monte-Carlo, hors de France, et la
-halte de Fontanil – Lycée de Drap, dans les Alpes-Maritimes.
+La position d'une aire est le centroïde de sa commune la plus peuplée, pour que les flèches
+partent d'une ville et non d'un point perdu dans la campagne. Celle d'un nœud hors aire est la
+moyenne des centroïdes de ses communes, pondérée par leur population.
 
 ```{python}
+#| filename: "Nœuds : aires et départements hors aire"
 con.sql("""
-CREATE TABLE gares AS
-WITH positions_gc AS (
-    SELECT unnest(string_split(codes_uic, ';')) AS uic,
-           position_geographique::GEOMETRY AS point
-    FROM "gares-de-voyageurs"
+CREATE TABLE noeuds AS
+WITH positions_aires AS (
+    SELECT noeud, ST_X(point) AS lon, ST_Y(point) AS lat
+    FROM communes_noeuds WHERE noeud NOT LIKE 'H%'
+    QUALIFY row_number() OVER (PARTITION BY noeud ORDER BY habitants DESC) = 1
 ),
-positions_reseau AS (
-    SELECT code_uic AS uic, any_value(geo_point_2d::GEOMETRY) AS point
-    FROM "liste-des-gares" GROUP BY ALL
-)
-SELECT f.nom_gare AS nom, f.code_uic_complet AS uic,
-       f.total_voyageurs_2024 AS voyageurs, coalesce(f.total_voyageurs_2015, 0) AS voyageurs_2015,
-       coalesce(any_value(g.point), any_value(r.point)) AS point
-FROM "frequentation-gares" f
-LEFT JOIN positions_gc g ON g.uic = f.code_uic_complet
-LEFT JOIN positions_reseau r ON r.uic = f.code_uic_complet
-WHERE f.total_voyageurs_2024 > 0
-GROUP BY ALL
+positions_hors_aire AS (
+    SELECT noeud,
+           sum(habitants * ST_X(point)) / sum(habitants) AS lon,
+           sum(habitants * ST_Y(point)) / sum(habitants) AS lat
+    FROM communes_noeuds WHERE noeud LIKE 'H%' GROUP BY noeud
+),
+positions AS (
+    SELECT * FROM positions_aires UNION ALL SELECT * FROM positions_hors_aire
+),
+habitants AS (SELECT noeud, sum(habitants) AS habitants FROM communes_noeuds GROUP BY noeud),
+departements_noms AS (SELECT DISTINCT INSEE_DEP AS dep, LIBELLE_DEPARTEMENT AS nom_dep FROM communes_entieres)
+SELECT p.noeud AS code,
+       CASE WHEN p.noeud LIKE 'H%' THEN 'Hors aire · ' || d.nom_dep ELSE coalesce(n.intitule, p.noeud) END AS nom,
+       p.lon, p.lat, h.habitants, p.noeud LIKE 'H%' AS hors_aire
+FROM positions p
+JOIN habitants h USING (noeud)
+LEFT JOIN noms_aav n ON n.code = p.noeud
+LEFT JOIN departements_noms d ON 'H' || d.dep = p.noeud
 """)
 
 con.sql("""
-SELECT count(*) AS gares, count(point) AS avec_position,
-       string_agg(nom, ', ') FILTER (WHERE point IS NULL) AS sans_position
-FROM gares
+SELECT count(*) FILTER (WHERE NOT hors_aire) AS aires,
+       count(*) FILTER (WHERE hors_aire) AS departements_hors_aire,
+       count(*) FILTER (WHERE NOT hors_aire AND habitants >= 50000) AS aires_50000_ou_plus
+FROM noeuds
 """).df().style.hide(axis="index")
 ```
 
-### La distance à la gare la plus proche
+### Les flux entre nœuds
 
-Chaque commune de France continentale est réduite à un point intérieur (`ST_PointOnSurface`).
-La Corse, dont le réseau ferré n'appartient pas au réseau national, et l'outre-mer, sans train,
-sont laissés de côté. Pour chaque commune, on cherche la gare desservie la plus proche, à vol
-d'oiseau, parmi les 2 900 : DuckDB compare les 34 000 communes à toutes les gares, soit 100
-millions de distances en Lambert-93, et garde la plus petite (`arg_min`).
+Chaque déménagement entre communes de métropole (`IRAN` de 3 à 5) relie le nœud de la commune
+d'un an plus tôt à celui de la commune actuelle. Les déplacements à l'intérieur d'un même nœud
+ne sont pas des flèches. On calcule le total pour tous les âges, puis pour chaque tranche d'âge
+(`groupes`, avec les âges quinquennaux du fichier).
 
 ```{python}
-con.sql(f"""
-CREATE TABLE communes AS
-SELECT INSEE_COM AS code, NOM AS nom, LIBELLE_DEPARTEMENT AS departement,
-       POPULATION AS habitants,
-       ST_PointOnSurface(geometry) AS point
-FROM read_parquet('{CARTIFLETTE_URL.format(niveau="COMMUNE")}', hive_partitioning = false)
-WHERE INSEE_DEP < '97' AND INSEE_DEP NOT IN ('2A', '2B')
+#| filename: "Tranches d'âge et flux entre nœuds"
+con.sql("""
+CREATE TABLE groupes AS
+SELECT * FROM (VALUES ('tous', 0, 200), ('15-24', 15, 24), ('25-39', 25, 39),
+                      ('40-59', 40, 59), ('60+', 60, 200)) AS g(groupe, age_min, age_max)
 """)
 
 con.sql("""
-CREATE TABLE distances AS
-WITH c AS (
-    SELECT *, ST_Transform(point, 'EPSG:4326', 'EPSG:2154') AS p FROM communes
-),
-g AS (
-    SELECT nom, ST_X(p) AS x, ST_Y(p) AS y
-    FROM (SELECT nom, ST_Transform(point, 'EPSG:4326', 'EPSG:2154') AS p
-          FROM gares WHERE point IS NOT NULL)
-)
-SELECT c.code, c.nom, c.departement, c.habitants,
-       ST_X(c.point) AS lon, ST_Y(c.point) AS lat,
-       arg_min(g.nom, (ST_X(c.p) - g.x) ** 2 + (ST_Y(c.p) - g.y) ** 2) AS gare,
-       sqrt(min((ST_X(c.p) - g.x) ** 2 + (ST_Y(c.p) - g.y) ** 2)) / 1000 AS km
-FROM c CROSS JOIN g
+CREATE TABLE flux AS
+SELECT o.noeud AS origine, d.noeud AS destination, g.groupe, sum(m.poids) AS n
+FROM migcom m
+JOIN groupes g ON m.age BETWEEN g.age_min AND g.age_max
+JOIN rattachement o ON o.code = m.residence_avant
+JOIN rattachement d ON d.code = m.residence
+WHERE m.IRAN IN ('3', '4', '5') AND o.noeud <> d.noeud
+GROUP BY ALL
+""")
+```
+
+La géographie de MIGCOM est celle du 1<sup>er</sup> janvier 2025, et celle de cartiflette celle
+de 2026 : quelques communes fusionnées entre-temps ne se retrouvent pas dans la jointure. Le tableau
+suivant donne le poids des déménagements concernés, qui sont écartés des flux.
+
+```{python}
+#| filename: "Déménagements sans aire (contrôle)"
+con.sql("""
+SELECT coalesce(round(sum(m.poids) FILTER (WHERE o.noeud IS NULL)), 0) AS origine_sans_aire,
+       coalesce(round(sum(m.poids) FILTER (WHERE d.noeud IS NULL)), 0) AS destination_sans_aire,
+       round(sum(m.poids)) AS total
+FROM migcom m
+LEFT JOIN rattachement o ON o.code = m.residence_avant
+LEFT JOIN rattachement d ON d.code = m.residence
+WHERE m.IRAN IN ('3', '4', '5')
+""").df().style.hide(axis="index").format("{:,.0f}")
+```
+
+### Population, entrées et sorties, soldes
+
+La population de chaque nœud, par tranche d'âge, est la somme des poids de tous les résidents de
+métropole, qu'ils aient déménagé ou non. Le solde est la différence entre les entrées et les
+sorties ; le taux le rapporte à la population, pour 1 000 habitants.
+
+```{python}
+#| filename: "Population et soldes par nœud"
+con.sql("""
+CREATE TABLE population AS
+SELECT r.noeud, g.groupe, sum(m.poids) AS population
+FROM migcom m
+JOIN groupes g ON m.age BETWEEN g.age_min AND g.age_max
+JOIN rattachement r ON r.code = m.residence
 GROUP BY ALL
 """)
 
 con.sql("""
-SELECT CASE WHEN km < 2 THEN '1. moins de 2 km' WHEN km < 5 THEN '2. 2 à 5 km'
-            WHEN km < 10 THEN '3. 5 à 10 km' WHEN km < 20 THEN '4. 10 à 20 km'
-            ELSE '5. 20 km ou plus' END AS distance,
-       count(*) AS communes, sum(habitants) AS habitants,
-       round(100 * sum(habitants) / sum(sum(habitants)) OVER (), 1) AS part_habitants
-FROM distances GROUP BY ALL ORDER BY distance
-""").df().style.hide(axis="index").format({"habitants": "{:,.0f}", "part_habitants": "{:.1f}"})
+CREATE TABLE bilans AS
+WITH entrees AS (SELECT destination AS noeud, groupe, sum(n) AS entrants FROM flux GROUP BY ALL),
+     sorties AS (SELECT origine AS noeud, groupe, sum(n) AS sortants FROM flux GROUP BY ALL)
+SELECT n.code, n.nom, n.lon, n.lat, n.hors_aire, n.habitants, p.groupe, p.population,
+       coalesce(e.entrants, 0) AS entrants,
+       coalesce(s.sortants, 0) AS sortants,
+       coalesce(e.entrants, 0) - coalesce(s.sortants, 0) AS solde,
+       1000 * (coalesce(e.entrants, 0) - coalesce(s.sortants, 0)) / p.population AS taux
+FROM population p
+JOIN noeuds n ON n.code = p.noeud
+LEFT JOIN entrees e ON e.noeud = p.noeud AND e.groupe = p.groupe
+LEFT JOIN sorties s ON s.noeud = p.noeud AND s.groupe = p.groupe
+""")
+
+con.sql("""
+SELECT nom, round(entrants) AS entrants, round(sortants) AS sortants, round(solde) AS solde,
+       round(taux, 1) AS pour_1000
+FROM bilans WHERE groupe = 'tous' AND NOT hors_aire
+ORDER BY habitants DESC LIMIT 8
+""").df().style.hide(axis="index").format({"entrants": "{:,.0f}", "sortants": "{:,.0f}", "solde": "{:+,.0f}"})
 ```
 
-Par département, la part des habitants à 10 km ou plus d'une gare, et la distance moyenne
-pondérée par la population.
+### Les chiffres de l'accroche
+
+Pour les aires de 50 000 habitants ou plus, on prend l'aire au plus fort taux de solde chez les
+15-24 ans et chez les 60 ans ou plus, et l'aire au plus faible taux chez les 25-39 ans.
 
 ```{python}
-departements_loin = con.sql("""
-SELECT departement,
-       sum(habitants) FILTER (WHERE km >= 10) AS habitants_loin,
-       sum(habitants) FILTER (WHERE km >= 10) / sum(habitants) AS part_loin,
-       sum(km * habitants) / sum(habitants) AS km_moyen
-FROM distances GROUP BY ALL ORDER BY part_loin DESC
-""").df().fillna(0)
-departements_loin.head(10).style.hide(axis="index").format(
-    {"habitants_loin": "{:,.0f}", "part_loin": "{:.0%}", "km_moyen": "{:.1f}"}
-)
-```
+#| filename: "Chiffres de l'accroche"
+def valeur(requete):
+    return con.sql(requete).fetchone()[0]
 
-### Les voitures, selon la distance au train
 
-On rattache à chaque commune ses ménages et leur nombre de voitures, puis on somme par classe
-de distance. Les classes sont celles de la carte, sauf que les 20 km et plus sont regroupés.
+def extreme(groupe, ordre):
+    return con.sql(f"""
+    SELECT nom, taux FROM bilans
+    WHERE groupe = '{groupe}' AND NOT hors_aire AND habitants >= 50000
+    ORDER BY taux {ordre} LIMIT 1
+    """).fetchone()
 
-```{python}
-classes_voiture = con.sql("""
-SELECT CASE WHEN km < 2 THEN 'moins de 2 km' WHEN km < 5 THEN '2 à 5 km'
-            WHEN km < 10 THEN '5 à 10 km' WHEN km < 20 THEN '10 à 20 km'
-            ELSE '20 km ou plus' END AS distance,
-       min(km) AS ordre,
-       sum(v.menages) AS menages, sum(v.sans_voiture) AS sans_voiture,
-       sum(v.sans_voiture) / sum(v.menages) AS part_sans_voiture,
-       sum(v.deux_voitures) / sum(v.menages) AS part_deux_voitures
-FROM distances d JOIN voitures v USING (code)
-GROUP BY ALL ORDER BY ordre
-""").df().drop(columns="ordre")
-classes_voiture.style.hide(axis="index").format(
-    {"menages": "{:,.0f}", "sans_voiture": "{:,.0f}", "part_sans_voiture": "{:.0%}", "part_deux_voitures": "{:.0%}"}
-)
-```
 
-```{python}
-resume = con.sql("""
-SELECT (SELECT sum(km) FROM lignes WHERE statut = 'Exploitée') AS km_exploites,
-       (SELECT sum(km) FROM lignes WHERE statut <> 'Exploitée') AS km_sans_trains,
-       (SELECT count(*) FROM gares WHERE point IS NOT NULL) AS gares,
-       sum(habitants) FILTER (WHERE km < 5) / sum(habitants) AS part_moins_5km,
-       sum(habitants) FILTER (WHERE km >= 10) AS habitants_plus_10km,
-       (SELECT sum(v.sans_voiture) FROM distances d JOIN voitures v USING (code) WHERE d.km >= 10) AS menages_sans_voiture_loin
-FROM distances
-""").df().iloc[0]
+haut_15_24 = extreme("15-24", "DESC")
+haut_60 = extreme("60+", "DESC")
+bas_25_39 = extreme("25-39", "ASC")
+resume = {
+    "changements_commune": float(valeur("SELECT sum(poids) FROM migcom WHERE IRAN IN ('3', '4', '5')")),
+    "changements_aire": float(valeur("SELECT sum(n) FROM flux WHERE groupe = 'tous'")),
+    "solde_paris": float(valeur("SELECT solde FROM bilans WHERE groupe = 'tous' AND code = '001'")),
+    "nom_15_24": haut_15_24[0],
+    "taux_15_24": float(haut_15_24[1]),
+    "nom_60": haut_60[0],
+    "taux_60": float(haut_60[1]),
+    "nom_25_39": bas_25_39[0],
+    "taux_25_39": float(bas_25_39[1]),
+}
 resume
 ```
 
 ### Ce qui passe à la carte
 
-Les lignes sont simplifiées à 50 m près (en Lambert-93, pour que la tolérance soit en mètres)
-et écrites en GeoJSON dans `donnees/j24/`, comme la table des communes en CSV : la page les
-charge après coup, sans s'alourdir.
+Les départements sont simplifiés ensemble (`ST_CoverageSimplify`, à 1 km environ) pour rester
+jointifs. La carte ne reçoit que les 300 plus gros flux de chaque tranche d'âge, et, pour les
+aires de 50 000 habitants ou plus, leurs 25 plus gros entrants et sortants, sans doublon.
 
 ```{python}
-#| output: false
-SORTIE = pathlib.Path("donnees/j24")
-SORTIE.mkdir(parents=True, exist_ok=True)
-
-lignes = con.sql("""
-SELECT statut, libelle, statut_detaille,
-       ST_AsGeoJSON(ST_ReducePrecision(ST_Transform(ST_Simplify(
-           ST_Transform(geometry, 'EPSG:4326', 'EPSG:2154'), 50), 'EPSG:2154', 'EPSG:4326'), 0.0001)) AS geojson
-FROM lignes
-""").fetchall()
-(SORTIE / "lignes.json").write_text(json.dumps({
-    "type": "FeatureCollection",
-    "features": [
-        {"type": "Feature",
-         "properties": {"statut": statut, "libelle": libelle, "statut_detaille": detail},
-         "geometry": json.loads(geojson)}
-        for statut, libelle, detail, geojson in lignes
-    ],
-}))
-
-con.sql(f"""
-COPY (
-    SELECT d.code, d.nom, d.departement, d.habitants, d.gare, round(d.km, 2) AS km,
-           round(d.lon, 4) AS lon, round(d.lat, 4) AS lat,
-           round(v.menages) AS menages, round(v.sans_voiture / v.menages, 3) AS part_sans_voiture
-    FROM distances d LEFT JOIN voitures v USING (code)
-    ORDER BY d.code
-) TO '{SORTIE / "communes.csv"}' (HEADER)
+#| filename: "Flux positionnés pour la carte"
+con.sql("""
+CREATE TABLE fluxes AS
+SELECT f.groupe, f.origine, o.nom AS nom_origine, o.lon AS lon_o, o.lat AS lat_o,
+       f.destination, d.nom AS nom_destination, d.lon AS lon_d, d.lat AS lat_d, f.n
+FROM flux f
+JOIN noeuds o ON o.code = f.origine
+JOIN noeuds d ON d.code = f.destination
 """)
-```
 
-Le fond de carte, ce sont les départements de France métropolitaine, simplifiés ensemble à
-1 km environ (`ST_CoverageSimplify`) pour rester jointifs. Les gares, peu nombreuses, passent
-directement au JavaScript de la page avec `ojs_define`, et la carte est faite avec
-[Observable Plot](https://observablehq.com/plot/).
+fluxcarte = con.sql("""
+WITH grandes AS (SELECT code FROM noeuds WHERE NOT hors_aire AND habitants >= 50000),
+gardes AS (
+    SELECT * FROM fluxes
+    QUALIFY row_number() OVER (PARTITION BY groupe ORDER BY n DESC) <= 300
+    UNION
+    SELECT * FROM fluxes WHERE destination IN (SELECT code FROM grandes)
+    QUALIFY row_number() OVER (PARTITION BY groupe, destination ORDER BY n DESC) <= 25
+    UNION
+    SELECT * FROM fluxes WHERE origine IN (SELECT code FROM grandes)
+    QUALIFY row_number() OVER (PARTITION BY groupe, origine ORDER BY n DESC) <= 25
+)
+SELECT groupe, origine, nom_origine, lon_o, lat_o, destination, nom_destination, lon_d, lat_d,
+       round(n) AS n
+FROM gardes ORDER BY n
+""").df().to_dict("records")
 
-```{python}
-departements = con.sql(f"""
+departements = con.sql("""
 WITH couverture AS (
     SELECT list(INSEE_DEP ORDER BY INSEE_DEP) AS codes,
            ST_CoverageSimplify(list(geometry ORDER BY INSEE_DEP), 0.01) AS geom
-    FROM read_parquet('{CARTIFLETTE_URL.format(niveau="DEPARTEMENT")}', hive_partitioning = false)
-    WHERE INSEE_DEP < '97'
+    FROM departements_ign WHERE INSEE_DEP < '97'
 ),
 morceaux AS (SELECT codes, unnest(ST_Dump(geom), recursive := true) FROM couverture)
 SELECT codes[path[1]] AS code, ST_AsGeoJSON(ST_ReducePrecision(ST_Union_Agg(geom), 0.001)) AS geojson
@@ -644,45 +622,57 @@ departements = {
     ],
 }
 
-gares = con.sql("""
-SELECT nom, uic, voyageurs, voyageurs_2015,
-       round(ST_X(point), 4) AS lon, round(ST_Y(point), 4) AS lat
-FROM gares WHERE point IS NOT NULL ORDER BY voyageurs DESC
-""").df()
+bilans_df = con.sql("SELECT * FROM bilans ORDER BY groupe, habitants DESC").df()
+
+SORTIE = pathlib.Path("donnees/j24")
+SORTIE.mkdir(parents=True, exist_ok=True)
+con.sql(f"""
+COPY (
+    SELECT origine, nom_origine, destination, nom_destination, groupe, CAST(round(n) AS BIGINT) AS n
+    FROM fluxes WHERE n >= 20
+    ORDER BY groupe, n DESC
+) TO '{SORTIE / "flux.csv"}' (HEADER)
+""")
 
 ojs_define(
     departements=departements,
-    gares=gares.to_dict("records"),
-    departementsLoin=departements_loin.to_dict("records"),
-    classesVoiture=classes_voiture.to_dict("records"),
-    resume={k: float(resume[k]) for k in resume.index},
+    bilans=bilans_df.to_dict("records"),
+    fluxCarte=fluxcarte,
+    resume=resume,
 )
 ```
 
 ## Les données de la carte
 
+Le tableau reprend les flux de 20 personnes ou plus, dans le fichier `donnees/j24/flux.csv`.
+Les codes d'aire sont lus comme du texte (`001` reste `001`) ; seul le nombre de personnes est
+converti.
+
+```{ojs}
+//| echo: false
+fluxCsv = d3.csv("donnees/j24/flux.csv", (d) => ({...d, n: +d.n}))
+```
+
 ::: {.column-page}
 
 ```{ojs}
 //| echo: false
-viewof tableau = Inputs.search(communes, {
-  placeholder: "Rechercher une commune…",
-  columns: ["nom", "departement", "gare"],
-  format: (n) => `${entier(n)} communes`
+viewof tableau = Inputs.search(fluxCsv, {
+  placeholder: "Rechercher une aire…",
+  columns: ["nom_origine", "nom_destination"],
+  format: (n) => `${entier(n)} flux`
 })
 ```
 
 ```{ojs}
 //| echo: false
 Inputs.table(tableau, {
-  columns: ["code", "nom", "departement", "habitants", "gare", "km", "menages", "part_sans_voiture"],
+  columns: ["nom_origine", "nom_destination", "groupe", "n"],
   header: {
-    code: "Code", nom: "Commune", departement: "Département", habitants: "Habitants",
-    gare: "Gare desservie la plus proche", km: "Distance (km)",
-    menages: "Ménages", part_sans_voiture: "Ménages sans voiture"
+    nom_origine: "De", nom_destination: "Vers", groupe: "Tranche d'âge", n: "Personnes"
   },
-  format: {habitants: entier, km: (x) => virgule(x), menages: entier, part_sans_voiture: pourcent},
-  sort: "km",
+  format: {n: entier},
+  sort: "n",
   reverse: true,
   rows: 15
 })
@@ -691,8 +681,8 @@ Inputs.table(tableau, {
 ```{ojs}
 //| echo: false
 DOM.download(
-  () => new Blob([d3.csvFormat(communes, ["code", "nom", "departement", "habitants", "gare", "km", "menages", "part_sans_voiture"])], {type: "text/csv"}),
-  "distance_gare_communes.csv",
+  () => new Blob([d3.csvFormat(fluxCsv, ["origine", "nom_origine", "destination", "nom_destination", "groupe", "n"])], {type: "text/csv"}),
+  "demenagements_aires.csv",
   "Télécharger (CSV)"
 )
 ```
@@ -701,34 +691,32 @@ DOM.download(
 
 ## Précautions
 
-- Les distances sont à vol d'oiseau, depuis un point à l'intérieur de la commune, pas par la
-  route : dans les vallées de montagne, le trajet réel est bien plus long. Une commune étendue
-  peut avoir des hameaux plus loin ou plus près de la gare que son point.
-- Une gare « desservie » est ici une gare où au moins un voyageur est monté ou descendu en 2024,
-  d'après les comptages de SNCF Gares & Connexions. Une halte desservie par deux trains par jour
-  compte autant qu'une gare de TGV.
-- Le fichier de fréquentation ne couvre que les gares de la SNCF : les stations de métro, de
-  tramway et du RER exploitées par la RATP n'y sont pas, ni les chemins de fer touristiques ou
-  les lignes privées comme celle de Provence (Nice – Digne).
-- Une ligne exploitée peut ne servir qu'au fret : elle figure en trait plein sur la carte même
-  si aucun voyageur ne l'emprunte.
-- Les dates de fermeture des lignes ne sont pas dans le fichier : la carte montre ce qui reste
-  du réseau d'avant, pas son histoire. Les lignes démontées et revendues avant leur entrée dans
-  le réseau ferré national de 1997 n'y figurent pas.
-- La part de ménages sans voiture dépend d'abord de la densité et de l'âge : les villes, près des
-  gares, comptent le plus de ménages sans voiture. Le graphique ne dit pas qu'une gare dispense
-  d'avoir une voiture.
-- Le recensement 2023 agrège les enquêtes annuelles de 2021 à 2025, et les nombres de ménages
-  sont des estimations (non entiers). Un ménage est l'ensemble des occupants d'une résidence
-  principale, et le recensement compte les voitures dont il dispose, pas leur usage.
+- La question du recensement porte sur la commune de résidence au 1<sup>er</sup> janvier de
+  l'année précédente. Le trajet relie cette commune à la résidence actuelle : deux déménagements
+  successifs ne donnent qu'un seul arc, et un aller-retour n'en donne aucun.
+- Le recensement de 2023 agrège les enquêtes de 2021 à 2025. Cette période inclut la sortie de la
+  crise sanitaire, qui a pu peser sur les déménagements.
+- Seuls les déménagements entre communes de France métropolitaine sont comptés. Les arrivées de
+  l'étranger et des outre-mer n'y figurent pas, ni les personnes parties de France ou décédées
+  depuis le recensement.
+- Les déménagements à l'intérieur d'une même aire ne sont pas représentés par des flèches : ils
+  n'apparaissent que dans les effectifs.
+- Les enfants déménagent avec leurs parents : un même déménagement de famille compte pour chacun
+  de ses membres.
+- Les effectifs sont des estimations pondérées. Ils sont fragiles pour les petits flux, et pour
+  les tranches d'âge peu nombreuses dans les petites aires.
+- La carte ne montre que les plus gros flux. Les flux de moins de 20 personnes sont absents du
+  tableau.
+- La géographie n'est pas la même partout : MIGCOM est au 1<sup>er</sup> janvier 2025, les aires et
+  le fond de carte sont de 2026. Les déménagements dont une commune n'a pas été retrouvée sont
+  écartés, comme le montre le tableau de contrôle.
 
 ## Pour aller plus loin
 
-- [J2 · Lines](02-lines.qmd) : les navettes domicile-travail, vues comme des flux entre zones
-  d'emploi.
-- [J17 · Light & dark](17-light-dark.qmd) : la population de chaque commune le jour et la nuit.
-- Autorité de régulation des transports, [Le marché français du transport ferroviaire de voyageurs](https://www.autorite-transports.fr/observatoire-des-transports/)
-  (bilans annuels).
-- SNCF Réseau, [carte interactive du réseau](https://www.sncf-reseau.com/fr/carte/carte-interactive-du-reseau).
-- Insee, [Logement en 2023, base des principaux indicateurs](https://www.insee.fr/fr/statistiques/8997194),
-  le recensement d'où viennent les voitures des ménages.
+- [J2 · Lines](02-lines.qmd) : les navettes domicile-travail, tirées du même recensement, vues
+  comme des flux entre zones d'emploi.
+- [J15 · Inside out](15-inside-out.qmd) : né dans un département, mort dans un autre, une
+  migration à l'échelle de toute une vie, d'après le fichier des décès de l'Insee.
+- Insee, [la définition de l'aire d'attraction des villes](https://www.insee.fr/fr/metadonnees/definition/c2059).
+- Insee, [Migrations résidentielles : localisation à la commune de résidence et à la commune de résidence antérieure](https://www.insee.fr/fr/statistiques/9004805),
+  le fichier détail d'où viennent les flux.
